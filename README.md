@@ -46,7 +46,7 @@ MAX_JERK = 1000.0             # Set for each axis
 ### **📚 Documentation**
 
 - **Quick Reference:** See [SCURVE_QUICKREF.txt](SCURVE_QUICKREF.txt) for complete guide
-- **Example Configuration:** See [configs/scurve_example.ini](configs/scurve_example.ini)
+- **Example Configuration:** See [configs/sim/axis/axis_mm_scurve.ini](configs/sim/axis/axis_mm_scurve.ini)
 - **HAL Examples:** See [configs/scurve_runtime_hal_examples.hal](configs/scurve_runtime_hal_examples.hal)
 
 ### **✨ Key Features**
