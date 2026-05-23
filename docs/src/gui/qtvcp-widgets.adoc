@@ -2722,10 +2722,11 @@ Additionally, there is a `machine_log_severity_option` property that may be chos
 
 Severity is conveyed via the `option` value sent along with the `STATUS` signal called `update-machine-log`.  The `option` parameter is a comma-delimited list, containing typically   
 
-```
+[source,python]
+----
 text = 'an error has occurred.'
 STATUS.emit('update-machine-log', text, 'TIME,ERROR')
-```
+----
 
 ==== Clearing the Log
 

@@ -1208,10 +1208,12 @@ This is only available in the QtDragon_hd version.
 * displays this help file.
 
 [NOTE]
+====
 * Any 2 points within the machine operating volume can be specified.
 * If the first point is higher than the second, the calculated height will be a positive number.
 * If the first point is lower than the second, the calculated height will be a negative number.
 * Units are irrelevant in this program. The probed values are not saved and only the difference is reported.
+====
 
 [CAUTION]
 Setting incorrect values can lead to crashes into fixtures on the machine work surface.

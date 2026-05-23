@@ -3098,7 +3098,7 @@ background of conversational shape buttons
 background of active camera/laser buttons +
 foreground of G-code editor cursor
 |color4 (#36362e) |Alt Background |background of G-code display's active line
-|color5 (#b0b0b0) |foreground of disabled buttons
+|color5 (#b0b0b0) |Disabled |foreground of disabled buttons
 |===
 
 [[plasma:default_styling]]
@@ -4012,7 +4012,7 @@ The plasmac HAL component has a HAL pin named *plasmac.state-out* which can be u
 |24   m|CONSUMABLE_CHANGE_OFF |return from consumable change coordinates
 |25   m|CUT_RECOVERY_ON       |cut recovery is active
 |26   m|CUT_RECOVERY_OFF      |cut recovery is deactivated
-|27   m|DEBUG
+|27   m|DEBUG                 |debug state, for testing purposes only
 |===
 
 The DEBUG state is for testing purposes only and will not normally be encountered.
