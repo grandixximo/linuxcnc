@@ -15,6 +15,14 @@ require 'asciidoctor/extensions'
 module LinuxCNCDocs
   class ImageResolver < Asciidoctor::Extensions::Treeprocessor
     IMAGE_EXTS = %w[.png .svg .jpg .jpeg].freeze
+    # Inline image: macros, with target as captured group 1.  Skip the
+    # block image:: form (handled by find_by(:image)) and anything that
+    # already looks like a URL or absolute path.
+    INLINE_IMAGE_RE = /(?<![:\w])image:(?!:)([^\[\s]+)\[/
+    # Language subdirectories of docs/src/.  Stripped from the path when
+    # falling back to the English source tree for images that exist only
+    # in the canonical location.
+    LANG_RE = %r{/src/(de|es|fr|nb|ru|uk|zh_CN)/}
 
     def process(document)
       # For HTML output the relative target is correct as-is — asciidoctor
@@ -23,9 +31,28 @@ module LinuxCNCDocs
       # needs absolute paths so prawn-svg / image reading can find the
       # file at convert time.
       return document unless document.backend == 'pdf'
-      document.find_by(context: :image)        { |n| rewrite n }
-      document.find_by(context: :inline_image) { |n| rewrite n }
+      walk(document)
       document
+    end
+
+    # asciidoctor-style table cells (cols="...a") parse their content as
+    # an inner Document, so find_by on the master doesn't reach blocks
+    # nested inside them.  Walk into each cell's inner_document too.
+    def walk(doc)
+      doc.find_by(context: :image) { |n| rewrite n }
+      # Inline image: macros are part of block text and never appear as
+      # standalone nodes in find_by; scan block-level source storage for
+      # them.  Asciidoctor parks block text in :lines (literal/paragraph)
+      # or :text (list_item).
+      doc.find_by do |b|
+        next unless b.file
+        rewrite_inline_in_block(b)
+        false
+      end
+      doc.find_by(context: :table_cell) do |c|
+        inner = c.inner_document if c.respond_to?(:inner_document)
+        walk(inner) if inner
+      end
     end
 
     def rewrite(node)
@@ -39,12 +66,67 @@ module LinuxCNCDocs
       return unless src
       base_dir = File.dirname(File.expand_path(src))
 
-      candidate = File.expand_path(target, base_dir)
-      candidate = resolve_extension(candidate) unless File.file?(candidate)
-      return unless candidate && File.file?(candidate)
+      candidate = resolve_candidate(File.expand_path(target, base_dir))
+      return unless candidate
 
       node.set_attr('target', candidate)
       apply_default_width(node)
+    end
+
+    # Try the requested path; fall back to the canonical English source
+    # if the request points into a translated tree.  Image directories
+    # under docs/src/<lang>/ are not always populated for every macro a
+    # translated file references, but the English original at
+    # docs/src/.../ usually exists.
+    def resolve_candidate(path)
+      probe = ->(p) {
+        return p if File.file?(p)
+        r = resolve_extension(p)
+        return r if r && File.file?(r)
+        nil
+      }
+      r = probe.call(path)
+      return r if r
+      fallback = path.sub(LANG_RE, '/src/')
+      fallback != path ? probe.call(fallback) : nil
+    end
+
+    def rewrite_inline_in_block(block)
+      base_dir = File.dirname(File.expand_path(block.file))
+
+      # :paragraph / :literal / :sidebar etc. carry source in .lines (Array<String>).
+      if block.respond_to?(:lines=) && block.lines.is_a?(Array) && !block.lines.empty?
+        changed = false
+        new_lines = block.lines.map { |ln| rewrite_inline(ln, base_dir) { changed = true } }
+        block.lines = new_lines if changed
+      end
+
+      # :list_item carries source in .text (String).
+      if block.respond_to?(:text=) && block.instance_variable_defined?(:@text)
+        old = block.instance_variable_get(:@text)
+        if old.is_a?(String) && !old.empty?
+          changed = false
+          new_text = rewrite_inline(old, base_dir) { changed = true }
+          block.text = new_text if changed
+        end
+      end
+    end
+
+    def rewrite_inline(text, base_dir)
+      text.gsub(INLINE_IMAGE_RE) do
+        full = Regexp.last_match(0)
+        target = Regexp.last_match(1)
+        next full if target.start_with?('http://', 'https://', '/')
+        next full if target.include?('{')
+
+        candidate = resolve_candidate(File.expand_path(target, base_dir))
+        if candidate
+          yield if block_given?
+          "image:#{candidate}["
+        else
+          full
+        end
+      end
     end
 
     # asciidoctor-pdf renders raster images at native pixel dimensions
