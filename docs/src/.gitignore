@@ -2,6 +2,7 @@
 *.xml
 !docs.xml
 !terms.xml
+.fonts/
 drivers/mb2hal_HOWTO.ini
 */drivers/mb2hal_HOWTO.ini
 # Ignore po4a-generated files for other languages
@@ -31,3 +32,4 @@ vi/*
 zh_CN/*
 index_*.tmpl
 man/man1/linuxcnc.1.adoc
+rouge-*.css
