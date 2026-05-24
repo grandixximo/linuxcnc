@@ -1061,28 +1061,28 @@ AC_ARG_ENABLE(build-documentation,
         AC_MSG_RESULT([no])
     ])
 
-# Programs required for building all documentation
+# Programs required for building all documentation.  When the user
+# explicitly asks for docs (--enable-build-documentation=...), missing
+# tools are a hard error: continuing with BUILD_DOCS silently flipped
+# back to "no" gives a confusing experience where 'make' succeeds and
+# produces no docs.
 if ( test "$BUILD_DOCS" = "yes" ) ; then
     AC_PATH_PROG(ASCIIDOCTOR,asciidoctor,"none")
     if ( test "none" = "$ASCIIDOCTOR" ) ; then
-	AC_MSG_WARN([no asciidoctor, documentation cannot be built])
-        BUILD_DOCS=no
+        AC_MSG_ERROR([no asciidoctor, cannot build documentation
+install with "sudo apt-get install asciidoctor"])
     fi
 
-    if ( test "$BUILD_DOCS" = "yes" ) ; then
-        AC_PATH_PROG(GS,gs,"none")
-        if ( test "none" = "$GS" ) ; then
-            AC_MSG_WARN([no gs, documentation cannot be built])
-            BUILD_DOCS=no
-        fi
+    AC_PATH_PROG(GS,gs,"none")
+    if ( test "none" = "$GS" ) ; then
+        AC_MSG_ERROR([no gs, cannot build documentation
+install with "sudo apt-get install ghostscript"])
     fi
 
-    if ( test "$BUILD_DOCS" = "yes" ) ; then
-        AC_PATH_PROG(RSVG_CONVERT,rsvg-convert,"none")
-        if ( test "none" = "$RSVG_CONVERT" ) ; then
-            AC_MSG_WARN([no rsvg-convert, documentation cannot be built])
-            BUILD_DOCS=no
-        fi
+    AC_PATH_PROG(RSVG_CONVERT,rsvg-convert,"none")
+    if ( test "none" = "$RSVG_CONVERT" ) ; then
+        AC_MSG_ERROR([no rsvg-convert, cannot build documentation
+install with "sudo apt-get install librsvg2-bin"])
     fi
 fi
 
@@ -1090,8 +1090,17 @@ fi
 if ( test "$BUILD_DOCS_PDF" = "yes" ) ; then
     AC_PATH_PROG(ASCIIDOCTOR_PDF,asciidoctor-pdf,"none")
     if ( test "none" = "$ASCIIDOCTOR_PDF" ) ; then
-	AC_MSG_WARN([no asciidoctor-pdf, PDF documentation cannot be built])
-        BUILD_DOCS=no
+        AC_MSG_ERROR([no asciidoctor-pdf, cannot build PDF documentation
+install with "sudo apt-get install asciidoctor-pdf" (Debian sid/trixie)
+or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
+    fi
+
+    # NotoSerifCJK is the fallback font for CJK glyphs in translated
+    # PDFs.  Required only when both PDF and translations are enabled.
+    NOTOCJK_FONT=/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc
+    if ( test ! -r "$NOTOCJK_FONT" ) ; then
+        AC_MSG_ERROR([NotoSerifCJK font ($NOTOCJK_FONT) not found, cannot build PDF documentation
+install with "sudo apt-get install fonts-noto-cjk"])
     fi
 fi
 
@@ -1099,9 +1108,8 @@ fi
 if ( test "$BUILD_DOCS_HTML" = "yes" ) ; then
     AC_PATH_PROG(CHECKLINK,checklink,"none")
     if ( test "none" = "$CHECKLINK" ) ; then
-	AC_MSG_WARN([no checklink, HTML documentation cannot be built
+        AC_MSG_ERROR([no checklink, cannot build HTML documentation
 install with "sudo apt-get install w3c-linkchecker"])
-        BUILD_DOCS=no
     fi
 fi
 
