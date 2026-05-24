@@ -653,7 +653,7 @@ $(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf: $(NOTOCJK_BOLD_TTC) $(DOC_SRCDIR)/otf2t
 $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp $(CJK_TTFS)
 	$(ECHO) Building $@
 	@rm -f $@ $@.raw
-	$(Q)asciidoctor-pdf \
+	$(Q)timeout 900 asciidoctor-pdf \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/image_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
@@ -668,7 +668,9 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -a toc -a numbered \
 		 -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
 		 -d book \
-		 -o $@.raw $< || (X=$$?; rm -f $@.raw; exit $$X)
+		 -o $@.raw $< || (X=$$?; rm -f $@.raw; \
+		    if [ $$X -eq 124 ]; then echo "asciidoctor-pdf timed out after 15 min on $<"; fi; \
+		    exit $$X)
 	$(Q)gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 \
 		 -dPassThroughJPEGImages=true \
 		 -dDownsampleColorImages=false \
