@@ -10,9 +10,9 @@
 // - check wiki vs docs
 // - check other GladeVCP docs branch against this
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 // begin a listing of INI/HAL/NGC files like so:
 //[source,{ini}]
 //[source,{hal}]

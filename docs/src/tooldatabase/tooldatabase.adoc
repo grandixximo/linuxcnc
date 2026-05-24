@@ -6,9 +6,9 @@
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 Tool data is conventionally described by a tool table file specified by an inifile setting: [EMCIO]TOOL_TABLE=tooltable_filename.
 A tool table file consists of a text line for each available tool describing the tool's parameters, see <<sec:tool-table,Tool Table Format>>.

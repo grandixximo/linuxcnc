@@ -10,9 +10,9 @@ use image:: for equation png files -- no latexmath
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 (((5-Axis Kinematics)))
 

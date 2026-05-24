@@ -4,9 +4,9 @@
 [[cha:touchy-gui]]
 = The Touchy Graphical User Interface
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 (((touchygui)))
 Touchy is a user interface for LinuxCNC meant for use on machine control panels,

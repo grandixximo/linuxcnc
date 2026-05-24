@@ -4,9 +4,9 @@
 [[cha:vfs11-vfd]]
 = VFS11 VFD Driver
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 This is a non-realtime HAL program to control the S11 series of VFDs from Toshiba.
 

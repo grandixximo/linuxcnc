@@ -5,9 +5,9 @@
 [[cha:overview-of-g-code-programming]]
 = Overview of G-Code Programming
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 // begin a listing of INI/HAL/NGC files like so:
 //[source,{ini}]
 //[source,{hal}]

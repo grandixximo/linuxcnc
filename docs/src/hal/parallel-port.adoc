@@ -6,9 +6,9 @@
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 The hal_parport component is a driver for the traditional PC parallel port.
 The port has a total of 17 physical pins. The original parallel port divided those pins into three groups: data, control, and status.

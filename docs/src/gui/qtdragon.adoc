@@ -5,9 +5,9 @@
 [[cha:qtdragon-gui]]
 = QtDragon GUI
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 == Introduction
 

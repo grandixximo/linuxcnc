@@ -6,9 +6,9 @@
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 This example is to explain how to hook up the common MPG pendants
 found on the market today. This example uses an MPG3 pendant and a

@@ -6,9 +6,9 @@
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 The rs274 stand alone interpreter is available for use via the command line.
 

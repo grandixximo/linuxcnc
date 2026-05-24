@@ -7,9 +7,9 @@
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 Most of LinuxCNC's screens have the ability to send loaded files through a
 'filter program' or use the filter program to make G-code.

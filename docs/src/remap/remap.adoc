@@ -4,9 +4,9 @@
 [[cha:remap]]
 = Remap Extending G-code
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 == Introduction: Extending the RS274NGC Interpreter by Remapping Codes
 

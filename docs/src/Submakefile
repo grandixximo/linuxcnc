@@ -510,6 +510,8 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			exit 1; \
 		fi; \
 		asciidoctor \
+			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
+			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 			--doctype=manpage \
 			--backend=html5 \
 			-a mansource=LinuxCNC \
@@ -518,6 +520,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			-a "scriptsdir=../.." \
 			-a "stylesdir=../.." \
 			-a stylesheet=linuxcnc.css \
+			-a source-highlighter=rouge \
 			-o $@ \
 			"$$F" \
 			; \
@@ -619,6 +622,8 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 	$(Q)asciidoctor-pdf \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/image_resolver.rb \
+		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
+		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 		 --sourcemap \
 		 -a xref-root=$(dir $<) \
 		 -a "xref-exclude=^($(LANGUAGES_MATCH))/" \
@@ -728,6 +733,8 @@ define ASCIIDOCTOR_HTML_RULE
 $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$(DOC_SRCDIR)/%.html: $$(DOC_SRCDIR)/%.adoc
 	$$(ECHO) "Building '$1' adoc to html: " $$<
 	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
+		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
+		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 		 -a xref-root=$2 \
 		 -a "xref-exclude=$3" \
 		 -a linkcss \

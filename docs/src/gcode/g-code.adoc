@@ -4,9 +4,9 @@
 [[cha:g-codes]]
 = G-Codes
 
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
+:ini: ini
+:hal: hal
+:ngc: ngc
 
 == Conventions
 

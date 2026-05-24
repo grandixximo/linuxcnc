@@ -6,10 +6,10 @@
 
 // Custom lang highlight
 // must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: {basebackend@docbook:'':ini}
-:hal: {basebackend@docbook:'':hal}
-:ngc: {basebackend@docbook:'':ngc}
-:css: {basebackend@docbook:'':css}
+:ini: ini
+:hal: hal
+:ngc: ngc
+:css: css
 
 *`Qtscreen`* uses _QtVCP widgets_ for LinuxCNC integration.
 
