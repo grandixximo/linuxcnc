@@ -6,10 +6,11 @@
 # Highlights:
 #   - halcmd commands (loadrt, net, setp, addf, ...)
 #   - pin / signal names of the form  component.pin-name
-#   - INI substitutions of the form   [SECTION]NAME
+#   - INI substitutions of the form   [SECTION]NAME (any case)
 #   - environment variables           $VAR  $(VAR)
 #   - assignment operators            =  =>  <=
-#   - numbers and comments
+#   - numbers in decimal, hex (0x..), octal (0o..), and binary (0b..)
+#   - comments  (# ...)
 #
 # Loaded via the asciidoctor -r flag from the docs Submakefile.
 
@@ -33,6 +34,7 @@ module Rouge
         alias unalias list
         lock unlock status help
         echo
+        initf
       ].join('|').freeze
 
       state :root do
@@ -45,19 +47,29 @@ module Rouge
         # Assignment operators
         rule %r/=>|<=|=/, Operator
 
-        # INI substitution: [SECTION]NAME
-        rule %r/\[[A-Z_][A-Z0-9_]*\][A-Z_][A-Z0-9_]*/i, Name::Constant
+        # INI substitution: [SECTION]NAME -- LinuxCNC accepts any case
+        # for both the section name and the variable name (it normalises
+        # internally), so the lexer follows the source-highlight ini.lang
+        # convention of taking any letter/digit/underscore.
+        rule %r/\[[A-Za-z_]\w*\][A-Za-z_]\w*/, Name::Constant
 
-        # Environment variables
-        rule %r/\$\([A-Z_][A-Z0-9_]*\)/i, Name::Variable
-        rule %r/\$[A-Z_][A-Z0-9_]*/i, Name::Variable
+        # Environment variables (POSIX shell rules: any case allowed)
+        rule %r/\$\([A-Za-z_]\w*\)/, Name::Variable
+        rule %r/\$[A-Za-z_]\w*/, Name::Variable
 
         # Pin/signal names: token with at least one dot
         rule %r/[A-Za-z_][\w-]*(?:\.[\w-]+)+/, Name::Attribute
 
-        # Numbers (signed, optional decimal, optional exponent)
+        # Numbers
+        # - hex / octal / binary integers (halcmd accepts 0x.., 0o.., 0b..)
+        rule %r/[+-]?0[xX][0-9a-fA-F]+/, Num::Hex
+        rule %r/[+-]?0[oO][0-7]+/, Num::Oct
+        rule %r/[+-]?0[bB][01]+/, Num::Bin
+        # - floats: must have either a decimal point or an exponent
         rule %r/[+-]?\d+\.\d+(?:[eE][+-]?\d+)?/, Num::Float
-        rule %r/[+-]?\d+(?:[eE][+-]?\d+)?/, Num::Integer
+        rule %r/[+-]?\d+[eE][+-]?\d+/, Num::Float
+        # - decimal integers (no exponent)
+        rule %r/[+-]?\d+/, Num::Integer
 
         # Quoted strings (rare in HAL but used in echo / save args)
         rule %r/"[^"\n]*"/, Str::Double

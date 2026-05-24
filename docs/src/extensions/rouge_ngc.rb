@@ -7,7 +7,8 @@
 # Highlights:
 #   - line numbers           N123
 #   - G / M / T / H / F / S codes
-#   - axis & argument letters X Y Z A B C U V W I J K P Q R L
+#   - axis letters           X Y Z A B C U V W  (Name::Attribute)
+#   - parameter letters      I J K P Q R L D E  (Name::Decorator)
 #   - numeric, named, and indexed parameters  #1  #5421  #<varname>
 #   - O-word blocks with their keywords (sub, while, if, call, ...)
 #   - math functions and boolean operators
@@ -74,16 +75,25 @@ module Rouge
         # T H F S codes
         rule %r/(?i:[tfsh])-?\d+(?:\.\d+)?/, Keyword
 
-        # Axis letters and argument letters followed by a value or expression
-        rule %r/(?i:[xyzabcuvwijkpqrle])(?=\s*[-+\[\d#])/, Name::Attribute
+        # Axis letters X Y Z A B C U V W followed by a value or expression
+        rule %r/(?i:[xyzabcuvw])(?=\s*[-+\[\d#])/, Name::Attribute
+
+        # Argument / parameter letters I J K L P Q R D E
+        # (call-by-name arguments, arc centres, dwell times, etc.).
+        # Highlighted differently from the axes so users can see at a
+        # glance which letters move the tool vs. which configure the move.
+        rule %r/(?i:[ijklpqrde])(?=\s*[-+\[\d#])/, Name::Decorator
 
         # Arithmetic / brackets
         rule %r{[+\-*/=]}, Operator
         rule %r/[\[\]]/, Punctuation
 
-        # Numbers
+        # Numbers: floats must have a decimal point or an exponent;
+        # integers are decimal only (LinuxCNC's RS-274 dialect does not
+        # accept hex or other radixes for numeric literals).
         rule %r/[+-]?\d+\.\d*(?:[eE][+-]?\d+)?/, Num::Float
         rule %r/[+-]?\.\d+(?:[eE][+-]?\d+)?/, Num::Float
+        rule %r/[+-]?\d+[eE][+-]?\d+/, Num::Float
         rule %r/[+-]?\d+/, Num::Integer
 
         rule %r/./, Text
