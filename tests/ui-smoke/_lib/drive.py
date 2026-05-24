@@ -86,13 +86,18 @@ def wait_until(stat, predicate, timeout, label):
     return False
 
 
+HOME_REISSUE_S = 10.0
+
+
 def home_all(cmd, stat, timeout):
     """Home every joint. Uses c.home(-1) which respects HOME_SEQUENCE
     if configured. Caller must have already ensured task_state is ON
     via ensure_state; otherwise the home command is rejected with
     'cannot be executed until the machine is out of E-stop and turned
     on'. Mode change uses ensure_mode so a GUI that reverts mode mid-
-    sequence (gmoccapy) is detected and retried."""
+    sequence (gmoccapy) is detected and retried. The outer poll loop
+    re-issues c.home(-1) every HOME_REISSUE_S in case a GUI swallowed
+    the first one by switching mode after we set it (qtdragon CI)."""
     if not ensure_mode(cmd, stat, linuxcnc.MODE_MANUAL, "MODE_MANUAL"):
         return False
     cmd.teleop_enable(0)
@@ -100,14 +105,32 @@ def home_all(cmd, stat, timeout):
     stat.poll()
     njoints = stat.joints
     cmd.home(-1)
-    if not wait_until(
-            stat,
-            lambda s: all(s.homed[i] for i in range(njoints)),
-            timeout, "all joints homed"):
-        return False
-    cmd.teleop_enable(1)
-    cmd.wait_complete()
-    return True
+
+    deadline = time.monotonic() + timeout
+    next_reissue = time.monotonic() + HOME_REISSUE_S
+    while time.monotonic() < deadline:
+        stat.poll()
+        if all(stat.homed[i] for i in range(njoints)):
+            cmd.teleop_enable(1)
+            cmd.wait_complete()
+            return True
+        if time.monotonic() >= next_reissue:
+            # Re-assert MANUAL in case it got reverted, then re-home.
+            cmd.mode(linuxcnc.MODE_MANUAL)
+            cmd.wait_complete()
+            cmd.home(-1)
+            sys.stderr.write(
+                f"WARN: re-issued home(-1); homed={list(stat.homed[:njoints])} "
+                f"task_state={stat.task_state} task_mode={stat.task_mode}\n")
+            next_reissue = time.monotonic() + HOME_REISSUE_S
+        time.sleep(POLL_INTERVAL_S)
+    stat.poll()
+    sys.stderr.write(
+        f"UI_SMOKE_FAIL: timeout waiting for all joints homed after "
+        f"{timeout}s; homed={list(stat.homed[:njoints])} "
+        f"task_state={stat.task_state} task_mode={stat.task_mode} "
+        f"exec_state={stat.exec_state} njoints={njoints}\n")
+    return False
 
 
 def wait_state(stat, target_state, timeout, label):
