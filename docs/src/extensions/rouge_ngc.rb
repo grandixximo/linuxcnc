@@ -10,6 +10,7 @@
 #   - axis letters           X Y Z A B C U V W  (Name::Attribute)
 #   - parameter letters      I J K P Q R L D E  (Name::Decorator)
 #   - numeric, named, and indexed parameters  #1  #5421  #<varname>
+#   - LinuxCNC system parameters  #<_ini[SECTION]NAME>  /  #<_hal[pin.name]>
 #   - O-word blocks with their keywords (sub, while, if, call, ...)
 #   - math functions and boolean operators
 #   - comments: ( ... )   ; rest-of-line   (DEBUG, ...)
@@ -56,7 +57,23 @@ module Rouge
         rule %r/\([dD][eE][bB][uU][gG],/, Comment::Special, :debug_comment
         rule %r/\([^)]*\)/, Comment::Multiline
 
-        # Parameters
+        # LinuxCNC system parameters that read live values from outside
+        # the gcode scope.  These are very LinuxCNC-flavoured so they
+        # get a dedicated token split that highlights the section /
+        # pin name distinctly from the surrounding parameter wrapper:
+        #
+        #   #<_ini[SECTION]NAME>   - value of NAME in [SECTION] of the INI
+        #   #<_hal[pin.or.signal]> - current value of a HAL pin or signal
+        rule %r/(#<)(_ini)(\[)([^\]]+)(\])([^>]*)(>)/i do
+          groups Name::Variable, Name::Builtin, Punctuation,
+                 Name::Constant, Punctuation, Name::Constant, Name::Variable
+        end
+        rule %r/(#<)(_hal)(\[)([^\]]+)(\])(>)/i do
+          groups Name::Variable, Name::Builtin, Punctuation,
+                 Name::Attribute, Punctuation, Name::Variable
+        end
+
+        # Parameters (named / numbered, generic)
         rule %r/#<[^>]+>/, Name::Variable
         rule %r/#\d+/, Name::Variable
 
