@@ -482,63 +482,9 @@ PDF_MAN_ORDER := man1/linuxcnc.1 $(filter-out %/linuxcnc.1, $(filter man1/%, $(M
 	$(filter man3/hm2%.3, $(MAN_SRCS_NOSO)) \
 	$(filter man9/%, $(MAN_SRCS_NOSO))
 
-# Manual pages PDF: previously produced from the generated troff files
-# with groff + ps2pdf, which lost syntax highlighting on code samples.
-# Now built from the .adoc sources via asciidoctor-pdf so highlighting
-# survives.  A small master document is generated each build that
-# includes every manpage in PDF_MAN_ORDER as a chapter (leveloffset=+1),
-# with a hard page break between entries.  Component pages whose .adoc
-# lives in objects/man/ (built by halcompile) are picked up alongside
-# the native ones in docs/src/man/.
-objects/LinuxCNC_Manual_Pages.adoc: objects/var-PDF_MAN_ORDER $(MAN_SRCS) $(DOC_SRCDIR)/Submakefile
-	@mkdir -p $(dir $@)
-	$(Q){ \
-	    echo "= LinuxCNC Manual Pages"; \
-	    echo ":doctype: book"; \
-	    echo ":source-highlighter: rouge"; \
-	    echo ":toc:"; \
-	    echo ":numbered:"; \
-	    echo; \
-	    for M in $(PDF_MAN_ORDER); do \
-	        if   [ -r "$(DOC_SRCDIR)/man/$$M.adoc" ]; then \
-	            echo "include::$(realpath $(DOC_SRCDIR))/man/$$M.adoc[leveloffset=+1]"; \
-	        elif [ -r "objects/man/$$M.adoc" ]; then \
-	            echo "include::$(realpath objects)/man/$$M.adoc[leveloffset=+1]"; \
-	        else \
-	            echo "Error: no .adoc source for manpage $$M" >&2; exit 1; \
-	        fi; \
-	        echo; \
-	        echo "<<<"; \
-	        echo; \
-	    done; \
-	} > $@.tmp
-	$(Q)mv -f $@.tmp $@
-
-$(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc
-	@$(ECHO) Formatting manual pages as PDF
-	@rm -f $@ $@.raw
-	$(Q)asciidoctor-pdf \
-	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
-	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
-	    -a mansource=LinuxCNC \
-	    -a manmanual='LinuxCNC Documentation' \
-	    -a source-highlighter=rouge \
-	    -a "lversion=$(shell cat ../VERSION)" \
-	    -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
-	    -d book \
-	    -o $@.raw $< || (X=$$?; rm -f $@.raw; exit $$X)
-	$(Q)gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 \
-	    -dPassThroughJPEGImages=true \
-	    -dDownsampleColorImages=false \
-	    -dDownsampleGrayImages=false \
-	    -dDownsampleMonoImages=false \
-	    -dAutoFilterColorImages=false -dColorImageFilter=/FlateEncode \
-	    -dAutoFilterGrayImages=false  -dGrayImageFilter=/FlateEncode \
-	    -dNOPAUSE -dQUIET -dBATCH \
-	    -sOutputFile=$@ $@.raw \
-	    && rm -f $@.raw \
-	    || (X=$$?; rm -f $@ $@.raw; exit $$X)
-	@test -f $@
+# The manual-pages PDF rule lives next to the other PDF rules
+# (further down, after the CJK font setup) so it can pick up
+# CJK_TTFS / DOC_FONT_DIR without forward references.
 
 
 PDF_TARGETS_LinuxCNC_Getting_Started := $(DOC_DIR)/LinuxCNC_Getting_Started.pdf $(foreach L,$(LANGUAGES),$(DOC_DIR)/LinuxCNC_Getting_Started_$(L).pdf)
@@ -732,6 +678,65 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -sOutputFile=$@ $@.raw \
 		 && rm -f $@.raw \
 		 || (X=$$?; rm -f $@ $@.raw; exit $$X)
+	@test -f $@
+
+# Manual pages PDF: previously produced from the generated troff files
+# with groff + ps2pdf, which lost syntax highlighting on code samples.
+# Now built from the .adoc sources via asciidoctor-pdf so highlighting
+# survives.  A small master document is generated each build that
+# includes every manpage in PDF_MAN_ORDER as a chapter (leveloffset=+1),
+# with a hard page break between entries.  Component pages whose .adoc
+# lives in objects/man/ (built by halcompile) are picked up alongside
+# the native ones in docs/src/man/.
+objects/LinuxCNC_Manual_Pages.adoc: objects/var-PDF_MAN_ORDER $(MAN_SRCS) $(DOC_SRCDIR)/Submakefile
+	@mkdir -p $(dir $@)
+	$(Q){ \
+	    echo "= LinuxCNC Manual Pages"; \
+	    echo ":doctype: book"; \
+	    echo ":source-highlighter: rouge"; \
+	    echo ":toc:"; \
+	    echo ":numbered:"; \
+	    echo; \
+	    for M in $(PDF_MAN_ORDER); do \
+	        if   [ -r "$(DOC_SRCDIR)/man/$$M.adoc" ]; then \
+	            echo "include::$(realpath $(DOC_SRCDIR))/man/$$M.adoc[leveloffset=+1]"; \
+	        elif [ -r "objects/man/$$M.adoc" ]; then \
+	            echo "include::$(realpath objects)/man/$$M.adoc[leveloffset=+1]"; \
+	        else \
+	            echo "Error: no .adoc source for manpage $$M" >&2; exit 1; \
+	        fi; \
+	        echo; \
+	        echo "<<<"; \
+	        echo; \
+	    done; \
+	} > $@.tmp
+	$(Q)mv -f $@.tmp $@
+
+$(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(CJK_TTFS)
+	@$(ECHO) Formatting manual pages as PDF
+	@rm -f $@ $@.raw
+	$(Q)asciidoctor-pdf \
+	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
+	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+	    -a mansource=LinuxCNC \
+	    -a manmanual='LinuxCNC Documentation' \
+	    -a source-highlighter=rouge \
+	    -a "pdf-fontsdir=$(realpath $(DOC_FONT_DIR));GEM_FONTS_DIR" \
+	    -a "lversion=$(shell cat ../VERSION)" \
+	    -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
+	    -d book \
+	    -o $@.raw $< || (X=$$?; rm -f $@.raw; exit $$X)
+	$(Q)gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 \
+	    -dPassThroughJPEGImages=true \
+	    -dDownsampleColorImages=false \
+	    -dDownsampleGrayImages=false \
+	    -dDownsampleMonoImages=false \
+	    -dAutoFilterColorImages=false -dColorImageFilter=/FlateEncode \
+	    -dAutoFilterGrayImages=false  -dGrayImageFilter=/FlateEncode \
+	    -dNOPAUSE -dQUIET -dBATCH \
+	    -sOutputFile=$@ $@.raw \
+	    && rm -f $@.raw \
+	    || (X=$$?; rm -f $@ $@.raw; exit $$X)
 	@test -f $@
 
 depends/%.d: $(DOC_SRCDIR)/%.adoc $(DOC_SRCDIR)/asciideps .include-stamp
