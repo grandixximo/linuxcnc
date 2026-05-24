@@ -71,10 +71,8 @@ One function is created per FIFO, numbered from zero.
 
 halstreamer(1), sampler(9), halsampler(1)
 
-
 == BUGS
 Should an enable HAL pin be added, to allow streaming to be turned on and off?
-
 
 == AUTHOR
 Original version by John Kasunich, as part of the LinuxCNC project.

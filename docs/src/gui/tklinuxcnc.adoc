@@ -4,12 +4,6 @@
 [[cha:tklinuxcnc-intro]]
 = TkLinuxCNC GUI
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 [[sec:tklinuxcnc-intro]]
 == Introduction
 
@@ -28,7 +22,7 @@ image::images/tkemc.png["TkLinuxCNC Window",align="center"]
 To select TkLinuxCNC as the front-end for LinuxCNC, edit the INI file.
 In the section '[DISPLAY]' change the 'DISPLAY' line to read
 
-[source,{ini}]
+[source,ini]
 ----
 DISPLAY = tklinuxcnc
 ----

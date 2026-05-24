@@ -4,12 +4,6 @@
 [[cha:gladevcp:panels]]
 = GladeVCP Builtin Panels
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 GladeVCP can be used to *create control panels* that interface with _HAL_ and/or the motion controller.
 
 [[sec:gladevcp:panels:builtin]]
@@ -19,10 +13,8 @@ There are several *builtin panels* available.
 
 In a terminal type `gladevcp` to see a list.
 
-
 === GTK Verser Probe
 A GTK based version of the third party Verser probe.
-
 
 image::images/gtk_verser_probe.png["GTK Verser Probe",align="center"]
 
@@ -39,7 +31,7 @@ The documentation and source code of the current version can be found here:
 
 **Modification of the INI file to use as embedded panel in Gmoccapy:**
 
-[source,{ini}]
+[source,ini]
 ----
 [DISPLAY]
 DISPLAY = gmoccapy
@@ -60,7 +52,7 @@ SUBROUTINE_PATH = ./macros:/usr/share/linuxcnc/nc_files/gtk_probe/
 
 **Example using dbounce with a Mesa card (HAL file):**
 
-[source,{hal}]
+[source,hal]
 ----
 # ---probe signal---
 loadrt dbounce names=dbounce.probe
@@ -81,7 +73,7 @@ This is a modification of the 2015 version of GTK Verser Probe. It moves the ele
 
 **Modification of the INI file to use as embedded panel in Gmoccapy:**
 
-[source,{ini}]
+[source,ini]
 ----
 [DISPLAY]
 DISPLAY = gmoccapy
@@ -105,7 +97,7 @@ Use only one such Probe Screen in one LCNC configuration.
 
 **Example using dbounce with a Mesa card (HAL file):**
 
-[source,{hal}]
+[source,hal]
 ----
 # ---probe signal---
 loadrt dbounce names=dbounce.probe

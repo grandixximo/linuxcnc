@@ -4,7 +4,6 @@
 
 svd-ps_vfd - HAL non-realtime component for SVD-P(S) VFDs
 
-
 == SYNOPSIS
 
 *svd-ps_vfd* [_OPTIONS_]

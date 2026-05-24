@@ -122,7 +122,6 @@ multiplied by the "scale" pin value and presented as a floating point
 value on a HAL pin with the suffix "scaled".
 For example mymodule.0.counts-0-scaled.
 
-
 In addition to the pins configured in the definition file, each
 module will create the following pins for each instance of the driver:
 
@@ -177,7 +176,6 @@ made between read and write cycles.
 All modules created by the framework require a hostmot2 pktuart instance
 to be given to the "ports" modparam on the "loadrt" file. See the
 example in the [Quick Start] section.
-
 
 == Configuration File ==
 

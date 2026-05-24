@@ -688,7 +688,6 @@ Subcommands for 'GET' and 'SET' are:
   With get, the current 'WAIT_MODE' setting is returned.
   With set, set the 'WAIT_MODE' setting to the specified value.
 
-
 == EXAMPLE SESSION
 
 This section shows an example session to the local machine (*localhost*).

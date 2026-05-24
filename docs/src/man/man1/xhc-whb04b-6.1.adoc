@@ -459,7 +459,6 @@ net pdnt.axis.x.jog-vel-mode              whb.axis.x.jog-vel-mode               
 net pdnt.axis.y.jog-vel-mode              whb.axis.y.jog-vel-mode               axis.y.jog-vel-mode
 net pdnt.axis.z.jog-vel-mode              whb.axis.z.jog-vel-mode               axis.z.jog-vel-mode
 
-
 # macro buttons to MDI commands
 net pdnt.macro-1                          whb.button.macro-1                    halui.mdi-command-01             # use MDI command from main.ini
 net pdnt.macro-2                          whb.button.macro-2                    halui.mdi-command-02             # use MDI command from main.ini
@@ -478,7 +477,6 @@ net pdnt.reserved.for.mist                whb.button.macro-16                   
 net pdnt.macro.11                         whb.button.macro-11                   halui.mdi-command-11             # use MDI command from main.ini
 net pdnt.macro.12                         whb.button.macro-12                   halui.mdi-command-12             # use MDI command from main.ini
 net pdnt.macro.13                         whb.button.macro-13                   halui.mdi-command-13             # use MDI command from main.ini
-
 
 # flood and mist toggle signals
 net  pdnt.flood.is-on                     whb.halui.flood.is-on                 halui.flood.is-on                #return signal is on or off

@@ -8,7 +8,6 @@ emccalib - Adjust ini tuning variables on the fly with save option
 
 *emccalib.tcl* [_options_]
 
-
 == DESCRIPTION
 
 The Calibration assistant.  This tool Reads the HAL file and for every

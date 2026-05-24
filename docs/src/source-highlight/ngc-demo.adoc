@@ -8,18 +8,14 @@
 // HTML works fine.
 
 // These attributes must come after the document title, to work around a bug in asciidoc 8.6.6.
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 // Begin a listing of INI/HAL/NGC files like so:
-//[source,{ini}]
-//[source,{hal}]
-//[source,{ngc}]
+//[source,ini]
+//[source,hal]
+//[source,ngc]
 
 Details of the filter can be found in `./doc/source-highlight-filter.txt`.
 
-[source,{ngc}]
+[source,ngc]
 ---------------------------------------------------------------------
 ; G-code highlighting stresstest - useless otherwise
 ;

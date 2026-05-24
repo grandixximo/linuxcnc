@@ -5,12 +5,6 @@
 
 = HAL Introduction
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 (((HAL Introduction)))
 LinuxCNC is about interacting with hardware. But few users have the same exact hardware specifications - similar, but not the same.
 And even for the exact same hardware, there may be different ways to use it, say for different materials or with different mills, which would require adaptations to the control of an already running system.
@@ -34,7 +28,6 @@ An Internet search, for example, found an astronomical application to control te
 Motors move the telescope into the right position, and it needs to know how to map motor activity with the effect of that positioning with the real world.
 Such a synchronisation of motor positions with real-world positions is reminiscent of what CNC machines need to do, or space craft.
 
-
 Any machine controller needs to know:
 
 * about its internal state and how this maps to the environment (machine coordinates, state of switches/regulators),
@@ -53,7 +46,6 @@ The HAL layer consists of parts (referred to as "components") that
   - with a lower frequency every millisecond (ms), e.g. to
     . adjust the planning for the next moves to complete a G-code instruction.
   - as non-realtime "user-space" components that run a "main loop" just like any other software, and may be interrupted or delayed when the rest of the system is busy or overloaded.
-
 
 Taken together, HAL allows
 
@@ -184,7 +176,7 @@ image::images/hal_circuit_concept.png["HAL Circuit Concept",align="left"]
 
 Figure one would be written in HAL code like this:
 
-[source,{hal}]
+[source,hal]
 ----
 net signal-blue    component.0.pin1-in      component.1.pin1-out
 net signal-red     component.0.pin3-out     component.1.pin3-in     component.1.pin4-in

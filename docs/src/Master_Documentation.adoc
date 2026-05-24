@@ -5,7 +5,6 @@
 :revdate: 2021-10-28 
 = LinuxCNC V{lversion}
 
-
 :leveloffset: 0
 = Getting Started & Configuration
 
@@ -24,7 +23,6 @@ include::getting-started/running-linuxcnc.adoc[]
 include::getting-started/updating-linuxcnc.adoc[]
 
 include::common/linux-faq.adoc[]
-
 
 :leveloffset: 1
 = General User Information

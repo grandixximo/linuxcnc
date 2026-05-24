@@ -55,7 +55,6 @@ https://linuxnc.org/someplace[descripcion del link]
 Uso: ocultar comentarios
 ////
 
-
 = Bloque de listado para código G y salida por terminal
 
 <4 guiones comienzan un bloque +
@@ -158,7 +157,6 @@ estilo de párrafo.
 
 Los estilos incluyen:
 NOTE TIP IMPORTANT WARNING CAUTION
-
 
 = Tablas
 

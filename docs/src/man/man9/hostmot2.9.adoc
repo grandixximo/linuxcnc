@@ -81,9 +81,7 @@ The comma character (,) separates members of the config array from each other.
 For example, if your control computer has one 5I20 and one 5I23 you might
 load the hm2_pci driver with a HAL command (in halcmd) something like this:
 
-
 *loadrt hm2_pci config="firmware=hm2/5i20/SVST8_4.BIT num_encoders=3 num_pwmgens=3 num_stepgens=3,firmware=hm2/5i23/SVSS8_8.BIT sserial_port_0=0000 num_encoders=4"*
-
 
 Note: This assumes that the hm2_pci driver detects the 5I20 first and the 5I23 second.
 If the detection order does not match the order of the config strings,

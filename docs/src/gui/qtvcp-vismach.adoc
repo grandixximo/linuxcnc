@@ -99,7 +99,6 @@ The same is applicable for any design of machine:
 look at the machine arm example and you will see that it starts with the tip and adds to the larger part of the arm,
 then it finally groups with the base.
 
-
 [[sec:qtvcp:vismach:start]]
 == Start the script
 
@@ -253,7 +252,7 @@ The *rotation axis and translation vector move with the part*:
   `hal_pin`;; The _name of the HAL pin_ that will animate the motion. +
     This needs to match an existing HAL pin that describes the joint position such as:
 +
-[source,{hal}]
+[source,hal]
 ----
 "joint.2.pos-fb"
 ----
@@ -524,7 +523,6 @@ Usually this file is imported by QtVCP and the `window()` object is instantiated
   `_hud_`;; refers to a head-up display.
   `_rotation_vectors_` or `_lat, lon_`;; Can be used to set the original viewpoint.
     It is advisable to do as the default initial viewpoint is rather unhelpful from immediately overhead.
-
 
 == Tips
 

@@ -33,7 +33,6 @@ However, software step pulses also have some disadvantages:
 - jitter in the generated pulses
 - loads the CPU
 
-
 [[sec:latency-tests]]
 == Latency Tests
 
@@ -44,7 +43,6 @@ Running these tests will help determine if a computers is suitable for driving a
 
 [NOTE]
 Do not run LinuxCNC or StepConf while the latency test is running.
-
 
 [[sec:latency-test]]
 === Latency Test

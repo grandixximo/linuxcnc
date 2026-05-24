@@ -4,12 +4,6 @@
 [[cha:mb2hal]]
 = MB2HAL
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 == Introduction
 
 MB2HAL is a generic non-realtime HAL component to communicate with one or more Modbus devices.
@@ -42,7 +36,6 @@ Set `HAL_MODULE_NAME=mymodule` (default `HAL_MODULE_NAME=mb2hal`)
 .. Default component name: `loadusr -W mb2hal config=config_file.ini`
 .. Custom component name: `loadusr -Wn mymodule mb2hal config=config_file.ini`
 
-
 == Options
 
 === Init Section
@@ -66,7 +59,6 @@ Useful when using `DEBUG=3` (NOT `INIT_DEBUG=3`).
 It affects ALL transactions. Use "0.0" for normal activity.
 m|TOTAL_TRANSACTIONS | Integer | Yes | The number of total Modbus transactions. There is no maximum.
 |===
-
 
 === Transaction Sections
 
@@ -150,7 +142,7 @@ Program or connection:
 
 Click link:mb2hal_HOWTO.ini[here] to download.
 
-[source,{ini}]
+[source,ini]
 ----
 include::mb2hal_HOWTO.ini[]
 ----

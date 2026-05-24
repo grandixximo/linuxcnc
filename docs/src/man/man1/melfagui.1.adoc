@@ -8,7 +8,6 @@ melfagui - Vismach Virtual Machine GUI
 
 *melfagui* is one of the sample *Vismach* GUIs for LinuxCNC, simulating a Mitsubishi serial manipulator.
 
-
 == SEE ALSO
 
 *linuxcnc(1)*

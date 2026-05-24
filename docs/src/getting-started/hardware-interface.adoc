@@ -43,7 +43,6 @@ __Disadvantages:__
 - Limited inputs/outputs
 - Some PCI/PCIe parallel port cards do not work well or do not properly support the EPP mode (EPP mode is required for parallel port interface to Mesa / PICO cards).
 
-
 == Parallel Port FPGA Communication
 Realtime (time critical) tasks such as step generation are done in hardware (not on the computer)
 
@@ -54,7 +53,6 @@ Website: https://mesanet.com/    Store: https://store.mesanet.com/
 
 === Pico Systems via Parallel Port
 https://pico-systems.com/univstep.html
-
 
 == Ethernet
 === Mesa Ethernet

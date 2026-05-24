@@ -4,12 +4,6 @@
 [[cha:tooldatabase]]
 = Tool Database Interface
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 Tool data is conventionally described by a tool table file specified by an inifile setting: [EMCIO]TOOL_TABLE=tooltable_filename.
 A tool table file consists of a text line for each available tool describing the tool's parameters, see <<sec:tool-table,Tool Table Format>>.
 
@@ -21,7 +15,7 @@ The tool database interface provides an alternative method for obtaining tool da
 
 INI file settings enable the (optional) operation of a user-provided tool database program:
 
-[source,{ini}]
+[source,ini]
 ----
 [EMCIO]
 DB_PROGRAM = db_program [args]
@@ -121,7 +115,6 @@ The updated list of tools will be used on subsequent get commands or load_tool_t
 
 [NOTE]
 Removal of a tool number should only be done if the tool number is not currently loaded in spindle.
-
 
 ==== Debug Environmental Variables
 

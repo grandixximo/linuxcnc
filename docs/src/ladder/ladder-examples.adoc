@@ -4,12 +4,6 @@
 [[cha:classicladder-examples]]
 = ClassicLadder Examples
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 == Wrapping Counter
 
 To have a counter that 'wraps around' you have to use the preset pin
@@ -52,7 +46,7 @@ First we have to open the E-Stop loop in the main HAL file by
 commenting out by adding the pound sign as shown or removing the
 following lines.
 
-[source,{hal}]
+[source,hal]
 ----
 # net estop-out <= iocontrol.0.user-enable-out
 # net estop-out => iocontrol.0.emc-enable-in
@@ -61,7 +55,7 @@ following lines.
 Next we add ClassicLadder to our custom.hal file by adding these two
 lines:
 
-[source,{hal}]
+[source,hal]
 ----
 loadrt classicladder_rt
 addf classicladder.0.refresh servo-thread
@@ -78,7 +72,7 @@ estop.clp
 
 Now add the following line to your custom.hal file.
 
-[source,{hal}]
+[source,hal]
 ----
 # Load the ladder
 loadusr classicladder --nogui estop.clp
@@ -96,7 +90,7 @@ I/O assignments
 
 Next we add the following lines to the custom_postgui.hal file
 
-[source,{hal}]
+[source,hal]
 ----
 # E-Stop example using PyVCP buttons to simulate external components
 

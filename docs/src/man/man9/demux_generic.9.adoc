@@ -13,7 +13,6 @@ Types: **b** = bit, **f** = float, **s** = signed integer, **u** = unsigned inte
 Example:
 **loadrt demux_generic config="**bb8,fu12**"**
 
-
 == FUNCTIONS
 
 **demux-gen.**_NN_ Depending on the data types can run in either a floating point or non-floating point thread.

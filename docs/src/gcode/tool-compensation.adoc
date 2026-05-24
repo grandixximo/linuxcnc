@@ -4,12 +4,6 @@
 [[cha:tool-compensation]]
 = Tool Compensation
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 (((Tool Compensation)))
 
 [[sec:touch-off]]
@@ -213,7 +207,7 @@ Information about configuring a LinuxCNC tool changer is in the <<sub:ini:sec:em
 Manual tool changer (you change the tool by hand) is treated like a fixed location tool changer.
 Manual toolchanges can be aided by a HAL configuration that employs the non-realtime program *hal_manualtoolchange* and is typically specified in an INI file with INI statements:
 
-[source,{ini}]
+[source,ini]
 ----
 [HAL]
 HALFILE = axis_manualtoolchange.hal
@@ -237,7 +231,6 @@ Random location tool changers (`[EMCIO]RANDOM_TOOLCHANGER = 1`) swap the tool in
 With this type of tool changer the tool will always be in a different pocket after a tool change.
 When a tool is changed LinuxCNC rewrites the pocket number to keep track of where the tools are.
 T can be any number but P must be a number that makes sense for the machine.
-
 
 == Tool Length Compensation
 

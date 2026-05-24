@@ -4,12 +4,6 @@
 [[cha:mdro-gui]]
 = MDRO GUI
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 == Introduction
 
 (((mdro GUI)))

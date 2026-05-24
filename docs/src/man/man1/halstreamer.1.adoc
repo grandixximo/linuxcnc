@@ -4,11 +4,9 @@
 
 halstreamer - stream file data into HAL in real-time
 
-
 == SYNOPSIS
 
 *halstreamer* [_options_]
-
 
 == DESCRIPTION
 

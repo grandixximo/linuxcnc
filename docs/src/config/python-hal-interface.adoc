@@ -4,16 +4,10 @@
 [[cha:python-hal-interface]]
 = The HAL Python module
 
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 This documentation describes the `hal` python module, which provides
 a Python API for creating and accessing HAL pins and signals.
 
-
 == Basic usage
-
 
 [source,python]
 ----

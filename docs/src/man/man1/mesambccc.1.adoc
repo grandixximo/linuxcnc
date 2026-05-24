@@ -145,7 +145,6 @@ the 'clamp' attribute is set in the '<command>':
      (`S_ABCDEFGH`...`S_HGFEDCBA`)
   ** unsigned integer [0..18446744073709551615] (`U_ABCDEFGH`...`U_HGFEDCBA`)
 
-
 === <mesamodbus>
 The main enclosing tag '<mesamodbus>' contains the communication parameters and
 other setup values as attributes:
@@ -343,7 +342,6 @@ Recognized '<initlist>/<command>' attributes when sending Modbus commands:
   should be emitted when it does. This differs from 'noanswer' in that a reply
   may be expected within the timeout period but not after the timeout expires.
   This may be required for flaky devices. Default false.
-
 
 ==== Delay instruction
 Recognized '<initlist>/<command>' attributes in delay commands:

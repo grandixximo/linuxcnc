@@ -4,12 +4,6 @@
 [[cha:updating-linuxcnc]]
 = Updating LinuxCNC
 
-// Custom lang highlight
-// must come after the doc title, to work around a bug in asciidoc 8.6.6
-:ini: ini
-:hal: hal
-:ngc: ngc
-
 Updating LinuxCNC to a new minor release (ie to a new version in
 the same stable series, for example from 2.9.7 to 2.9.8) is an
 automatic process if your PC is connected to the internet. You will
@@ -167,7 +161,6 @@ package manager with this command:
 sudo dpkg -i linuxcnc_2.9.8.deb
 ----
 
-
 == Updating Configuration Files for 2.9
 
 === Stricter handling of pluggable interpreters
@@ -186,7 +179,6 @@ Since 2.9.0, an incorrect `[TASK]INTERPRETER` value will cause
 LinuxCNC to refuse to start up.  Fix this condition by deleting the
 `[TASK]INTERPRETER` setting from your INI file, so that LinuxCNC will
 use the default G-code interpreter.
-
 
 === Canterp
 

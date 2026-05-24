@@ -730,7 +730,6 @@ generator is cranking out step pulses, varying from 10 kHz forward to
 see how to bring those internal signals out to run motors in the real
 world, but first we want to look at them and see what is happening.
 
-
 [[sec:tutorial-halmeter]]
 == Halmeter
 

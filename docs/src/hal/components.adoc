@@ -27,7 +27,6 @@ then try to explicitly specify the section, as in `man _section-no_ axis`, with 
 See also the 'Man Pages' section of the link:../index.html[docs main page] or the link:../man/[directory listing].
 To search in the man pages, use the UNIX tool `apropos`.
 
-
 === User Interfaces (non-realtime)
 
 ==== Machine Control
@@ -163,7 +162,6 @@ To search in the man pages, use the UNIX tool `apropos`.
 | link:../man/man1/sim_pin.1.html[sim_pin] |GUI for displaying and setting one or more HAL inputs ||
 | link:../man/man1/stepconf.1.html[stepconf] |Configuration wizard for parallel-port based machines ||
 | link:../man/man1/update_ini.1.html[update_ini] |Converts 2.7 format INI files to 2.8 format ||
-
 
 | link:../man/man1/debuglevel.1.html[debuglevel] |Sets the debug level for the non-realtime part of LinuxCNC ||
 | link:../man/man1/emccalib.1.html[emccalib] |Adjust ini tuning variables on the fly with save option ||
