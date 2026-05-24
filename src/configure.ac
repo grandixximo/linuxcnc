@@ -1095,13 +1095,59 @@ install with "sudo apt-get install asciidoctor-pdf" (Debian sid/trixie)
 or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
     fi
 
-    # NotoSerifCJK is the fallback font for CJK glyphs in translated
-    # PDFs.  Required only when both PDF and translations are enabled.
-    NOTOCJK_FONT=/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc
-    if ( test ! -r "$NOTOCJK_FONT" ) ; then
-        AC_MSG_ERROR([NotoSerifCJK font ($NOTOCJK_FONT) not found, cannot build PDF documentation
-install with "sudo apt-get install fonts-noto-cjk"])
+    # NotoSerifCJK is the fallback font that asciidoctor-pdf reaches
+    # for when a glyph (zh_CN, Japanese, Korean) is missing from the
+    # base text font.  We need the .ttc TrueType Collection, because
+    # otf2ttf.py picks index 2 (SC) out of it.  Probe via fontconfig
+    # first; fall back to the package paths shipped by the major
+    # distributions if fc-match is not available or did not return a
+    # .ttc.
+    AC_MSG_CHECKING([for NotoSerifCJK Regular .ttc])
+    NOTOCJK_REGULAR_TTC=""
+    for f in \
+        "`fc-match --format='%{file}' 'Noto Serif CJK SC:style=Regular' 2>/dev/null`" \
+        /usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc \
+        /usr/share/fonts/noto-cjk/NotoSerifCJK-Regular.ttc \
+        /usr/share/fonts/google-noto-cjk-fonts/NotoSerifCJK-Regular.ttc \
+        /usr/share/fonts/google-noto-cjk/NotoSerifCJK-Regular.ttc ; do
+        case "$f" in
+            *.ttc) test -r "$f" && NOTOCJK_REGULAR_TTC="$f" && break ;;
+        esac
+    done
+    if test -z "$NOTOCJK_REGULAR_TTC" ; then
+        AC_MSG_RESULT([no])
+        AC_MSG_ERROR([NotoSerifCJK Regular TrueType Collection not found, cannot build PDF documentation
+install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
+"sudo pacman -S noto-fonts-cjk" on Arch, or
+"sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.
+If the .ttc is in a non-standard location, point us at it with
+   ./configure NOTOCJK_REGULAR_TTC=/path/to/NotoSerifCJK-Regular.ttc \
+              NOTOCJK_BOLD_TTC=/path/to/NotoSerifCJK-Bold.ttc])
     fi
+    AC_MSG_RESULT([$NOTOCJK_REGULAR_TTC])
+
+    AC_MSG_CHECKING([for NotoSerifCJK Bold .ttc])
+    NOTOCJK_BOLD_TTC=""
+    for f in \
+        "`fc-match --format='%{file}' 'Noto Serif CJK SC:style=Bold' 2>/dev/null`" \
+        /usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc \
+        /usr/share/fonts/noto-cjk/NotoSerifCJK-Bold.ttc \
+        /usr/share/fonts/google-noto-cjk-fonts/NotoSerifCJK-Bold.ttc \
+        /usr/share/fonts/google-noto-cjk/NotoSerifCJK-Bold.ttc ; do
+        case "$f" in
+            *.ttc) test -r "$f" && NOTOCJK_BOLD_TTC="$f" && break ;;
+        esac
+    done
+    if test -z "$NOTOCJK_BOLD_TTC" ; then
+        AC_MSG_RESULT([no])
+        AC_MSG_ERROR([NotoSerifCJK Bold TrueType Collection not found, cannot build PDF documentation
+install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
+"sudo pacman -S noto-fonts-cjk" on Arch, or
+"sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.])
+    fi
+    AC_MSG_RESULT([$NOTOCJK_BOLD_TTC])
+    AC_SUBST(NOTOCJK_REGULAR_TTC)
+    AC_SUBST(NOTOCJK_BOLD_TTC)
 fi
 
 # Programs required only for building the HTML documentation

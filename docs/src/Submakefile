@@ -680,23 +680,25 @@ $(DOC_DIR)/html/index.html: $(DOC_SRCDIR)/index.tmpl objects/index.incl $(DOC_SR
 # its own anchor index (Master_*.adoc under DOC_SRCDIR for English,
 # DOC_SRCDIR/<lang>/Master_*.adoc for translations).
 DOC_FONT_DIR  = $(DOC_SRCDIR)/.fonts
-NOTOCJK_TTC   = /usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc \
-                /usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc
+# Locations of the NotoSerifCJK Regular / Bold TrueType Collections are
+# discovered by configure (via fontconfig with package-path fallbacks)
+# and exported through Makefile.inc, so the build works on any distro
+# that ships the .ttc, not only the Debian path.
 CJK_TTFS      = $(DOC_FONT_DIR)/NotoSerifCJKsc-Regular.ttf \
                 $(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf
 
 # Build a TrueType (glyf-based) copy of the Simplified Chinese cut of the
-# Noto Serif CJK font.  Debian ships Noto Serif CJK only as a CFF/OTF
+# Noto Serif CJK font.  The system font is shipped only as a CFF/OTF
 # TrueType Collection and prawn 2.4 corrupts the PDF when asked to embed
 # CFF outlines, so we convert the curves with cu2qu first.  This is the
 # fallback font that lets the translated docs render their few non-Latin
 # characters; the base text is still served by Noto Serif.
-$(DOC_FONT_DIR)/NotoSerifCJKsc-Regular.ttf: /usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc $(DOC_SRCDIR)/otf2ttf.py
+$(DOC_FONT_DIR)/NotoSerifCJKsc-Regular.ttf: $(NOTOCJK_REGULAR_TTC) $(DOC_SRCDIR)/otf2ttf.py
 	@mkdir -p $(DOC_FONT_DIR)
 	$(ECHO) "Converting CJK font to TTF: $(notdir $@)"
 	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) $< $@.tmp && mv $@.tmp $@
 
-$(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf: /usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc $(DOC_SRCDIR)/otf2ttf.py
+$(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf: $(NOTOCJK_BOLD_TTC) $(DOC_SRCDIR)/otf2ttf.py
 	@mkdir -p $(DOC_FONT_DIR)
 	$(ECHO) "Converting CJK font to TTF: $(notdir $@)"
 	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) $< $@.tmp && mv $@.tmp $@
