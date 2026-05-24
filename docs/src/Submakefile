@@ -545,6 +545,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 			--doctype=manpage \
 			--backend=html5 \
+			-a compat-mode \
 			-a mansource=LinuxCNC \
 			-a manmanual='LinuxCNC Documentation' \
 			-a linkcss \
@@ -658,6 +659,7 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 		 --sourcemap \
+		 -a compat-mode \
 		 -a xref-root=$(dir $<) \
 		 -a "xref-exclude=^($(LANGUAGES_MATCH))/" \
 		 -a "scriptdir=$(DOC_SRCDIR)/" \
@@ -715,9 +717,10 @@ objects/LinuxCNC_Manual_Pages.adoc: objects/var-PDF_MAN_ORDER $(MAN_SRCS) $(DOC_
 $(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(CJK_TTFS)
 	@$(ECHO) Formatting manual pages as PDF
 	@rm -f $@ $@.raw
-	$(Q)asciidoctor-pdf \
+	$(Q)timeout 900 asciidoctor-pdf \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+	    -a compat-mode \
 	    -a mansource=LinuxCNC \
 	    -a manmanual='LinuxCNC Documentation' \
 	    -a source-highlighter=rouge \
@@ -725,7 +728,9 @@ $(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(CJK_T
 	    -a "lversion=$(shell cat ../VERSION)" \
 	    -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
 	    -d book \
-	    -o $@.raw $< || (X=$$?; rm -f $@.raw; exit $$X)
+	    -o $@.raw $< || (X=$$?; rm -f $@.raw; \
+	        if [ $$X -eq 124 ]; then echo "asciidoctor-pdf timed out after 15 min on $<"; fi; \
+	        exit $$X)
 	$(Q)gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 \
 	    -dPassThroughJPEGImages=true \
 	    -dDownsampleColorImages=false \
@@ -827,6 +832,7 @@ $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$
 	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+		 -a compat-mode \
 		 -a xref-root=$2 \
 		 -a "xref-exclude=$3" \
 		 -a linkcss \
@@ -922,7 +928,7 @@ $(MAN_DEPS): depends/%.d: $(DOC_DIR)/man/%
 	@echo Depending $(notdir $<)
 	@mkdir -p $(dir $@)
 	$(Q)echo -n "$(DOC_DIR)/html/man/$*.html: $<" > $@.tmp
-	$(Q)grep '^\.so ' $< | awk '{printf " \\\n\t$(DOC_DIR)/man/$(*D)/%s", $$2}' >> $@.tmp
+	$(Q)grep '^\.so ' $< | awk '{ if ($$2 ~ /\//) printf " \\\n\t$(DOC_DIR)/man/%s", $$2; else printf " \\\n\t$(DOC_DIR)/man/$(*D)/%s", $$2 }' >> $@.tmp
 	$(Q)echo >> $@.tmp
 	$(Q)mv -f $@.tmp $@
 
@@ -966,6 +972,7 @@ $(DOC_DIR)/man/%: $(DOC_DIR)/src/man/%.adoc
 	$(Q)asciidoctor --doctype=manpage \
 		--backend=manpage \
 		--destination-dir="$(dir $@)" \
+		-a compat-mode \
 		-a mansource=LinuxCNC \
 		-a manmanual='LinuxCNC Documentation' \
 		$<
