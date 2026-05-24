@@ -1107,8 +1107,8 @@ fi
 
 AC_ARG_ENABLE(build-documentation-translation,
     AS_HELP_STRING(
-        [--disable-build-documentation-translation],
-        [Disable building documentation in languages other than English.]
+        [--enable-build-documentation-translation],
+        [Also build translated documentation (po4a, ~5 min extra wall time).  Default off.]
     ),
     [
     case "$enableval" in
@@ -1124,35 +1124,19 @@ AC_ARG_ENABLE(build-documentation-translation,
         BUILD_DOCS_TRANSLATED_EXPLICIT=not_set
     ])
 
-if ( test "$BUILD_DOCS" = "yes" && test "$BUILD_DOCS_TRANSLATED_EXPLICIT" != "no") ; then
+BUILD_DOCS_TRANSLATED=no
+if ( test "$BUILD_DOCS" = "yes" && test "$BUILD_DOCS_TRANSLATED_EXPLICIT" = "yes") ; then
     AC_PATH_PROG(PO4A, po4a, "none")
-    BUILD_DOCS_TRANSLATED=yes
     if test $PO4A = "none"
     then
-        if test "$BUILD_DOCS_TRANSLATED_EXPLICIT" = "not_set"
-        then
-            AC_MSG_WARN([po4a not found, not building translated docs])
-        else
-            AC_MSG_ERROR([po4a not found, not building translated docs])
-        fi
-        BUILD_DOCS_TRANSLATED=no
+        AC_MSG_ERROR([po4a not found, cannot build translated docs])
     else
-        # Version 0.35 support asciidoc without tables
-        # Version 0.56 support the tablecells asciidoc option
-        # Version 0.62 correctly write UTF-8 into translated adocs
-        # Version 0.65 support grouping several doc files into different POTs
-        # Version 0.66 handle empty table cells in asciidoc
-        # Version 0.67 handle enforced linbreaks
+        # Version 0.67 handles enforced linebreaks correctly
         V=$(po4a --version| awk '/po4a version/ {print $3}')
         if dpkg --compare-versions 0.67 gt "$V"; then
-            if test "$BUILD_DOCS_TRANSLATED_EXPLICIT" = "not_set"
-            then
-                AC_MSG_WARN([po4a version too old, need version 0.67 or newer, not building translated docs])
-            else
-                AC_MSG_ERROR([po4a version too old, need version 0.67 or newer, not building translated docs])
-            fi
-	    BUILD_DOCS_TRANSLATED=no
+            AC_MSG_ERROR([po4a version too old, need version 0.67 or newer to build translated docs])
         fi
+        BUILD_DOCS_TRANSLATED=yes
     fi
 fi
 AC_SUBST(BUILD_DOCS)
