@@ -1,0 +1,508 @@
+/* LinuxCNC HTML theme overrides.
+   Two themes activated by body class set in docinfo.html JS:
+     body.lcnc-legacy   -> approximate the python-asciidoc + linuxcnc.css
+                           look (default for now, switchable via top-right
+                           button).
+     body.lcnc-modern   -> asciidoctor default plus small fixes:
+                             - drop yellow #text# highlight
+                             - uniform listing-block grey background
+                             - opt-in dark mode via prefers-color-scheme
+*/
+
+/* ======================================================================
+ *  MODERN  (asciidoctor default + small fixes)
+ * ====================================================================== */
+
+/* #text# in compat-mode -> <mark>; drop yellow.                       */
+body.lcnc-modern mark {
+  background: transparent;
+  color: inherit;
+}
+
+/* Uniform grey background on every listing block (hal/ini/ngc/plain). */
+body.lcnc-modern .listingblock > .content,
+body.lcnc-modern .literalblock > .content,
+body.lcnc-modern .listingblock pre,
+body.lcnc-modern .literalblock pre,
+body.lcnc-modern .listingblock > .content > pre[class^="highlight"],
+body.lcnc-modern .listingblock > .content > pre:not(.highlight),
+body.lcnc-modern .literalblock pre.highlight {
+  background: #f7f7f7;
+}
+
+/* Dark mode honours the OS / browser preference; only modern opts in. */
+@media (prefers-color-scheme: dark) {
+  body.lcnc-modern {
+    background: #1e1e1e;
+    color: #e0e0e0;
+  }
+  body.lcnc-modern #header h1,
+  body.lcnc-modern h1 {
+    color: #f0f0f0;
+  }
+  body.lcnc-modern h2,
+  body.lcnc-modern #toctitle {
+    color: #e08a5a;
+  }
+  body.lcnc-modern h3,
+  body.lcnc-modern h4,
+  body.lcnc-modern h5,
+  body.lcnc-modern h6 {
+    color: #d8a070;
+  }
+  body.lcnc-modern #preamble > .sectionbody > .paragraph p,
+  body.lcnc-modern #preamble > .sectionbody > .paragraph.lead > p {
+    color: #d0d0d0;
+  }
+  body.lcnc-modern a { color: #6fa8dc; }
+  body.lcnc-modern a:visited { color: #b48ead; }
+  body.lcnc-modern .listingblock > .content,
+  body.lcnc-modern .literalblock > .content,
+  body.lcnc-modern .listingblock pre,
+  body.lcnc-modern .literalblock pre,
+  body.lcnc-modern .listingblock > .content > pre[class^="highlight"],
+  body.lcnc-modern .listingblock > .content > pre:not(.highlight),
+  body.lcnc-modern .literalblock pre.highlight {
+    background: #2a2a2a;
+    color: #f0f0f0;
+  }
+  body.lcnc-modern .listingblock pre *,
+  body.lcnc-modern .literalblock pre * {
+    color: #f0f0f0 !important;
+    background: transparent !important;
+  }
+  body.lcnc-modern code,
+  body.lcnc-modern tt {
+    background: #3a3a3a;
+    color: #f0f0f0;
+  }
+  body.lcnc-modern p code,
+  body.lcnc-modern li code,
+  body.lcnc-modern td code {
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  body.lcnc-modern table.tableblock,
+  body.lcnc-modern table.tableblock th,
+  body.lcnc-modern table.tableblock td {
+    border-color: #444;
+    color: #e0e0e0;
+    background: #1e1e1e;
+  }
+  body.lcnc-modern table.tableblock tbody tr th,
+  body.lcnc-modern table.tableblock tfoot tr th,
+  body.lcnc-modern table.tableblock thead tr th {
+    background: #2a2a2a;
+    color: #f0f0f0;
+  }
+  body.lcnc-modern table.tableblock tbody tr th p,
+  body.lcnc-modern table.tableblock tfoot tr th p {
+    color: #f0f0f0;
+  }
+  body.lcnc-modern table.stripes-all > * > tr,
+  body.lcnc-modern table.stripes-odd > * > tr:nth-of-type(odd),
+  body.lcnc-modern table.stripes-even > * > tr:nth-of-type(even),
+  body.lcnc-modern table.stripes-hover > * > tr:hover {
+    background: #2a2a2a;
+  }
+  body.lcnc-modern .admonitionblock > table td.content {
+    color: #d0d0d0;
+    border-left-color: #444;
+  }
+  body.lcnc-modern .admonitionblock > table td.icon,
+  body.lcnc-modern .admonitionblock > table td.icon .title {
+    color: #e06464;
+    font-weight: bold;
+  }
+}
+
+/* ======================================================================
+ *  LEGACY  (python-asciidoc + linuxcnc.css look)
+ * ====================================================================== */
+
+
+/* ---- compat-mode #text# -> <mark>: drop yellow highlight ----------- */
+body.lcnc-legacy mark {
+  background: transparent;
+  color: inherit;
+}
+
+/* ---- body: Georgia serif, narrow side margin, full text contrast --- */
+body.lcnc-legacy {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 19px;
+  line-height: normal;
+  color: #000;
+  margin: 1em 5%;
+}
+
+/* ---- paragraphs: legacy tight spacing & size ----------------------- */
+body.lcnc-legacy p {
+  font-family: inherit;
+  font-size: 19px;
+  line-height: normal;
+  margin: 0 0 0.5em;
+}
+
+/* Asciidoctor styles the first paragraph in #preamble as a "lead"
+   paragraph (1.21em) at specificity (1,3,1).  Beat it. */
+body.lcnc-legacy #preamble > .sectionbody > .paragraph p,
+body.lcnc-legacy .paragraph.lead > p {
+  font-size: 19px;
+  line-height: normal;
+  color: #000;
+}
+
+/* ---- definition list: tight legacy layout -------------------------- */
+body.lcnc-legacy .dlist dl {
+  margin: 0;
+}
+body.lcnc-legacy dt,
+body.lcnc-legacy .hdlist1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 19px;
+  font-weight: 400;
+  color: #000080;
+  margin: 0;
+}
+body.lcnc-legacy dd {
+  margin: 0 0 0 40px;
+}
+body.lcnc-legacy dd > p,
+body.lcnc-legacy dd .paragraph p {
+  font-size: 19px;
+  line-height: normal;
+  margin: 0 0 0.5em;
+}
+
+/* ---- section blocks: tighten padding, drop separator strike ------- */
+body.lcnc-legacy .sect1,
+body.lcnc-legacy .sect2,
+body.lcnc-legacy .sect3 {
+  padding-bottom: 0;
+}
+body.lcnc-legacy .sect1 + .sect1 {
+  border-top: 0;
+}
+
+/* ---- headings: Arial bold, light-purple underline ------------------ */
+body.lcnc-legacy h1,
+body.lcnc-legacy h2,
+body.lcnc-legacy h3,
+body.lcnc-legacy h4,
+body.lcnc-legacy h5,
+body.lcnc-legacy h6 {
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  color: #000;
+  line-height: 1.2;
+}
+body.lcnc-legacy h1 {
+  font-size: 32px;
+  background: #c0c0f0;
+  border-bottom: 2px solid #8080c0;
+  margin: 1.2em 0 0.5em;
+  padding: 0 0 0 0.4em;
+}
+body.lcnc-legacy h2 {
+  font-size: 24px;
+  background: #c0c0f0;
+  border-bottom: 2px solid #8080c0;
+  margin: 1.2em 0 0.5em;
+  padding: 0.5em 0 0 0.4em;
+}
+body.lcnc-legacy h3 {
+  display: inline-block;
+  font-size: 18.72px;
+  background: transparent;
+  border-bottom: 2px solid #8080c0;
+  padding: 0;
+  margin: 1.2em 0 0.5em;
+}
+body.lcnc-legacy h4,
+body.lcnc-legacy h5,
+body.lcnc-legacy h6 {
+  display: block;
+  background: transparent;
+  border-bottom: 2px solid #8080c0;
+  padding: 0;
+  margin: 1.2em 0 0.5em;
+}
+body.lcnc-legacy h4 { font-size: 16px; }
+
+/* ---- :target highlight: light-blue background on jumped-to anchor -- */
+body.lcnc-legacy :target {
+  background: #ddeeff !important;
+}
+
+/* ---- italic / em: navy (legacy asciidoc-py style) ------------------ */
+body.lcnc-legacy em,
+body.lcnc-legacy i {
+  color: #000080;
+}
+
+/* ---- links: classic blue / magenta-visited underline --------------- */
+body.lcnc-legacy a {
+  color: #0000ff;
+  text-decoration: underline;
+}
+body.lcnc-legacy a:visited {
+  color: #ff00ff;
+}
+
+/* ---- list bullets: restore visible markers (asciidoctor default
+       zeros padding so disc markers are clipped) -------------------- */
+body.lcnc-legacy .ulist ul,
+body.lcnc-legacy .olist ol,
+body.lcnc-legacy #content ul,
+body.lcnc-legacy #content ol {
+  padding-left: 2em;
+  margin-left: 0;
+}
+body.lcnc-legacy .ulist ul { list-style: disc outside; }
+body.lcnc-legacy .ulist ul ul { list-style: circle outside; }
+body.lcnc-legacy .ulist ul ul ul { list-style: square outside; }
+body.lcnc-legacy .olist ol { list-style: decimal outside; }
+body.lcnc-legacy .ulist ul li::marker { color: #aaaaaa; }
+
+/* ---- monospace: Courier ------------------------------------------- */
+body.lcnc-legacy tt,
+body.lcnc-legacy code,
+body.lcnc-legacy kbd,
+body.lcnc-legacy pre {
+  font-family: "Courier New", Courier, monospace;
+}
+
+/* ---- inline code: navy text, no background ----------------------- */
+body.lcnc-legacy code {
+  background: transparent;
+  color: #000080;
+  padding: 0;
+  border: 0;
+  font-size: 0.9em;
+  font-weight: normal;
+}
+body.lcnc-legacy .title code {
+  font-weight: bold !important;
+  font-size: 1em;
+}
+
+/* ---- listing/literal blocks: uniform bg, thin left bar, navy text - */
+body.lcnc-legacy .listingblock > .content,
+body.lcnc-legacy .literalblock > .content {
+  background: #f7f7f7;
+  border: 1px solid #dedede;
+  border-left: 5px solid #f0f0f0;
+}
+body.lcnc-legacy .listingblock pre,
+body.lcnc-legacy .literalblock pre,
+body.lcnc-legacy .listingblock pre.rouge,
+body.lcnc-legacy .listingblock pre.highlight {
+  background: #f7f7f7 !important;
+  border: 0;
+}
+body.lcnc-legacy .listingblock pre,
+body.lcnc-legacy .literalblock pre,
+body.lcnc-legacy .listingblock code,
+body.lcnc-legacy .literalblock code {
+  color: #000080;
+  font-weight: normal;
+}
+
+/* ---- TOC: drop sidebar layout, inline at top ----------------------- */
+body.lcnc-legacy.toc2 {
+  padding-left: 0;
+}
+body.lcnc-legacy #toc,
+body.lcnc-legacy #toc.toc,
+body.lcnc-legacy #toc.toc2 {
+  position: static;
+  width: auto;
+  height: auto;
+  border: 0 !important;
+  background: transparent;
+  padding: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  margin-bottom: 2.5em;
+}
+body.lcnc-legacy #toctitle {
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  font-size: 1.1em;
+  color: #527bbd;
+}
+body.lcnc-legacy #toc ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+body.lcnc-legacy #toc li {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.05;
+  margin: 0;
+  padding: 0;
+}
+body.lcnc-legacy #toc ul.sectlevel2 { margin-left: 2em; font-size: 0.9em; }
+body.lcnc-legacy #toc ul.sectlevel3 { margin-left: 4em; font-size: 0.9em; }
+body.lcnc-legacy #toc ul.sectlevel4 { margin-left: 6em; font-size: 0.9em; }
+body.lcnc-legacy #toc a,
+body.lcnc-legacy .toc a {
+  font-family: Georgia, "Times New Roman", serif;
+  color: #0000ff;
+  text-decoration: underline;
+}
+body.lcnc-legacy #toc a:visited,
+body.lcnc-legacy .toc a:visited {
+  color: #ff00ff;
+}
+
+/* ---- manpage doctype: indent section content (legacy look) -------- */
+body.manpage.lcnc-legacy .sectionbody {
+  margin-left: 3em;
+}
+
+/* ---- content area: no asciidoctor max-width box -------------------- */
+body.lcnc-legacy #content,
+body.lcnc-legacy #header,
+body.lcnc-legacy #footer,
+body.lcnc-legacy #footnotes {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ---- block titles (image, table, listing...): legacy blue --------- */
+body.lcnc-legacy .title,
+body.lcnc-legacy .imageblock > .title,
+body.lcnc-legacy .listingblock > .title,
+body.lcnc-legacy .literalblock > .title,
+body.lcnc-legacy table.tableblock > caption.title,
+body.lcnc-legacy .exampleblock > .title,
+body.lcnc-legacy .quoteblock > .title,
+body.lcnc-legacy .openblock > .title,
+body.lcnc-legacy .paragraph > .title,
+body.lcnc-legacy .ulist > .title,
+body.lcnc-legacy .olist > .title,
+body.lcnc-legacy .dlist > .title,
+body.lcnc-legacy .hdlist > .title {
+  font-family: Arial, Helvetica, sans-serif;
+  font-style: normal;
+  font-weight: bold;
+  color: #527bbd;
+}
+
+/* ---- admonition (NOTE/TIP/WARN): mixed-case label, vertical bar --- */
+body.lcnc-legacy .admonitionblock > table td.icon {
+  width: 1%;
+  white-space: nowrap;
+  text-align: left;
+  padding: 0 0.5em 0 0;
+  vertical-align: top;
+}
+body.lcnc-legacy .admonitionblock > table td.icon .title {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1em;
+  font-weight: bold;
+  text-transform: none;
+  text-decoration: underline;
+  color: #527bbd;
+}
+body.lcnc-legacy .admonitionblock > table td.icon [class^="fa icon-"],
+body.lcnc-legacy .admonitionblock > table td.icon i.fa {
+  display: none;
+}
+body.lcnc-legacy .admonitionblock > table td.content {
+  padding: 0 0.5em;
+  border-left: 3px solid #dddddd;
+  color: #606060;
+  font-size: 1.05em;
+  line-height: 1.2;
+}
+body.lcnc-legacy .admonitionblock > table td.content > .title {
+  font-family: Arial, Helvetica, sans-serif;
+  font-style: normal;
+  font-weight: bold;
+  color: #497dc2;
+}
+
+/* ---- tables (content only): centered, 3px #527bbd outer border ---- */
+body.lcnc-legacy table.tableblock {
+  margin-left: auto;
+  margin-right: auto;
+  border: 3px solid #527bbd;
+  border-collapse: collapse;
+}
+body.lcnc-legacy table.tableblock th,
+body.lcnc-legacy table.tableblock td {
+  border: 1px solid #527bbd;
+  padding: 4px 8px;
+}
+body.lcnc-legacy table.tableblock thead th,
+body.lcnc-legacy table.tableblock th.tableblock {
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: bold;
+  font-size: 0.9em;
+  line-height: 1.2;
+  color: #527bbd;
+  background: transparent;
+}
+body.lcnc-legacy table.tableblock td,
+body.lcnc-legacy table.tableblock td.tableblock {
+  line-height: 1.2;
+}
+body.lcnc-legacy table.tableblock thead,
+body.lcnc-legacy table.tableblock tfoot,
+body.lcnc-legacy table.tableblock tbody tr {
+  background: transparent;
+}
+
+/* ---- footnotes: small, silver hairline divider -------------------- */
+body.lcnc-legacy .footnote,
+body.lcnc-legacy .footnoteref,
+body.lcnc-legacy #footnotes div.footnote { font-size: 15px; }
+body.lcnc-legacy #footnotes div.footnote p { font-size: 15px; }
+body.lcnc-legacy #footnotes div.footnote { line-height: 1.05; }
+body.lcnc-legacy #footnotes {
+  margin: 1em 0 0;
+  padding: 0.4em 0 0;
+}
+body.lcnc-legacy #footnotes div.footnote {
+  margin: 0 0 5px !important;
+  padding: 0 !important;
+  text-indent: 0;
+}
+body.lcnc-legacy #footnotes .footnote a:first-of-type {
+  text-decoration: underline;
+  color: #0000ff;
+  font-weight: 400;
+  margin-left: 0 !important;
+}
+body.lcnc-legacy #footnotes hr {
+  border: none;
+  border-top: 1px solid #999;
+  height: 1px;
+  width: 20%;
+  margin: 0 0 0.5em;
+}
+body.lcnc-legacy #footnotes .footnote a:first-of-type:visited {
+  color: #ff00ff;
+}
+
+/* ---- footer: small Arial, silver hairline above ------------------- */
+body.lcnc-legacy #footer {
+  background: transparent !important;
+  color: #000 !important;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: small;
+  border-top: 1px dashed #999;
+  padding: 0.5em 0;
+  margin-top: 1em;
+}
+body.lcnc-legacy #footer-text,
+body.lcnc-legacy #footer * {
+  color: #000 !important;
+}

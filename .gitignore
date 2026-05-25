@@ -59,3 +59,7 @@ position.txt
 .vscode/settings.json
 # autoreconf cache from debian/configure
 /autom4te.cache/
+# Local dev-only doc server script (do not ship).
+/dev-serve-docs.sh
+# Playwright MCP scratch dir (browser snapshots / console / etc).
+/.playwright-mcp/

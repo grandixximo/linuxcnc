@@ -448,7 +448,7 @@ endif
 .htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp
 	touch $@
 
-copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js)
+copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css
 	if test -n "$^"; then cp -f $^ $(DOC_DIR)/html ; fi
 
 gen_complist: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
@@ -538,6 +538,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			exit 1; \
 		fi; \
 		asciidoctor \
+			-r $(realpath $(DOC_SRCDIR))/extensions/list_blanks.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
@@ -546,12 +547,11 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			-a compat-mode \
 			-a mansource=LinuxCNC \
 			-a manmanual='LinuxCNC Documentation' \
-			-a linkcss \
-			-a "scriptsdir=../.." \
-			-a "stylesdir=../.." \
-			-a stylesheet=linuxcnc.css \
+			-a "lcnc-cssrel=../../" \
+			-a docinfo=shared \
+			-a docinfodir=$(realpath $(DOC_SRCDIR)) \
 			-a source-highlighter=rouge \
-			-a rouge-style=pastie \
+			-a rouge-style=github \
 			-o $@ \
 			"$$F" \
 			; \
@@ -682,6 +682,7 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 	$(ECHO) Building $@
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \
+		 -r $(realpath $(DOC_SRCDIR))/extensions/list_blanks.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/image_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
@@ -698,7 +699,7 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -a toc -a numbered \
 		 -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
 		 -a source-highlighter=rouge \
-		 -a rouge-style=pastie \
+		 -a rouge-style=github \
 		 -d book \
 		 -o $@.raw $< || (X=$$?; rm -f $@.raw; \
 		    if [ $$X -eq 124 ]; then echo "asciidoctor-pdf timed out after 15 min on $<"; fi; \
@@ -752,6 +753,7 @@ $(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(DOC_F
 	@$(ECHO) Formatting manual pages as PDF
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \
+	    -r $(realpath $(DOC_SRCDIR))/extensions/list_blanks.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
@@ -759,7 +761,7 @@ $(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(DOC_F
 	    -a mansource=LinuxCNC \
 	    -a manmanual='LinuxCNC Documentation' \
 	    -a source-highlighter=rouge \
-		-a rouge-style=pastie \
+		-a rouge-style=github \
 	    -a "pdf-fontsdir=$(realpath $(DOC_FONT_DIR));GEM_FONTS_DIR" \
 	    -a "lversion=$(shell cat ../VERSION)" \
 	    -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
@@ -848,16 +850,9 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 		done; \
 	done > $@.new && mv $@.new $@
 
-# Define a target-specific variable called STYLES_SCRIPTS_DIR, which has
-# the relative path from this html target to the root of the generated
-# document tree (docs/html in the git repo).  This is where the CSS files
-# and javascript files will be installed.
-$(DOC_SRCDIR)/%.html: STYLES_SCRIPTS=$(shell \
-    D=$$(python3 -c "print('../' * '$*'.count('/'))"); \
-    if [ ! -z $$D ]; then \
-        echo "-a 'scriptsdir=$$D' -a 'stylesdir=$$D'"; \
-    fi \
-)
+# Relative path from this html target back to DOC_SRCDIR, used to point
+# the lcnc-overrides.css <link> in docinfo.html at the right place.
+$(DOC_SRCDIR)/%.html: LCNC_CSSREL=$(shell python3 -c "print('../' * '$*'.count('/'))")
 
 # asciidoctor HTML rule used for every language. $1 is the language tag
 # in lowercase (en, ar, de, ...); $2 is the directory the xref index is
@@ -865,20 +860,20 @@ $(DOC_SRCDIR)/%.html: STYLES_SCRIPTS=$(shell \
 define ASCIIDOCTOR_HTML_RULE
 $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$(DOC_SRCDIR)/%.html: $$(DOC_SRCDIR)/%.adoc
 	$$(ECHO) "Building '$1' adoc to html: " $$<
-	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
+	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/list_blanks.rb \
+		 -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ini.rb \
 		 -a compat-mode \
 		 -a xref-root=$2 \
 		 -a "xref-exclude=$3" \
-		 -a linkcss \
-		 $$(STYLES_SCRIPTS) \
-		 -a "scriptdir=$$(DOC_SRCDIR)/" \
 		 -a "relindir=$$(shell dirname $$*)" \
-		 -a stylesheet=linuxcnc.css \
+		 -a "lcnc-cssrel=$$(LCNC_CSSREL)" \
+		 -a docinfo=shared \
+		 -a docinfodir=$$(realpath $$(DOC_SRCDIR)) \
 		 -a source-highlighter=rouge \
-		 -a rouge-style=pastie \
+		 -a rouge-style=github \
 		 -d book -a toc -a numbered \
 		 -o $$@ $$< || (X=$$$$?; rm -f $$@; exit $$$$X)
 endef
