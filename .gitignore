@@ -57,3 +57,5 @@ position.txt
 *.*-stamp
 # Ignore VSCode settings
 .vscode/settings.json
+# autoreconf cache from debian/configure
+/autom4te.cache/
