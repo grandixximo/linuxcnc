@@ -686,6 +686,7 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -r $(realpath $(DOC_SRCDIR))/extensions/image_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
 		 --sourcemap \
 		 -a compat-mode \
 		 -a "doc-languages=$(LANGUAGES)" \
@@ -696,6 +697,8 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -a "lversion=$(shell cat ../VERSION)" \
 		 -a toc -a numbered \
 		 -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
+		 -a source-highlighter=rouge \
+		 -a rouge-style=pastie \
 		 -d book \
 		 -o $@.raw $< || (X=$$?; rm -f $@.raw; \
 		    if [ $$X -eq 124 ]; then echo "asciidoctor-pdf timed out after 15 min on $<"; fi; \
