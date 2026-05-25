@@ -32,9 +32,6 @@ SRCDIR=../src
 DOC_DIR=../docs
 DOC_SRCDIR=../docs/src
 
-LOC_HL_DIR=../docs/src/source-highlight
-LOC_LANG_MAP=$(LOC_HL_DIR)/local/lang.map
-
 # The following line determines for the Makefile what languages should be addressed.
 # Edit the file po4a.cfg in this source tree to adjust.
 LANGUAGES := $(strip $(shell sed -e's/#.*//' < $(DOC_DIR)/po4a.cfg | grep '^\[po4a_langs\]' | cut -d" " -f2-))
@@ -633,6 +630,15 @@ DOC_FONT_DIR  = $(DOC_SRCDIR)/.fonts
 # that ships the .ttc, not only the Debian path.
 CJK_TTFS      = $(DOC_FONT_DIR)/NotoSerifCJKsc-Regular.ttf \
                 $(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf
+# DejaVu Sans Mono is the code-block font.  asciidoctor-pdf only looks for
+# fonts in pdf-fontsdir by filename, not via fontconfig, so discover the
+# files at build time and symlink them into DOC_FONT_DIR.  Keeps the
+# pdf-theme.yml portable (no absolute paths baked in).
+DEJAVU_TTFS   = $(DOC_FONT_DIR)/DejaVuSansMono.ttf \
+                $(DOC_FONT_DIR)/DejaVuSansMono-Bold.ttf \
+                $(DOC_FONT_DIR)/DejaVuSansMono-Oblique.ttf \
+                $(DOC_FONT_DIR)/DejaVuSansMono-BoldOblique.ttf
+DOC_FONTS     = $(CJK_TTFS) $(DEJAVU_TTFS)
 
 # Build a TrueType (glyf-based) copy of the Simplified Chinese cut of the
 # Noto Serif CJK font.  The system font is shipped only as a CFF/OTF
@@ -650,7 +656,27 @@ $(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf: $(NOTOCJK_BOLD_TTC) $(DOC_SRCDIR)/otf2t
 	$(ECHO) "Converting CJK font to TTF: $(notdir $@)"
 	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) $< $@.tmp && mv $@.tmp $@
 
-$(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp $(CJK_TTFS)
+# DejaVu Sans Mono discovery: fc-match resolves the canonical .ttf for
+# each style, we symlink it into DOC_FONT_DIR under its expected filename
+# so pdf-theme.yml can stay path-free.
+define DEJAVU_RULE
+$(DOC_FONT_DIR)/$(1): | $(DOC_FONT_DIR)
+	@F=$$$$(fc-match --format='%{file}' '$(2)' 2>/dev/null); \
+	if [ -z "$$$$F" ] || [ ! -r "$$$$F" ]; then \
+	    echo "fc-match could not locate '$(2)'; install fonts-dejavu" >&2; \
+	    exit 1; \
+	fi; \
+	ln -sf "$$$$F" $$@
+endef
+$(eval $(call DEJAVU_RULE,DejaVuSansMono.ttf,DejaVu Sans Mono:style=Book))
+$(eval $(call DEJAVU_RULE,DejaVuSansMono-Bold.ttf,DejaVu Sans Mono:style=Bold))
+$(eval $(call DEJAVU_RULE,DejaVuSansMono-Oblique.ttf,DejaVu Sans Mono:style=Oblique))
+$(eval $(call DEJAVU_RULE,DejaVuSansMono-BoldOblique.ttf,DejaVu Sans Mono:style=Bold Oblique))
+
+$(DOC_FONT_DIR):
+	@mkdir -p $@
+
+$(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp $(DOC_FONTS)
 	$(ECHO) Building $@
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \
@@ -660,6 +686,7 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 		 --sourcemap \
 		 -a compat-mode \
+		 -a "doc-languages=$(LANGUAGES)" \
 		 -a xref-root=$(dir $<) \
 		 -a "xref-exclude=^($(LANGUAGES_MATCH))/" \
 		 -a "scriptdir=$(DOC_SRCDIR)/" \
@@ -716,7 +743,7 @@ objects/LinuxCNC_Manual_Pages.adoc: objects/var-PDF_MAN_ORDER $(MAN_SRCS) $(DOC_
 	} > $@.tmp
 	$(Q)mv -f $@.tmp $@
 
-$(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(CJK_TTFS)
+$(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(DOC_FONTS)
 	@$(ECHO) Formatting manual pages as PDF
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \

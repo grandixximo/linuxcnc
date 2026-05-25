@@ -8,10 +8,10 @@ font:
   catalog:
     merge: true
     DejaVu Sans Mono:
-      normal: /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
-      bold: /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf
-      italic: /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf
-      bold_italic: /usr/share/fonts/truetype/dejavu/DejaVuSansMono-BoldOblique.ttf
+      normal: DejaVuSansMono.ttf
+      bold: DejaVuSansMono-Bold.ttf
+      italic: DejaVuSansMono-Oblique.ttf
+      bold_italic: DejaVuSansMono-BoldOblique.ttf
     Noto Serif CJK SC:
       normal: NotoSerifCJKsc-Regular.ttf
       bold: NotoSerifCJKsc-Bold.ttf

@@ -36,6 +36,7 @@ Set `HAL_MODULE_NAME=mymodule` (default `HAL_MODULE_NAME=mb2hal`)
 .. Default component name: `loadusr -W mb2hal config=config_file.ini`
 .. Custom component name: `loadusr -Wn mymodule mb2hal config=config_file.ini`
 
+
 == Options
 
 === Init Section
@@ -59,6 +60,7 @@ Useful when using `DEBUG=3` (NOT `INIT_DEBUG=3`).
 It affects ALL transactions. Use "0.0" for normal activity.
 m|TOTAL_TRANSACTIONS | Integer | Yes | The number of total Modbus transactions. There is no maximum.
 |===
+
 
 === Transaction Sections
 

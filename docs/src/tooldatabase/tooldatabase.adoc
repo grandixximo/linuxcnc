@@ -116,6 +116,7 @@ The updated list of tools will be used on subsequent get commands or load_tool_t
 [NOTE]
 Removal of a tool number should only be done if the tool number is not currently loaded in spindle.
 
+
 ==== Debug Environmental Variables
 
 Exporting the environmental variable DB_SHOW enables LinuxCNC prints (to stdout) that show tool data retrieved from the *db_program* at startup and at subsequent reloading of tool data.

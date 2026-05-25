@@ -2166,6 +2166,7 @@ All the interpreter does is evaluate the toolnumber parameter, looks up its corr
 remembers it in the `selected_pocket` variable for later, and queues a canon command (SELECT_TOOL).
 See 'Interp::convert_tool_select' in 'src/emc/rs274/interp_execute.cc'.
 
+
 .Task action on SELECT_TOOL
 When `task` gets around to handle a SELECT_TOOL, it sends a EMC_TOOL_PREPARE message to the `iocontrol` process,
 which handles most tool-related actions in LinuxCNC.
@@ -2246,6 +2247,7 @@ If zero, this means 'unload tool', else 'set current tool number to Q'.
 
 .Building the replacement for `M61`
 An example Python redefinition for `M61` can be found in the `set_tool_number` function in `nc_files/remap_lib/python-stdglue/stdglue.py`.
+
 
 ==  Status
 

@@ -946,6 +946,7 @@ The users can recall any recorded messages.
 
 There are several options:
 
+
 *`STATUS.TEMPORARY_MESSAGE`*:: Show the message for a short time only.
 *`STATUS.OPERATOR_ERROR`*::
 *`STATUS.OPERATOR_TEXT`*::

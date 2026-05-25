@@ -1028,6 +1028,7 @@ In the lib folder copy 'touchoff_subprogram.py' +
 If these files are found they will be used instead of the originals. +
 You can modify the files to change behaviour. +
 
+
 [[sub:touch-plate]]
 == Touch plate
 
@@ -1749,6 +1750,7 @@ To have the manual spindle buttons also incrementally increase/decrease speed:
     qproperty-spindle_down_action: true;
 }
 ----
+
 
 === Qt Designer and Python code
 

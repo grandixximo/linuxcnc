@@ -541,6 +541,7 @@ Virtual Environment, and set up the linuxcnc environment:
 (venv) ~ $ ~/src/linuxcnc $ scripts/linuxcnc
 -----
 
+
 == Options for checking out the git repo
 
 The <<Quick-Start,Quick Start>> instructions at the top of this

@@ -47,6 +47,7 @@ $ halshow  --fformat "%.5f" ./my.halshow
 
 For more information regarding the format, please refer to https://www.tcl.tk/man/tcl/TclCmd/format.html[the Tcl format man page].
 
+
 [[cap:halshow-layout]]
 .Halshow Layout
 image::images/halshow-layout.png["Halshow Layout",align="center"]
@@ -84,6 +85,7 @@ You can also expand or collapse the tree display using the Tree View menu at the
 Under _Tree View_ you will find:
 _Expand All_, _Collapse All_; _Expand Pins_, _Expand Parameters_, _Expand Signals_; and _Reload tree view_.
 _Reload tree view_ is useful when new components are loaded during runtime and should be displayed.
+
 
 === HAL Show Area
 

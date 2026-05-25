@@ -290,6 +290,7 @@ Options:
 .QtVCP `tool_dialog` - Manual Tool Change Dialog
 image::images/qtvcp_toolChange.png["QtVCP tool_dialog - Manual Tool Change Dialog",align="center"]
 
+
 [[sub:qtvcp:panels:vismach]]
 == `vismach` 3D Simulation Panels
 These panels are prebuilt simulation of common machine types.
@@ -369,6 +370,7 @@ loadusr qtvcp vismach_fanuc_200f
 
 .QtVCP `vismach_fanuc_200f` - 6 Joint Robotic Arm
 image::images/qtvismach_fanuc_200f.png["QtVCP vismach_fanuc_200f - 6 Joint Robotic Arm",align="left"]
+
 
 [[sec:qtvcp:panels:custom]]
 == Custom Virtual Control Panels

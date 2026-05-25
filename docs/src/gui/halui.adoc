@@ -51,6 +51,7 @@ to a maximum of 64 commands. These pins can be connected like any
 HAL pins. A common method is to use buttons provided by virtual
 control panels like shown in the example <<code:Example-HAL-file-connections, Example for MDI_COMMAND connections>>.
 
+
 [[code:Example-HAL-file-connections]]
 .Example for MDI_COMMAND connections
 ====

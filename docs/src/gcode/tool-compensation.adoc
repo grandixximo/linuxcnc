@@ -232,6 +232,7 @@ With this type of tool changer the tool will always be in a different pocket aft
 When a tool is changed LinuxCNC rewrites the pocket number to keep track of where the tools are.
 T can be any number but P must be a number that makes sense for the machine.
 
+
 == Tool Length Compensation
 
 (((Tool Length Compensation)))

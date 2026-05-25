@@ -235,6 +235,7 @@ int process(void *arg, long period) {
 }
 ----
 
+
 == PINS
 
 The functions / hostmot2 component do not create any HAL pins.

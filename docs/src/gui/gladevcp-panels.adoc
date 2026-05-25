@@ -13,8 +13,10 @@ There are several *builtin panels* available.
 
 In a terminal type `gladevcp` to see a list.
 
+
 === GTK Verser Probe
 A GTK based version of the third party Verser probe.
+
 
 image::images/gtk_verser_probe.png["GTK Verser Probe",align="center"]
 
@@ -49,6 +51,7 @@ SUBROUTINE_PATH = ./macros:/usr/share/linuxcnc/nc_files/gtk_probe/
 # For RIP installation, use the path according to your directory:
 # SUBROUTINE_PATH = ./macros:~/linuxcnc/nc_files/probe/gtk_probe/
 ----
+
 
 **Example using dbounce with a Mesa card (HAL file):**
 

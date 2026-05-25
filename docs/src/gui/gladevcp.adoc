@@ -2277,6 +2277,7 @@ More information can be found here: <<cha:gladevcp-libraries,GladeVCP Libraries 
 There is a sample configuration that demonstrates using the core library with GladeVCP's action Python widgets and with a Python handler file.
 Try loading 'sim/axis/gladevcp/gladevcp_panel_tester'.
 
+
 === An example: adding custom user callbacks in Python
 
 This is just a minimal example to convey the idea - details are laid out in the rest of this section.
@@ -2372,6 +2373,7 @@ Here is a minimum user-defined handler example module:
 class MyCallbacks :
     def on_this_signal(self,obj,data=None):
         print("this_signal happened, obj=",obj)
+
 
 def get_handlers(halcomp,builder,useropts):
     return [MyCallbacks ()]
@@ -2692,6 +2694,7 @@ class HandlerClass:
         mmin = inifile.getreal("METER", "MIN", fallback=0.0)
         self.meter = self.builder.get_object('meter')
         self.meter.min = mmin
+
 
 def get_handlers(halcomp,builder,useropts):
     return [HandlerClass(halcomp,builder,useropts)]

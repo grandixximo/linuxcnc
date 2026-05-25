@@ -1,8 +1,10 @@
 = hy_gt_vfd(1)
 
+
 == NAME
 
 hy_gt_vfd - HAL non-realtime component for Huanyang GT-series VFDs
+
 
 == SYNOPSIS
 

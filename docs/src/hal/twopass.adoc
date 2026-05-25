@@ -20,6 +20,7 @@ For example, if you use a two-input AND gate component (and2) in three different
 loadrt and2 count=3
 ----
 
+
 Configurations are more readable if you specify with the `names=` option for components where it is supported, e.g.:
 
 .Example load command resulting in explicitly named components `aa`, `ab`, `ac`.
@@ -181,6 +182,7 @@ The loading of components that use `names=` or `count=` parameters (typically bu
 as that would eliminate the benefits of TWOPASS processing.
 The LinuxCNC commands that create signals (`net`) and commands that establish execution order (`addf`) should not be placed in excluded files.
 This is especially true for addf commands since their ordering may be important.
+
 
 == Examples
 

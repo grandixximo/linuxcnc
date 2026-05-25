@@ -975,6 +975,7 @@ LinuxCNC will not know your joint travel limits when using `NO_FORCE_HOMING = 1`
 * `NO_PROBE_JOG_ERROR = 0` - Allow to bypass probe tripped check when you jog manually.
 * `NO_PROBE_HOME_ERROR = 0` - Allow to bypass probe tripped check when homing is in progress.
 
+
 [[sub:ini:sec:kins]]
 === [KINS] Section(((INI File,Sections,KINS Section)))
 

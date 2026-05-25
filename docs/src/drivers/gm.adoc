@@ -45,6 +45,7 @@ The following connectors can be found on the GM6-PCI card:
 .GM6-PCI card connectors and LEDs(((pci-card connectors)))
 image::images/GM_PCIpinout.png["GM6-PCI card connectors and LEDs",align="center",scaledwidth="70%"]
 
+
 == I/O connectors
 
 .Pin numbering of GPIO connectors(((pin-numbering-gpio)))
@@ -140,6 +141,7 @@ have to be connected as the following block diagram shows:
 
 .Servo axis interfaces(((axis-interface)))
 image::images/GM_AxisInterface.png["Servo axis interfaces",align="center",scaledwidth="100%"]
+
 
 === Encoder
 

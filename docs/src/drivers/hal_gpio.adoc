@@ -82,9 +82,11 @@ The version of libgpiod-dev installed can be determined by the command `gpioinfo
 * hal_gpio.NAME-in-not - HAL_OUT An inverted version of the above, for convenience
 * hal_gpio.NAME-out - HAL_IN use this pin to transfer a HAL bit value to a physical output
 
+
 == Parameters
 
 * hal_gpio.reset_ns - HAL_RW - "setp" this parameter to control the pulse length of pins added to the "reset" list. The value will be limited between 0 and thread-period / 4.
+
 
 == Functions
 

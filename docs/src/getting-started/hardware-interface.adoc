@@ -4,14 +4,14 @@
 [[cha:hardware-interface]]
 = Hardware Interface(((Hardware Interface)))
 
-= Hardware to run the LinuxCNC software
+== Hardware to run the LinuxCNC software
 A computer is required to run LinuxCNC itself. See <<cha:system-requirements,Computer System Requirements>>
 
 The most common is to use a x86 computer (standard Intel / AMD computer)
 
 ARM computers such as the Raspberry Pi or Orange Pi can be used
 
-= Hardware Interface to CNC machine
+== Hardware Interface to CNC machine
 An interface is necessary to transmit (and convert) signals and information between LinuxCNC (the software on the computer) and CNC hardware (such as stepper / servo drivers, limit switches, inputs and outputs etc.). There are multiple different ways to interface.
 
 Interfaces include:
@@ -43,6 +43,7 @@ __Disadvantages:__
 - Limited inputs/outputs
 - Some PCI/PCIe parallel port cards do not work well or do not properly support the EPP mode (EPP mode is required for parallel port interface to Mesa / PICO cards).
 
+
 == Parallel Port FPGA Communication
 Realtime (time critical) tasks such as step generation are done in hardware (not on the computer)
 
@@ -53,6 +54,7 @@ Website: https://mesanet.com/    Store: https://store.mesanet.com/
 
 === Pico Systems via Parallel Port
 https://pico-systems.com/univstep.html
+
 
 == Ethernet
 === Mesa Ethernet
@@ -131,6 +133,7 @@ SPI = Serial Peripheral Interface. SPI interfaces can be found on single board c
 
 === Remora SPI
 Realtime requirements are offloaded onto a controller board. https://remora-docs.readthedocs.io
+
 
 === LinuxCNC-RIO
 RealtimeIO for LinuxCNC based on an FPGA

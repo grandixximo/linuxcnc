@@ -518,11 +518,13 @@ By pressing the 'Tool Touch Off' button the tool length and offsets of
 the currently loaded tool will be changed so that the current tool tip
 position matches the entered coordinate.
 
+
 .Tool Touch Off Window
 image::images/tooltouchoff.png["Tool Touch Off Window",align="center"]
 
 See also the 'Tool touch off to workpiece' and 'Tool touch off to fixture'
 options in the Machine menu.
+
 
 .Override Limits
 By pressing Override Limits, the machine will temporarily be allowed

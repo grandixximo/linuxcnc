@@ -837,6 +837,7 @@ class ActionButtonPlugin(QPyDesignerCustomWidgetPlugin):
     def includeFile(self):
         return "qtvcp.widgets.action_button"
 
+
 class ActionButtonDialog(QtWidgets.QDialog):
 
    def __init__(self, widget, parent = None):

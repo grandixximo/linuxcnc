@@ -161,6 +161,7 @@ package manager with this command:
 sudo dpkg -i linuxcnc_2.9.8.deb
 ----
 
+
 == Updating Configuration Files for 2.9
 
 === Stricter handling of pluggable interpreters
@@ -179,6 +180,7 @@ Since 2.9.0, an incorrect `[TASK]INTERPRETER` value will cause
 LinuxCNC to refuse to start up.  Fix this condition by deleting the
 `[TASK]INTERPRETER` setting from your INI file, so that LinuxCNC will
 use the default G-code interpreter.
+
 
 === Canterp
 

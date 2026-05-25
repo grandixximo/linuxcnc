@@ -51,6 +51,7 @@ sudo apt install linuxcnc-uspace-dev
 
 Another method is using the Synaptic package manager, from the Applications menu, to install the `linuxcnc-dev` or `linuxcnc-uspace-dev` packages.
 
+
 == Compiling 
 
 === Inside the source tree

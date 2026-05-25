@@ -111,6 +111,7 @@ BACK_TOOL_LATHE = 1
 PROGRAM_PREFIX = ../../nc_files/
 ----
 
+
 - _DISPLAY = gmoccapy_ - This tells LinuxCNC to use GMOCCAPY.
 
 - _PREFERENCE_FILE_PATH_ - Gives the location and name of the preferences file to be used.
@@ -167,6 +168,7 @@ If that value is also not given, it will default to 180.
 [NOTE]
 Defaults to 600 if not set.
 
+
 [[gmoccapy:macros]]
 === Macro Buttons
 
@@ -206,6 +208,7 @@ Then you have to provide the corresponding NGC files which have to follow these 
 
 The code between sub and endsub will be executed by pushing the corresponding macro button.
 
+
 [NOTE]
 A maximum of 16 macros will be shown in the GUI.
 Due to space reasons you may need to click on an arrow to switch the page and display hidden macro buttons.
@@ -214,6 +217,7 @@ It is no error placing more than 16 macros in your INI file, they will just not 
 
 //.Macros example
 //image::images/gmoccapy_mdi_hidden_keyboard.png[align="left"]
+
 
 [NOTE]
 You will find the sample macros in a folder named 'macros' placed in the GMOCCAPY sim folder.
@@ -258,6 +262,7 @@ M2
 
 After pushing the '*execute macro button*',
 you will be asked to enter the values for '*X-pos Y-pos Z-pos*' and the macro will only run if all values have been given.
+
 
 [NOTE]
 If you would like to use a macro without any movement, see also the notes in <<sub:NOT_ENDING_MACROS,known problems>>.
@@ -309,6 +314,7 @@ All you have to take care of, is that you include for every tab or side panel th
 ** *box_dro_side*             (will introduce your glade file right of the DRO *(8)*)
 ** *ntb_setup*                (as tab on the setup page *(9)*)
 
+
 [NOTE]
 See also the included sample INI files to see the differences.
 
@@ -344,6 +350,7 @@ will hide the chosen box.
 [[fig:gmoccapy_emb_tab_locations]]
 .Embedded tab locations
 image::images/gmoccapy_embedded_tabs_small.png[align="left",link="images/gmoccapy_embedded_tabs.png"]
+
 
 [NOTE]
 If you make any HAL connections to your custom glade panel, you need to do that in the HAL file specified in the EMBED_TAB_COMMAND line,
@@ -400,6 +407,7 @@ MESSAGE_TEXT = Text can be <small>small</small>, <big>big</big>, <b>bold</b <i>i
 MESSAGE_TYPE = okdialog
 MESSAGE_PINNAME = okdialog
 ----
+
 
 [NOTE]
 Currently the formatting doesn't work.
@@ -518,6 +526,7 @@ If `LOG_FILE` is not set, logging happens to `$HOME/<base_log_name>.log`.
 GMOCCAPY exports several HAL pins to be able to react to hardware devices.
 The goal is to get a GUI that may be operated in a tool shop, completely/mostly without mouse or keyboard.
 
+
 [NOTE]
 ====
 You will have to do all connections to GMOCCAPY pins in your postgui.hal file.
@@ -538,6 +547,7 @@ Each will be run one after the other in the order they appear.
 The screen has two main button lists, one on the right side an one on the bottom.
 The right handed buttons will not change during operation, but the bottom button list will change very often.
 The buttons are count from up to down and from left to right beginning with 0.
+
 
 [NOTE]
 The pin names have changed in GMOCCAPY 2 to order them in a better way.
@@ -636,6 +646,7 @@ image:images/gmoccapy_sim_hardware_button_mid.png[align="left",link="images/gmoc
 
 All sliders from GMOCCAPY can be connected to hardware encoders or hardware potentiometers.
 
+
 [NOTE]
 For GMOCCAPY 3 some HAL pin names have changed when new controls have been implemented.
 Max velocity does not exist any more, it was replaced by rapid override due to the demand of many users.
@@ -724,6 +735,7 @@ value to set = 45 % +
 === Jog HAL Pins
 
 All axes given in the INI file have a jog-plus and a jog-minus pin, so hardware momentary switches can be used to jog the axes.
+
 
 [NOTE]
 Naming of these HAL pins have changed in GMOCCAPY 2.
@@ -904,6 +916,7 @@ net tool-prep-number gmoccapy.toolchange-number <= iocontrol.0.tool-prep-number
 net tool-prep-loop iocontrol.0.tool-prepare <= iocontrol.0.tool-prepared
 ----
 
+
 [NOTE]
 Please take care, that this connections have to be done in the postgui HAL file.
 
@@ -916,6 +929,7 @@ image::images/gmoccapy_tool_info.png["Tool information",align="left"]
 
 - *gmoccapy.tooloffset-x* _(float IN)_
 - *gmoccapy.tooloffset-z* _(float IN)_
+
 
 [NOTE]
 The tooloffset-x line is not needed on a mill, and will not be displayed on a mill with trivial kinematics.
@@ -960,6 +974,7 @@ image::images/sketch_auto_tool_measurement.png[align="left"]
 
 With the first given tool change the tool will be measured and the offset will be set automatically to fit the block height.
 The advantage of the GMOCCAPY way is, that you do not need a reference tool.
+
 
 [NOTE]
 ====
@@ -1142,6 +1157,7 @@ This settings will have influence on the jog velocities.
 * _Turtle jog factor_ - Sets the scale to apply for turtle jog mode (button pressed, showing the turtle).
   If you set a factor of 20, the turtle max. jog velocity will be 1/20 of the max. velocity of the machine.
 
+
 [NOTE]
 This button can be controlled using the <<gmoccapy:jog-velocity,Turtle-Jog HAL Pin>>.
 
@@ -1159,6 +1175,7 @@ The foreground color of the DRO can be selected with:
 
 * _Homed Color_   = green
 * _Unhomed Color_ = red
+
 
 [NOTE]
 You can change through the DRO modes (absolute, relative, distance to go) by clicking the number on the DRO!
@@ -1268,8 +1285,10 @@ The default setting is:
 * _Show keyboard on EDIT_ = True 
 * _Show keyboard on load file_ = False
 
+
 [NOTE]
 If this section is not sensitive, you have not installed a virtual keyboard, supported ones are _onboard_ and _matchbox-keyboard_.
+
 
 [NOTE]
 ====
@@ -1439,6 +1458,7 @@ image::images/gmoccapy_settings_advanced.png["Advanced settings",align="left"]
 .Tool Measurement
 
 Please check <<gmoccapy:auto-tool-measurement,Auto Tool Measurement>>
+
 
 [NOTE]
 If this part is not sensitive, you do not have a valid INI file configuration to use tool measurement.

@@ -7,7 +7,9 @@
 This documentation describes the `hal` python module, which provides
 a Python API for creating and accessing HAL pins and signals.
 
+
 == Basic usage
+
 
 [source,python]
 ----
@@ -103,6 +105,7 @@ value = hal.get_value("iocontrol.0.emc-enable-in")
 *get_info_pins()* ::
 Returns a list of dicts of all system pins.
 
+
 [source,python]
 ----
 listOfDicts = hal.get_info_pins()
@@ -115,6 +118,7 @@ pinDirection1 = listOfDicts[0].get('DIRECTION')
 *get_info_signals()* ::
 Returns a list of dicts of all system signals.
 
+
 [source,python]
 ----
 listOfDicts = hal.get_info_signals()
@@ -125,6 +129,7 @@ driverPin1 = listOfDicts[0].get('DRIVER')
 
 *get_info_params()* ::
 Returns a list of dicts of all system parameters.
+
 
 [source,python]
 ----

@@ -167,6 +167,7 @@ Disabled widgets typically have a different color and do not respond to actions.
 
 It is based on PyQt's `QGridLayout`.
 
+
 === 'HalBar' - HAL Bar Level Indicator
 
 .QtVCP `HalBar`: Panel demonstrating the HAL Bar Level Indicator
@@ -690,6 +691,7 @@ If it is not as you like, modify its existing position and re-record.
 
 [[sub:qtvcp:widgets:axistoolbutton]]
 === `AxisToolButton` - Select and Set Axis Widget
+
 
 //TODO AxisToolButton widget capture/example
 

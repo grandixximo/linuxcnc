@@ -165,6 +165,7 @@ writing files) must be done to complete the shutdown process.
 
 See <<cha:python-hal-interface, Python HAL Interface>> for an overview of available functions.
 
+
 == Constants
 
 Use these to specify details rather then the value they hold.

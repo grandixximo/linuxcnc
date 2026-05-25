@@ -367,6 +367,7 @@ self.on_keycall_F11_super = self.on_keycall_F11
 # to point to our new function (of the same name) defined in this file.
 self.on_keycall_F11 = types.MethodType(on_keycall_F11, self)
 
+
 # add a new pin to the screen:
 
 # pin callback to print the state
@@ -477,6 +478,7 @@ loadusr -Wn my_panel qtvcp my_panel.ui  # <1>
 
 # add components to thread
 addf classicladder.0.refresh thread1
+
 
 # connect pins
 net bit-input1     test_panel.checkbox_1        classicladder.0.in-00

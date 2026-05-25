@@ -695,6 +695,7 @@ Some functions/features are only used for particular modes and are not displayed
 |C        |This button clears the live plot.
 |===
 
+
 .*MACHINE* representation
 [cols="4,16",options="header"]
 //[grid=none,frame=ends]
@@ -1204,6 +1205,7 @@ This section shows the text that appears on the shutdown dialog if the *Exit War
 The text may be edited at any time and will be loaded ready for use if the *SAVE* button is clicked.
 
 To return the *EXIT WARNING MESSAGE* text to the last saved value press the *RELOAD* button.
+
 
 .*UTILITIES*
 

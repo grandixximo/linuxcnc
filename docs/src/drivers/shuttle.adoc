@@ -33,6 +33,7 @@ Any user interaction with the Shuttle device will generate an event, informing t
 So if you (for example) push one of the buttons at startup, the jog-wheel will work fine and notice the first click.
 ====
 
+
 == Setup
 
 The shuttle driver needs read permission to the /dev/hidraw*

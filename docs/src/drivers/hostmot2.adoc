@@ -343,6 +343,7 @@ So far, all firmware is available in all gate sizes.)
 |SVST8_8IM2   | 8 (+IM)  | 8          | 8        | 0
 |===
 
+
 4I65 (3-port PC/104) Default Configurations (The 4I65 has 200k gates.)
 
 [width="90%",options="header"]

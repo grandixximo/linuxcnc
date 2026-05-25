@@ -28,8 +28,27 @@ module LinuxCNCDocs
     INLINE_IMAGE_RE = /(?<![:\w])image:(?!:)([^\[\s]+)\[/
     # Language subdirectories of docs/src/.  Stripped from the path when
     # falling back to the English source tree for images that exist only
-    # in the canonical location.
-    LANG_RE = %r{/src/(de|es|fr|nb|ru|uk|zh_CN)/}
+    # in the canonical location.  The Submakefile passes the authoritative
+    # list via -a doc-languages='de es fr nb ru uk zh_CN'; we cache it in
+    # the lang_re_for() result.  Locale codes are matched literally as they appear
+    # on disk (mixed case, '_' or '-' separator) so the regex stays in
+    # sync with the actual docs/src/<lang>/ tree.
+    DEFAULT_LANGS = %w[ar de es fr nb ru sv ta tr uk zh_CN].freeze
+
+    # Per-document regex cache keyed by the language list string.  The
+    # treeprocessor itself is frozen by Asciidoctor after registration,
+    # so we cannot store state on the instance directly; use a thread-
+    # local map instead (safe because asciidoctor invocations are
+    # single-threaded per process).
+    def lang_re_for(document)
+      attr = document.attr('doc-languages')
+      key = attr && !attr.empty? ? attr : DEFAULT_LANGS.join(' ')
+      cache = (Thread.current[:lcnc_lang_re_cache] ||= {})
+      cache[key] ||= begin
+        langs = key.split(/\s+/)
+        %r{/src/(#{langs.sort_by { |l| -l.length }.map { |l| Regexp.escape(l) }.join('|')})/}
+      end
+    end
 
     def process(document)
       # PDF embedding needs absolute paths so prawn-svg / image reading
@@ -69,14 +88,15 @@ module LinuxCNCDocs
       src = node.file || node.document.attr('docfile')
       return unless src
       base_dir = File.dirname(File.expand_path(src))
-      lang = doc_language(src)
+      lang_re = lang_re_for(node.document)
+      lang = (m = lang_re.match(src.to_s)) ? m[1] : 'en'
       pdf = node.document.backend == 'pdf'
 
       # Try a language-specific variant of the filename first.
       if lang != 'en'
         swapped = swap_lang(target, lang)
         if swapped != target
-          abs = resolve_candidate(File.expand_path(swapped, base_dir))
+          abs = resolve_candidate(File.expand_path(swapped, base_dir), lang_re)
           if abs
             node.set_attr('target', pdf ? abs : swapped)
             apply_default_width(node) if pdf
@@ -88,17 +108,10 @@ module LinuxCNCDocs
       # No translated variant available (or English doc); the original
       # target stays for HTML, only PDF needs the absolute rewrite.
       return unless pdf
-      abs = resolve_candidate(File.expand_path(target, base_dir))
+      abs = resolve_candidate(File.expand_path(target, base_dir), lang_re)
       return unless abs
       node.set_attr('target', abs)
       apply_default_width(node)
-    end
-
-    # Returns the document language inferred from the source file path
-    # (one of LANG_RE's capture groups), or 'en' for the canonical tree.
-    def doc_language(src)
-      m = LANG_RE.match(src.to_s)
-      m ? m[1] : 'en'
     end
 
     # Rewrite an `*_en.<ext>` filename to `*_<lang>.<ext>`.  The check
@@ -113,7 +126,7 @@ module LinuxCNCDocs
     # under docs/src/<lang>/ are not always populated for every macro a
     # translated file references, but the English original at
     # docs/src/.../ usually exists.
-    def resolve_candidate(path)
+    def resolve_candidate(path, lang_re)
       probe = ->(p) {
         return p if File.file?(p)
         r = resolve_extension(p)
@@ -122,19 +135,20 @@ module LinuxCNCDocs
       }
       r = probe.call(path)
       return r if r
-      fallback = path.sub(LANG_RE, '/src/')
+      fallback = path.sub(lang_re, '/src/')
       fallback != path ? probe.call(fallback) : nil
     end
 
     def rewrite_inline_in_block(block)
       base_dir = File.dirname(File.expand_path(block.file))
-      lang = doc_language(block.file)
+      lang_re = lang_re_for(block.document)
+      lang = (m = lang_re.match(block.file.to_s)) ? m[1] : 'en'
       pdf = block.document.backend == 'pdf'
 
       # :paragraph / :literal / :sidebar etc. carry source in .lines (Array<String>).
       if block.respond_to?(:lines=) && block.lines.is_a?(Array) && !block.lines.empty?
         changed = false
-        new_lines = block.lines.map { |ln| rewrite_inline(ln, base_dir, lang, pdf) { changed = true } }
+        new_lines = block.lines.map { |ln| rewrite_inline(ln, base_dir, lang, lang_re, pdf) { changed = true } }
         block.lines = new_lines if changed
       end
 
@@ -143,13 +157,13 @@ module LinuxCNCDocs
         old = block.instance_variable_get(:@text)
         if old.is_a?(String) && !old.empty?
           changed = false
-          new_text = rewrite_inline(old, base_dir, lang, pdf) { changed = true }
+          new_text = rewrite_inline(old, base_dir, lang, lang_re, pdf) { changed = true }
           block.text = new_text if changed
         end
       end
     end
 
-    def rewrite_inline(text, base_dir, lang, pdf)
+    def rewrite_inline(text, base_dir, lang, lang_re, pdf)
       text.gsub(INLINE_IMAGE_RE) do
         full = Regexp.last_match(0)
         target = Regexp.last_match(1)
@@ -159,7 +173,7 @@ module LinuxCNCDocs
         if lang != 'en'
           swapped = swap_lang(target, lang)
           if swapped != target
-            abs = resolve_candidate(File.expand_path(swapped, base_dir))
+            abs = resolve_candidate(File.expand_path(swapped, base_dir), lang_re)
             if abs
               yield if block_given?
               next "image:#{pdf ? abs : swapped}["
@@ -168,7 +182,7 @@ module LinuxCNCDocs
         end
 
         next full unless pdf
-        candidate = resolve_candidate(File.expand_path(target, base_dir))
+        candidate = resolve_candidate(File.expand_path(target, base_dir), lang_re)
         if candidate
           yield if block_given?
           "image:#{candidate}["
