@@ -887,17 +887,8 @@ endef
 # subdirs from its xref index. Translated languages are rooted at their
 # own subtree so the exclude is empty.
 $(eval $(call ASCIIDOCTOR_HTML_RULE,en,$(DOC_SRCDIR),^($(LANGUAGES_MATCH))/))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,ar,$(DOC_SRCDIR)/ar))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,de,$(DOC_SRCDIR)/de))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,es,$(DOC_SRCDIR)/es))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,fr,$(DOC_SRCDIR)/fr))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,nb,$(DOC_SRCDIR)/nb))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,ru,$(DOC_SRCDIR)/ru))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,sv,$(DOC_SRCDIR)/sv))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,ta,$(DOC_SRCDIR)/ta))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,tr,$(DOC_SRCDIR)/tr))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,uk,$(DOC_SRCDIR)/uk))
-$(eval $(call ASCIIDOCTOR_HTML_RULE,zh_CN,$(DOC_SRCDIR)/zh_CN))
+$(foreach lang,$(LANGUAGES),\
+    $(eval $(call ASCIIDOCTOR_HTML_RULE,$(lang),$(DOC_SRCDIR)/$(lang))))
 
 
 default: docs
