@@ -540,6 +540,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 		asciidoctor \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
 			--doctype=manpage \
 			--backend=html5 \
 			-a compat-mode \
@@ -550,6 +551,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			-a "stylesdir=../.." \
 			-a stylesheet=linuxcnc.css \
 			-a source-highlighter=rouge \
+			-a rouge-style=pastie \
 			-o $@ \
 			"$$F" \
 			; \
@@ -749,10 +751,12 @@ $(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(DOC_F
 	$(Q)timeout 900 asciidoctor-pdf \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
 	    -a compat-mode \
 	    -a mansource=LinuxCNC \
 	    -a manmanual='LinuxCNC Documentation' \
 	    -a source-highlighter=rouge \
+		-a rouge-style=pastie \
 	    -a "pdf-fontsdir=$(realpath $(DOC_FONT_DIR));GEM_FONTS_DIR" \
 	    -a "lversion=$(shell cat ../VERSION)" \
 	    -a pdf-theme=$(DOC_SRCDIR)/pdf-theme.yml \
@@ -861,6 +865,7 @@ $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$
 	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ini.rb \
 		 -a compat-mode \
 		 -a xref-root=$2 \
 		 -a "xref-exclude=$3" \
@@ -870,6 +875,7 @@ $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$
 		 -a "relindir=$$(shell dirname $$*)" \
 		 -a stylesheet=linuxcnc.css \
 		 -a source-highlighter=rouge \
+		 -a rouge-style=pastie \
 		 -d book -a toc -a numbered \
 		 -o $$@ $$< || (X=$$$$?; rm -f $$@; exit $$$$X)
 endef
