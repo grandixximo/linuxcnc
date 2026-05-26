@@ -29,11 +29,11 @@ module LinuxCNCDocs
     # Language subdirectories of docs/src/.  Stripped from the path when
     # falling back to the English source tree for images that exist only
     # in the canonical location.  The Submakefile passes the authoritative
-    # list via -a doc-languages='de es fr nb ru uk zh_CN'; we cache it in
-    # the lang_re_for() result.  Locale codes are matched literally as they appear
-    # on disk (mixed case, '_' or '-' separator) so the regex stays in
-    # sync with the actual docs/src/<lang>/ tree.
-    DEFAULT_LANGS = %w[ar de es fr nb ru sv ta tr uk zh_CN].freeze
+    # list via -a doc-languages='de es fr nb ru uk zh_CN' (derived from
+    # po4a.cfg's [po4a_langs] line, the single source of truth).  When
+    # the attribute is missing or empty the resolver returns nil and the
+    # caller skips the locale rewrite; preferable to silently embedding
+    # a stale hardcoded list that would drift away from po4a.cfg.
 
     # Per-document regex cache keyed by the language list string.  The
     # treeprocessor itself is frozen by Asciidoctor after registration,
@@ -42,10 +42,10 @@ module LinuxCNCDocs
     # single-threaded per process).
     def lang_re_for(document)
       attr = document.attr('doc-languages')
-      key = attr && !attr.empty? ? attr : DEFAULT_LANGS.join(' ')
+      return nil if attr.nil? || attr.empty?
       cache = (Thread.current[:lcnc_lang_re_cache] ||= {})
-      cache[key] ||= begin
-        langs = key.split(/\s+/)
+      cache[attr] ||= begin
+        langs = attr.split(/\s+/)
         %r{/src/(#{langs.sort_by { |l| -l.length }.map { |l| Regexp.escape(l) }.join('|')})/}
       end
     end
@@ -89,7 +89,7 @@ module LinuxCNCDocs
       return unless src
       base_dir = File.dirname(File.expand_path(src))
       lang_re = lang_re_for(node.document)
-      lang = (m = lang_re.match(src.to_s)) ? m[1] : 'en'
+      lang = lang_re && (m = lang_re.match(src.to_s)) ? m[1] : 'en'
       pdf = node.document.backend == 'pdf'
 
       # Try a language-specific variant of the filename first.
@@ -135,6 +135,7 @@ module LinuxCNCDocs
       }
       r = probe.call(path)
       return r if r
+      return nil unless lang_re
       fallback = path.sub(lang_re, '/src/')
       fallback != path ? probe.call(fallback) : nil
     end
@@ -142,7 +143,7 @@ module LinuxCNCDocs
     def rewrite_inline_in_block(block)
       base_dir = File.dirname(File.expand_path(block.file))
       lang_re = lang_re_for(block.document)
-      lang = (m = lang_re.match(block.file.to_s)) ? m[1] : 'en'
+      lang = lang_re && (m = lang_re.match(block.file.to_s)) ? m[1] : 'en'
       pdf = block.document.backend == 'pdf'
 
       # :paragraph / :literal / :sidebar etc. carry source in .lines (Array<String>).
