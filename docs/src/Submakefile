@@ -524,7 +524,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 	@$(ECHO) Formatting $(notdir $<) as HTML
 	@mkdir -p $(dir $@)
 	$(Q)if grep -q '^\.so' $<; then \
-		ln -srf ../docs/html/man/$$(awk '{print $$2}' $<).html $@; \
+		ln -srf ../docs/html/man/$$(basename $$(dirname $<))/$$(awk '{print $$2}' $<).html $@; \
 	else \
 		N="$$(basename "$<").adoc"; \
 		D="$$(dirname "$<")"; \
