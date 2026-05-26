@@ -127,6 +127,14 @@ body.lcnc-legacy mark {
   color: inherit;
 }
 
+/* ---- inlined SVG (image::...[opts=inline]): pin light scheme -------
+   The classic theme has no dark variant, but drawio exports embed
+   `color-scheme: light dark` and `light-dark()` swatches on the SVG
+   root.  Force-only light here so the diagram stays readable when the
+   browser/OS is in dark mode.  !important is required because the
+   `color-scheme` declaration sits in the SVG root's inline style. */
+body.lcnc-legacy svg { color-scheme: only light !important; }
+
 /* ---- body: Georgia serif, narrow side margin, full text contrast --- */
 body.lcnc-legacy {
   font-family: Georgia, "Times New Roman", serif;
