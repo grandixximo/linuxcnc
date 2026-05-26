@@ -1,4 +1,4 @@
-.PHONY: docs docclean checkref checkref_en checkref_ar checkref_de checkref_es checkref_fr checkref_nb checkref_ru checkref_sv checkref_ta checkref_tr checkref_uk checkref_zh_CN
+.PHONY: docs docclean checkref
 .PHONY: pdfdocs htmldocs install-doc install-doc-pdf install-doc-html
 
 SHELL=/bin/bash
@@ -299,32 +299,22 @@ DOC_SRCS_HTML = $(patsubst %.adoc, %.html, $(foreach p, $(DOC_SRCS), $(if $(find
 DOC_TARGETS_HTML = $(addprefix $(DOC_DIR)/html/,$(DOC_SRCS_HTML)) #$(subst /,_,$(DOC_SRCS_HTML))
 DOC_TARGETS_XML = $(patsubst $(DOC_DIR)/html/%.html, objects/%.xml, $(DOC_TARGETS_HTML))
 
-DOC_TARGETS_XML_AR = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /ar/, $(p)), $p))
-DOC_TARGETS_XML_DE = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /de/, $(p)), $p))
-DOC_TARGETS_XML_ES = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /es/, $(p)), $p))
-DOC_TARGETS_XML_FR = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /fr/, $(p)), $p))
-DOC_TARGETS_XML_NB = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /nb/, $(p)), $p))
-DOC_TARGETS_XML_RU = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /ru/, $(p)), $p))
-DOC_TARGETS_XML_SV = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /sv/, $(p)), $p))
-DOC_TARGETS_XML_TA = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /ta/, $(p)), $p))
-DOC_TARGETS_XML_TR = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /tr/, $(p)), $p))
-DOC_TARGETS_XML_UK = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /uk/, $(p)), $p))
-DOC_TARGETS_XML_ZH_CN = $(foreach p, $(DOC_TARGETS_XML), $(if $(findstring /zh_CN/, $(p)), $p))
+# Per-language slices of DOC_TARGETS_XML / DOC_TARGETS_HTML, derived
+# from $(LANGUAGES) (which comes from po4a.cfg).  English is whatever
+# is left after every translated subtree is filtered out.
+$(foreach L,$(LANGUAGES),\
+  $(eval DOC_TARGETS_XML_$(call toUC,$(L)) = \
+    $$(foreach p,$$(DOC_TARGETS_XML),$$(if $$(findstring /$(L)/,$$(p)),$$(p)))))
+DOC_TARGETS_XML_EN = $(filter-out \
+    $(foreach L,$(LANGUAGES),$(DOC_TARGETS_XML_$(call toUC,$(L)))), \
+    $(DOC_TARGETS_XML))
 
-DOC_TARGETS_XML_EN = $(filter-out $(DOC_TARGETS_XML_AR), $(filter-out $(DOC_TARGETS_XML_DE), $(filter-out $(DOC_TARGETS_XML_ES), $(filter-out $(DOC_TARGETS_XML_FR), $(filter-out $(DOC_TARGETS_XML_NB), $(filter-out $(DOC_TARGETS_XML_RU), $(filter-out $(DOC_TARGETS_XML_SV), $(filter-out $(DOC_TARGETS_XML_TR), $(filter-out $(DOC_TARGETS_XML_UK), $(filter-out $(DOC_TARGETS_XML_ZH_CN), $(DOC_TARGETS_XML)))))))))))
-
-DOC_TARGETS_HTML_AR = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /ar/, $(p)), $p))
-DOC_TARGETS_HTML_DE = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /de/, $(p)), $p))
-DOC_TARGETS_HTML_ES = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /es/, $(p)), $p))
-DOC_TARGETS_HTML_FR = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /fr/, $(p)), $p))
-DOC_TARGETS_HTML_NB = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /nb/, $(p)), $p))
-DOC_TARGETS_HTML_RU = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /ru/, $(p)), $p))
-DOC_TARGETS_HTML_SV = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /sv/, $(p)), $p))
-DOC_TARGETS_HTML_TA = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /ta/, $(p)), $p))
-DOC_TARGETS_HTML_TR = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /tr/, $(p)), $p))
-DOC_TARGETS_HTML_UK = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /uk/, $(p)), $p))
-DOC_TARGETS_HTML_ZH_CN = $(foreach p, $(DOC_TARGETS_HTML), $(if $(findstring /zh_CN/, $(p)), $p))
-DOC_TARGETS_HTML_EN = $(filter-out $(DOC_TARGETS_HTML_AR), $(filter-out $(DOC_TARGETS_HTML_DE), $(filter-out $(DOC_TARGETS_HTML_ES), $(filter-out $(DOC_TARGETS_HTML_FR), $(filter-out $(DOC_TARGETS_HTML_NB), $(filter-out $(DOC_TARGETS_HTML_RU), $(filter-out $(DOC_TARGETS_HTML_SV), $(filter-out $(DOC_TARGETS_HTML_TA), $(filter-out $(DOC_TARGETS_HTML_TR), $(filter-out $(DOC_TARGETS_HTML_UK), $(filter-out $(DOC_TARGETS_HTML_ZH_CN), $(DOC_TARGETS_HTML))))))))))))
+$(foreach L,$(LANGUAGES),\
+  $(eval DOC_TARGETS_HTML_$(call toUC,$(L)) = \
+    $$(foreach p,$$(DOC_TARGETS_HTML),$$(if $$(findstring /$(L)/,$$(p)),$$(p)))))
+DOC_TARGETS_HTML_EN = $(filter-out \
+    $(foreach L,$(LANGUAGES),$(DOC_TARGETS_HTML_$(call toUC,$(L)))), \
+    $(DOC_TARGETS_HTML))
 
 MAN_HTML_TARGETS = $(patsubst $(DOC_DIR)/man/%, $(DOC_DIR)/html/man/%.html, $(MAN_SRCS))
 
@@ -333,57 +323,19 @@ PDF_TARGETS_EN := $(addprefix $(DOC_DIR)/, $(patsubst %.adoc,%.pdf, \
         LinuxCNC_Manual_Pages.pdf \
         ) \
 
-PDF_TARGETS_AR = $(addprefix $(DOC_DIR)/, $(subst ar/,, \
-	$(patsubst %.adoc,%_ar.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter ar/Master_%,$(DOC_SRCS_AR))))))
-
-PDF_TARGETS_DE = $(addprefix $(DOC_DIR)/, $(subst de/,, \
-	$(patsubst %.adoc,%_de.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter de/Master_%,$(DOC_SRCS_DE))))))
-
-PDF_TARGETS_ES = $(addprefix $(DOC_DIR)/, $(subst es/,, \
-	$(patsubst %.adoc,%_es.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter es/Master_%,$(DOC_SRCS_ES))))))
-
-PDF_TARGETS_FR = $(addprefix $(DOC_DIR)/, $(subst fr/,, \
-	$(patsubst %.adoc,%_fr.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter fr/Master_%,$(DOC_SRCS_FR))))))
-
-PDF_TARGETS_NB = $(addprefix $(DOC_DIR)/, $(subst nb/,, \
-	$(patsubst %.adoc,%_nb.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter nb/Master_%,$(DOC_SRCS_NB))))))
-
-PDF_TARGETS_RU = $(addprefix $(DOC_DIR)/, $(subst ru/,, \
-	$(patsubst %.adoc,%_ru.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter ru/Master_%,$(DOC_SRCS_RU))))))
-
-PDF_TARGETS_SV = $(addprefix $(DOC_DIR)/, $(subst sv/,, \
-	$(patsubst %.adoc,%_sv.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter sv/Master_%,$(DOC_SRCS_SV))))))
-
-PDF_TARGETS_TA = $(addprefix $(DOC_DIR)/, $(subst ta/,, \
-	$(patsubst %.adoc,%_ta.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter ta/Master_%,$(DOC_SRCS_TA))))))
-
-PDF_TARGETS_TR = $(addprefix $(DOC_DIR)/, $(subst tr/,, \
-	$(patsubst %.adoc,%_tr.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter tr/Master_%,$(DOC_SRCS_TR))))))
-
-PDF_TARGETS_UK = $(addprefix $(DOC_DIR)/, $(subst uk/,, \
-	$(patsubst %.adoc,%_uk.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter uk/Master_%,$(DOC_SRCS_UK))))))
-
-PDF_TARGETS_ZH_CN = $(addprefix $(DOC_DIR)/, $(subst zh_CN/,, \
-	$(patsubst %.adoc,%_zh_CN.pdf, \
-	$(subst Master_,LinuxCNC_, $(filter zh_CN/Master_%,$(DOC_SRCS_ZH_CN))))))
+# Per-language PDF target lists, derived from $(LANGUAGES).
+$(foreach L,$(LANGUAGES),\
+  $(eval PDF_TARGETS_$(call toUC,$(L)) = \
+    $$(addprefix $$(DOC_DIR)/, $$(subst $(L)/,, \
+      $$(patsubst %.adoc,%_$(L).pdf, \
+      $$(subst Master_,LinuxCNC_, $$(filter $(L)/Master_%,$$(DOC_SRCS_$(call toUC,$(L))))))))))
 
 PDF_TARGETS = $(PDF_TARGETS_EN)
 ifeq ($(BUILD_DOCS_TRANSLATED),yes)
-PDF_TARGETS += $(PDF_TARGETS_AR) $(PDF_TARGETS_DE) $(PDF_TARGETS_ES) $(PDF_TARGETS_FR) $(PDF_TARGETS_NB) $(PDF_TARGETS_RU) $(PDF_TARGETS_SV) $(PDF_TARGETS_TA) $(PDF_TARGETS_TR) $(PDF_TARGETS_UK) $(PDF_TARGETS_ZH_CN)
+PDF_TARGETS += $(foreach L,$(LANGUAGES),$(PDF_TARGETS_$(call toUC,$(L))))
 endif
 
 info::
-	@$(ECHO) PDF_TARGETS_UK: $(PDF_TARGETS_UK)
 	@$(ECHO) PDF_TARGETS: $(PDF_TARGETS)
 
 
@@ -457,8 +409,7 @@ gen_complist: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(
 
 
 CHECKREF_TARGETS := checkref_en $(foreach L,$(LANGUAGES),checkref_$(L))
-
-#checkref: checkref_en checkref_ar checkref_de checkref_es checkref_fr checkref_nb checkref_ru checkref_sv checkref_ta checkref_tr checkref_uk checkref_zh_CN
+.PHONY: $(CHECKREF_TARGETS)
 checkref: $(CHECKREF_TARGETS)
 
 checkref_en: $(DOC_TARGETS_HTML_EN) $(DOC_DIR)/html/index.html $(DOC_DIR)/html/gcode.html .htmldoc-stamp
