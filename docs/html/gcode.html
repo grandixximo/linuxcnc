@@ -41,6 +41,24 @@ td { background: white; color: black; }
 tr.odd td { background: #d9d9d9; }
 tr.head td, tr.head th { background: black; color: white; }
 --></style>
+<link rel="stylesheet" href="lcnc-overrides.css" id="lcnc-overrides-link"/>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('lcnc-theme') || 'legacy';
+    var dark = window.matchMedia &&
+               window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (t === 'modern' && dark) {
+      var s = document.createElement('style');
+      s.id = 'lcnc-fouc-guard';
+      s.textContent = 'html,body{background:#1e1e1e !important;' +
+                      'color:#e0e0e0 !important;}';
+      document.head.appendChild(s);
+    }
+  } catch (e) {}
+})();
+</script>
+<script src="lcnc-theme-toggle.js"></script>
 </head>
 
 <body>

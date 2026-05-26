@@ -9,6 +9,12 @@
                              - opt-in dark mode via prefers-color-scheme
 */
 
+/* Asciidoctor's three default web fonts.  Asciidoctor pages pull these
+   in via their own <link>; static pages (index.html, gcode.html) get
+   them through this @import so the Modern theme renders identically
+   on both. */
+@import url("https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic|Noto+Serif:400,400italic,700,700italic|Droid+Sans+Mono:400,700");
+
 /* ======================================================================
  *  MODERN  (asciidoctor default + small fixes)
  * ====================================================================== */
@@ -32,6 +38,14 @@ body.lcnc-modern .literalblock pre.highlight {
 
 /* Dark mode honours the OS / browser preference; only modern opts in. */
 @media (prefers-color-scheme: dark) {
+  /* FOUC guard: paint the page dark before JS gets to apply the
+     body class.  Excludes the explicit Legacy choice (asciidoctor's
+     white bg stays for Legacy users on dark OS).  Pure CSS so the
+     bg is in effect on first paint, no inline script race. */
+  body:not(.lcnc-legacy):not(.lcnc-static-legacy) {
+    background: #1e1e1e;
+    color: #e0e0e0;
+  }
   body.lcnc-modern {
     background: #1e1e1e;
     color: #e0e0e0;
@@ -56,31 +70,43 @@ body.lcnc-modern .literalblock pre.highlight {
   }
   body.lcnc-modern a { color: #6fa8dc; }
   body.lcnc-modern a:visited { color: #b48ead; }
+  /* Single dark wrapper around listings: paint .content only, make
+     the inner <pre> transparent.  Painting both gives a double-box. */
   body.lcnc-modern .listingblock > .content,
-  body.lcnc-modern .literalblock > .content,
+  body.lcnc-modern .literalblock > .content {
+    background: #2a2a2a;
+    color: #f0f0f0;
+  }
   body.lcnc-modern .listingblock pre,
   body.lcnc-modern .literalblock pre,
   body.lcnc-modern .listingblock > .content > pre[class^="highlight"],
   body.lcnc-modern .listingblock > .content > pre:not(.highlight),
-  body.lcnc-modern .literalblock pre.highlight {
-    background: #2a2a2a;
-    color: #f0f0f0;
-  }
-  body.lcnc-modern .listingblock pre *,
-  body.lcnc-modern .literalblock pre * {
-    color: #f0f0f0 !important;
+  body.lcnc-modern .literalblock pre.highlight,
+  body.lcnc-modern pre.rouge {
     background: transparent !important;
+    background-color: transparent !important;
+    color: inherit;
   }
-  body.lcnc-modern code,
+  /* Leave rouge token colors alone so HAL/INI/NGC highlighting
+     survives dark mode.  Some tokens may render a bit dim against
+     #2a2a2a; a dedicated dark rouge stylesheet is the proper fix. */
+  /* Inline code/tt only.  pre code inside listingblock would
+     otherwise paint a second box inside the listing wrapper. */
+  body.lcnc-modern p code,
+  body.lcnc-modern li code,
+  body.lcnc-modern td code,
   body.lcnc-modern tt {
     background: #3a3a3a;
     color: #f0f0f0;
-  }
-  body.lcnc-modern p code,
-  body.lcnc-modern li code,
-  body.lcnc-modern td code {
     padding: 1px 4px;
     border-radius: 3px;
+  }
+  body.lcnc-modern pre code,
+  body.lcnc-modern .listingblock code,
+  body.lcnc-modern .literalblock code {
+    background: transparent !important;
+    padding: 0 !important;
+    color: inherit;
   }
   body.lcnc-modern table.tableblock,
   body.lcnc-modern table.tableblock th,
@@ -113,6 +139,16 @@ body.lcnc-modern .literalblock pre.highlight {
   body.lcnc-modern .admonitionblock > table td.icon .title {
     color: #e06464;
     font-weight: bold;
+  }
+
+  /* Inkscape-exported SVG figures are transparent with black strokes
+     and disappear on dark page bg.  Wrap SVGs only in a white card;
+     PNGs/JPEGs usually carry their own background so leave them be. */
+  body.lcnc-modern .imageblock img[src$=".svg"],
+  body.lcnc-modern .image img[src$=".svg"] {
+    background: #fff;
+    padding: 0.5em;
+    border-radius: 4px;
   }
 }
 
@@ -513,4 +549,211 @@ body.lcnc-legacy #footer {
 body.lcnc-legacy #footer-text,
 body.lcnc-legacy #footer * {
   color: #000 !important;
+}
+
+
+/* ======================================================================
+ *  STATIC PAGES (index.html / gcode.html)
+ *
+ *  lcnc-static-legacy is a no-op: those pages already ship their own
+ *  hand-rolled CSS that matches the classic linuxcnc.org look.  The
+ *  modern variant tweaks colors and typography toward the asciidoctor
+ *  default so the static landing pages don't feel out of place when
+ *  the user has picked Modern.
+ * ====================================================================== */
+
+/* Modern static: mirror asciidoctor's defaults so landing pages
+   blend with the doc pages.  Asciidoctor uses Noto Serif body /
+   Open Sans headings / #ba3925 heading color / #2156a5 links. */
+body.lcnc-static-modern {
+  font-family: "Noto Serif", "DejaVu Serif", Georgia, serif;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1;
+  background: #fff;
+  color: rgba(0, 0, 0, 0.85);
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  /* Match asciidoctor's #content max-width so static landing pages
+     don't span the full window on wide monitors. */
+  max-width: 62.5em;
+  margin: 0 auto;
+  padding: 1em 1.5em;
+}
+/* Override index.css { body { padding-left: 50px } } */
+body.lcnc-static-modern { padding-left: 1.5em !important; }
+/* Caption acts as the page title in gcode.html; render it like
+   asciidoctor's h2. */
+body.lcnc-static-modern caption {
+  font-family: "Open Sans", "DejaVu Sans", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+  font-size: 2.3125em;
+  color: #ba3925;
+  text-rendering: optimizeLegibility;
+  text-align: left;
+  margin: 0.5em 0;
+  caption-side: top;
+}
+body.lcnc-static-modern p,
+body.lcnc-static-modern dd {
+  font-family: inherit;
+  font-size: 1.0625em;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+}
+/* Link lists on index.html act as a TOC; match asciidoctor's #toc ul
+   styling (Open Sans, tight line-height). */
+body.lcnc-static-modern ul,
+body.lcnc-static-modern ol {
+  font-family: "Open Sans", "DejaVu Sans", sans-serif;
+}
+body.lcnc-static-modern li {
+  line-height: 1.3334;
+  margin-top: 0.3334em;
+}
+body.lcnc-static-modern h1,
+body.lcnc-static-modern h2,
+body.lcnc-static-modern h3,
+body.lcnc-static-modern h4,
+body.lcnc-static-modern h5,
+body.lcnc-static-modern h6 {
+  font-family: "Open Sans", "DejaVu Sans", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+  color: #ba3925;
+  line-height: 1.2;
+  text-rendering: optimizeLegibility;
+}
+/* Sizes pulled from asciidoctor's desktop cascade. */
+body.lcnc-static-modern h2 {
+  font-size: 2.3125em;
+}
+body.lcnc-static-modern h3 {
+  font-size: 1.6875em;
+}
+body.lcnc-static-modern h4 {
+  font-size: 1.4375em;
+}
+body.lcnc-static-modern a {
+  color: #2156a5;
+  text-decoration: none;
+}
+body.lcnc-static-modern a:hover {
+  text-decoration: underline;
+}
+body.lcnc-static-modern a:visited {
+  color: #1d4b8f;
+}
+body.lcnc-static-modern code,
+body.lcnc-static-modern pre,
+body.lcnc-static-modern tt {
+  font-family: "Droid Sans Mono", "DejaVu Sans Mono", monospace;
+}
+
+/* gcode.html table: redo to mirror asciidoctor's table look.
+   gcode.html ships hard black borders / black header inline; we
+   strip the vertical rules, soften horizontals, and lighten the
+   header background.  !important overrides inline style="..." on
+   the section-divider rows in the static markup. */
+body.lcnc-static-modern table {
+  border-collapse: collapse;
+  border: 1px solid #dddddf !important;
+  margin: 1em auto;
+}
+body.lcnc-static-modern td,
+body.lcnc-static-modern th {
+  border: none !important;
+  border-bottom: 1px solid #dddddf !important;
+  padding: 0.5em 0.625em !important;
+  vertical-align: top;
+}
+body.lcnc-static-modern td {
+  background: #fff;
+  color: rgba(0, 0, 0, 0.85);
+}
+body.lcnc-static-modern th {
+  background: #f7f7f8;
+  color: rgba(0, 0, 0, 0.85);
+  font-weight: bold;
+  text-align: left;
+}
+body.lcnc-static-modern tr.odd td {
+  background: #f8f8f7;
+}
+body.lcnc-static-modern tr.head td,
+body.lcnc-static-modern tr.head th {
+  background: #f7f7f8;
+  color: rgba(0, 0, 0, 0.85);
+}
+/* Section divider rows in gcode.html.  Two shapes appear:
+     <tr><th>Sec</th><td colspan="2">desc</td></tr>    (Motion, Canned cycles)
+     <tr><th colspan="3">Sec</th></tr>                 (Distance Mode, ...)
+   Paint the row background and let the cells fall through, so the
+   tint covers any colgroup column not spanned by the th/td. */
+body.lcnc-static-modern tr:has(> th:first-child:not(:only-child)),
+body.lcnc-static-modern tr:has(> th:only-child) {
+  background: #ececef;
+}
+body.lcnc-static-modern tr:has(> th:first-child:not(:only-child)) > *,
+body.lcnc-static-modern tr:has(> th:only-child) > * {
+  background: transparent !important;
+  font-weight: bold;
+}
+
+/* ---- Modern dark: opt-in via system preference --------------------
+   Palette mirrors the asciidoctor dark block above so doc and
+   static pages share the same dark look. */
+@media (prefers-color-scheme: dark) {
+  body.lcnc-static-modern {
+    background: #1e1e1e;
+    color: #e0e0e0;
+  }
+  /* All h2..h6 + <caption> render with the orange accent in dark
+     mode; matches asciidoctor's dark h2/h3 color. */
+  body.lcnc-static-modern h1,
+  body.lcnc-static-modern h2,
+  body.lcnc-static-modern h3,
+  body.lcnc-static-modern h4,
+  body.lcnc-static-modern h5,
+  body.lcnc-static-modern h6,
+  body.lcnc-static-modern caption {
+    color: #e08a5a;
+  }
+  body.lcnc-static-modern a         { color: #6fa8dc; }
+  body.lcnc-static-modern a:visited { color: #b48ead; }
+
+  body.lcnc-static-modern table {
+    border-color: #444 !important;
+  }
+  body.lcnc-static-modern td,
+  body.lcnc-static-modern th {
+    border-bottom-color: #444 !important;
+  }
+  body.lcnc-static-modern td {
+    background: #2a2a2a;
+    color: #e0e0e0;
+  }
+  body.lcnc-static-modern th {
+    background: #1a1a1a;
+    color: #f0f0f0;
+  }
+  body.lcnc-static-modern tr.odd td {
+    background: #333;
+  }
+  body.lcnc-static-modern tr.head td,
+  body.lcnc-static-modern tr.head th {
+    background: #1a1a1a;
+    color: #f0f0f0;
+  }
+  /* Section divider rows: paint row bg, transparent cells. */
+  body.lcnc-static-modern tr:has(> th:first-child:not(:only-child)),
+  body.lcnc-static-modern tr:has(> th:only-child) {
+    background: #161616;
+  }
+  body.lcnc-static-modern tr:has(> th:first-child:not(:only-child)) > *,
+  body.lcnc-static-modern tr:has(> th:only-child) > * {
+    background: transparent !important;
+    color: #f0f0f0;
+  }
 }
