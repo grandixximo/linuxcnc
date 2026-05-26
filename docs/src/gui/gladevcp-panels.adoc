@@ -52,7 +52,6 @@ SUBROUTINE_PATH = ./macros:/usr/share/linuxcnc/nc_files/gtk_probe/
 # SUBROUTINE_PATH = ./macros:~/linuxcnc/nc_files/probe/gtk_probe/
 ----
 
-
 **Example using dbounce with a Mesa card (HAL file):**
 
 [source,hal]

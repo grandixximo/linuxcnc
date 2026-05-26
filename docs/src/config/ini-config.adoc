@@ -4,6 +4,7 @@
 [[cha:ini-configuration]]
 = INI Configuration(((INI Configuration)))
 
+
 == The INI File Components(((INI File,Components)))
 
 A typical INI file follows a rather simple layout that includes;

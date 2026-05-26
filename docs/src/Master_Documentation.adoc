@@ -9,7 +9,6 @@
 :leveloffset: 0
 = Getting Started & Configuration
 
-
 :leveloffset: 1
 = Getting Started with LinuxCNC
 
@@ -78,7 +77,6 @@ include::config/stepper.adoc[]
 include::config/stepper-diagnostics.adoc[]
 
 include::gui/filter-programs.adoc[]
-
 
 :leveloffset: 1
 = HAL (Hardware Abstraction Layer)
@@ -207,7 +205,6 @@ include::tooldatabase/tooldatabase.adoc[]
 :leveloffset: 0
 = Usage
 
-
 :leveloffset: 1
 = User Interfaces
 
@@ -305,22 +302,18 @@ include::gui/vismach.adoc[]
 :leveloffset: 0
 = Glossary, Copyright & History
 
-
 :leveloffset: 1
 = Overleaf
 include::common/overleaf.adoc[]
 
-
 :leveloffset: 1
 include::common/glossary.adoc[]
-
 
 :leveloffset: 1
 = Copyright
 
 :leveloffset: 2
 include::common/gpld-copyright.adoc[]
-
 
 :leveloffset: 1
 = LinuxCNC History

@@ -2374,7 +2374,6 @@ class MyCallbacks :
     def on_this_signal(self,obj,data=None):
         print("this_signal happened, obj=",obj)
 
-
 def get_handlers(halcomp,builder,useropts):
     return [MyCallbacks ()]
 ----

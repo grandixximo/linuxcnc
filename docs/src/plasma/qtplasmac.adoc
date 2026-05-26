@@ -4,6 +4,7 @@
 [[cha:qtplasmac]]
 = QtPlasmaC
 
+
 == Preamble
 
 Except where noted, this guide assumes the user is using the latest version of QtPlasmaC.

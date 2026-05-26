@@ -4,6 +4,7 @@
 [[cha:mb2hal]]
 = MB2HAL
 
+
 == Introduction
 
 MB2HAL is a generic non-realtime HAL component to communicate with one or more Modbus devices.

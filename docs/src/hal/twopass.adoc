@@ -4,6 +4,7 @@
 [[cha:hal-twopass]]
 = HAL TWOPASS
 
+
 == TWOPASS
 
 This section describes an option to have multiple load-commands for multiple instances of the same component at different positions in the file or among different files.

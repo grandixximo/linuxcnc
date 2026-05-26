@@ -4,6 +4,7 @@
 [[cha:homing-configuration]]
 = Homing Configuration
 
+
 == Overview
 
 Homing sets the zero origin of the G53 machine coordinates.

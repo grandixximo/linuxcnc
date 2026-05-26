@@ -134,7 +134,6 @@ SPI = Serial Peripheral Interface. SPI interfaces can be found on single board c
 === Remora SPI
 Realtime requirements are offloaded onto a controller board. https://remora-docs.readthedocs.io
 
-
 === LinuxCNC-RIO
 RealtimeIO for LinuxCNC based on an FPGA
 

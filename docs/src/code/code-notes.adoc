@@ -4,6 +4,7 @@
 [[cha:code-notes]]
 = Code Notes
 
+
 == Intended audience
 
 This document is a collection of notes about the internals of LinuxCNC. It

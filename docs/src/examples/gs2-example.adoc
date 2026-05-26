@@ -4,6 +4,7 @@
 [[cha:gs2-spindle]]
 = GS2 Spindle
 
+
 == Example
 
 This example shows the connections needed to use an Automation Direct GS2 VFD to drive a spindle.

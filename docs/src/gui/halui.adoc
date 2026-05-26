@@ -5,6 +5,7 @@
 [[cha:hal-user-interface]]
 = HAL User Interface
 
+
 == Introduction
 
 Halui is a HAL based user interface for LinuxCNC, it connects HAL pins to

@@ -422,7 +422,6 @@ these items (such as backlash) are not the properties of an axis.
 *min_position_limit*:: '(returns float)' -
   minimum limit (soft limit) for axis motion, in machine units.configuration parameter, reflects `[JOINT___n__]MIN_LIMIT`.
 
-
 *velocity*:: '(returns float)' -
   current velocity.
 
@@ -508,7 +507,6 @@ For each joint, the following dictionary keys are available:
   joint units per mm, or per degree for angular joints. +
   (joint units are the same as machine units, unless set otherwise
   by the configuration parameter `[JOINT___n__]UNITS`)
-
 
 *velocity*:: '(returns float)' -
   current velocity.

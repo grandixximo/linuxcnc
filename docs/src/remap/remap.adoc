@@ -4,6 +4,7 @@
 [[cha:remap]]
 = Remap Extending G-code
 
+
 == Introduction: Extending the RS274NGC Interpreter by Remapping Codes
 
 === A Definition: Remapping Codes

@@ -4,6 +4,7 @@
 [[cha:gscreen]]
 = Gscreen
 
+
 == Introduction
 
 Gscreen is an infrastructure to display a custom screen to control LinuxCNC.
