@@ -10,11 +10,6 @@
 // - check wiki vs docs
 // - check other GladeVCP docs branch against this
 
-// begin a listing of INI/HAL/NGC files like so:
-//[source,ini]
-//[source,hal]
-//[source,ngc]
-
 == What is GladeVCP?
 
 (((GladeVCP: Glade Virtual Control Panel)))

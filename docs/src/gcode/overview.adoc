@@ -5,11 +5,6 @@
 [[cha:overview-of-g-code-programming]]
 = Overview of G-Code Programming
 
-// begin a listing of INI/HAL/NGC files like so:
-//[source,ini]
-//[source,hal]
-//[source,ngc]
-
 == Overview
 
 The LinuxCNC G-code language is based on the RS274/NGC language.
@@ -618,11 +613,11 @@ to the values of INI file entries and HAL pins.
 For example, if the INI file looks like so:
 
 [source,ini]
----------------------------------------------------------------------
+----
 [SETUP]
 XPOS = 3.145
 YPOS = 2.718
----------------------------------------------------------------------
+----
 
 you may refer to the named parameters `#<_ini[setup]xpos>` and
 `#<_ini[setup]ypos>` within G-code.
@@ -631,13 +626,13 @@ you may refer to the named parameters `#<_ini[setup]xpos>` and
 variable:
 
 [source,ngc]
----------------------------------------------------------------------
+----
 o100 if [EXISTS[#<_ini[setup]xpos>]]
   (debug, [setup]xpos exists: #<_ini[setup]xpos>)
 o100 else
   (debug, [setup]xpos does not exist)
 o100 endif
----------------------------------------------------------------------
+----
 
 The value is read from the INI file once, and cached in the
 interpreter. These parameters are read-only - assigning a value will
@@ -657,9 +652,9 @@ contain lowercase characters can not be accessed from G-code.
 Example:
 
 [source,ngc]
----------------------------------------------------------------------
+----
 (debug, #<_hal[motion-controller.time]>)
----------------------------------------------------------------------
+----
 
 Access of HAL items is read-only. Currently, only all-lowercase HAL
 names can be accessed this way.
@@ -667,13 +662,13 @@ names can be accessed this way.
 `EXISTS` can be used to test for the presence of a given HAL item:
 
 [source,ngc]
----------------------------------------------------------------------
+----
 o100 if [EXISTS[#<_hal[motion-controller.time]>]]
   (debug, [motion-controller.time] exists: #<_hal[motion-controller.time]>)
 o100 else
   (debug, [motion-controller.time] does not exist)
 o100 endif
----------------------------------------------------------------------
+----
 
 This feature was motivated by the desire for stronger coupling between
 user interface components like `GladeVCP` and `PyVCP` to act as

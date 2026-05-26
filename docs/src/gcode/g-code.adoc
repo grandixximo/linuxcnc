@@ -175,9 +175,9 @@ It is an error if:
 == G1 Linear Move(((G1 Linear Move)))
 
 [source,ngc]
--------------------
+----
 G1 axes
--------------------
+----
 
 For linear (straight line) motion at programmed <<sec:set-feed-rate,feed rate>>
 (for cutting or not), program 'G1 'axes'', where all the axis words are
@@ -1979,10 +1979,10 @@ configuration.
 
 .G76 Example Code
 [source,ngc]
----------------
+----
 G0 Z-0.5 X0.2
 G76 P0.05 Z-1 I-.075 J0.008 K0.045 Q29.5 L2 E0.045
----------------
+----
 
 In the figure the tool is in the final position after the G76 cycle
 is completed. You can see the entry path on the right from the Q29.5

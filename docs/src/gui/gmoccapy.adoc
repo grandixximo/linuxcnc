@@ -438,7 +438,7 @@ If this file is specified, this file is sourced just after the GMOCCAPY GUI is d
 The following example changes the size of the vertical buttons:
 .Example of .gmoccapyrc file
 [source,python]
------
+----
 self.widgets.vbtb_main.set_size_request(85,-1)
 BB_SIZE = (70, 70) # default = (90, 56)
 self.widgets.tbtn_estop.set_size_request(*BB_SIZE)
@@ -449,7 +449,7 @@ self.widgets.rbt_auto.set_size_request(*BB_SIZE)
 self.widgets.tbtn_setup.set_size_request(*BB_SIZE)
 self.widgets.tbtn_user_tabs.set_size_request(*BB_SIZE)
 self.widgets.btn_exit.set_size_request(*BB_SIZE)
------
+----
 
 The widget names can the looked up in the /usr/share/gmoccapy.glade file
 
@@ -1077,14 +1077,14 @@ The line might look like this:
 
 
 [source,hal]
--------
+----
 net probe  motion.probe-input <= parport.0.pin-15-in
--------
+----
 
 In your postgui.hal file add the following lines:
 
 [source,hal]
--------
+----
 # The next lines are only needed if the pins had been connected before
 unlinkp iocontrol.0.tool-change
 unlinkp iocontrol.0.tool-changed
@@ -1096,7 +1096,7 @@ net tool-change gmoccapy.toolchange-change <= iocontrol.0.tool-change
 net tool-changed gmoccapy.toolchange-changed => iocontrol.0.tool-changed
 net tool-prep-number gmoccapy.toolchange-number <= iocontrol.0.tool-prep-number
 net tool-prep-loop iocontrol.0.tool-prepare <= iocontrol.0.tool-prepared
--------
+----
 
 [[gmoccapy:settings-page]]
 == The Settings Page
@@ -1701,7 +1701,7 @@ If you use a macro without movement, like this one:
 
 
 [source,ngc]
----------
+----
  o<zeroxy> sub
 
 G92.1
@@ -1712,7 +1712,7 @@ G10 L20 P0 X0 Y0
 
 o<zeroxy> endsub
 m2
----------
+----
 
 GMOCCAPY will not see the end of the macro, because the interpreter needs to change its state to IDLE,
 but the macro does not even set the interpreter to a new state.
@@ -1720,7 +1720,7 @@ To avoid that just add a G4 P0.1 line to get the needed signal.
 The correct macro would be:
 
 [source,ngc]
----------
+----
  o<zeroxy> sub
 
 G92.1
@@ -1733,6 +1733,6 @@ G4 P0.1
 
 o<zeroxy> endsub
 m2
----------
+----
 
 // vim: set syntax=asciidoc:
