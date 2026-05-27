@@ -1,20 +1,8 @@
 /* LinuxCNC HTML theme overrides.
 
-   Two themes, gated by a single checkbox (#lcnc-mode) injected into
-   the page by docinfo-footer.html (asciidoctor) or inline in the
-   index*.tmpl / gcode.html static templates.  No JS required for the
-   toggle: CSS keys off `body:has(#lcnc-mode:checked)`.  The companion
-   lcnc-theme-toggle.js only persists the choice across pages
-   (localStorage).
-
-   Modern (checkbox unchecked, default):
-     - drop yellow #text# highlight
-     - uniform listing-block grey background
-     - opt-in dark mode via prefers-color-scheme
-
-   Legacy (checkbox checked):
-     - approximate the python-asciidoc + linuxcnc.css look
-     - light-only, always
+   Sits on top of asciidoctor's default stylesheet (linked separately
+   as asciidoctor.css).  Dark mode follows the OS / browser preference
+   via @media (prefers-color-scheme: dark); no toggle, no JS.
 
    Asciidoctor vs static landing pages are distinguished by the
    asciidoctor-set body classes (.article / .book / .manpage); the
@@ -23,27 +11,7 @@
 */
 
 /* ======================================================================
- *  Theme toggle button.  The actual hiding + positioning lives inline
- *  on the elements in docinfo-footer.html / index*.tmpl so the toggle
- *  renders correctly before this stylesheet has loaded.  Only the
- *  state-dependent appearance is here (focus ring + active highlight).
- * ====================================================================== */
-.lcnc-mode-input:focus-visible + .lcnc-mode-toggle {
-  outline: 2px solid #2156a5;
-  outline-offset: 2px;
-}
-body:has(#lcnc-mode:checked) .lcnc-mode-toggle {
-  background: #2a2a2a; color: #f0f0f0; border-color: #555;
-}
-/* Label text flips based on checkbox state.  Two spans live in the
-   HTML (lcnc-when-modern, lcnc-when-legacy); the inline style hides
-   the "legacy" one by default so before this CSS loads the button
-   reads "Legacy" (matches the default Modern -> Legacy action). */
-body:has(#lcnc-mode:checked) .lcnc-when-modern { display: none; }
-body:has(#lcnc-mode:checked) .lcnc-when-legacy { display: inline !important; }
-
-/* ======================================================================
- *  MODERN  (asciidoctor default + small fixes)
+ *  Asciidoctor pages (light)
  * ====================================================================== */
 
 /* Asciidoctor caps #header / #content / #footnotes / #footer at
@@ -52,148 +20,141 @@ body:has(#lcnc-mode:checked) .lcnc-when-legacy { display: inline !important; }
    monitors get a wider content area without losing the line-length
    ceiling on ultra-wide displays.  #footer is excluded: the dark
    footer bar spans the full viewport width. */
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #header,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #content,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #footnotes {
+body:is(.article,.book,.manpage) #header,
+body:is(.article,.book,.manpage) #content,
+body:is(.article,.book,.manpage) #footnotes {
   max-width: min(95%, 100em);
 }
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #footer {
+body:is(.article,.book,.manpage) #footer {
   max-width: none;
 }
 
-/* #text# in compat-mode -> <mark>; drop yellow.                       */
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) mark {
+/* #text# in compat-mode -> <mark>; drop yellow. */
+body:is(.article,.book,.manpage) mark {
   background: transparent;
   color: inherit;
 }
 
 /* Headings + block titles: asciidoctor default is #ba3925 (brick red).
-   Hansu requested near-black / very dark blue. Apply to h1..h6 and to
-   .title (image/listing/table captions) so figure captions like
+   Use near-black / very dark blue.  Apply to h1..h6 and to .title
+   (image/listing/table captions) so figure captions like
    "Figure 1. ..." stop rendering in red. */
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h1,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h2,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h3,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h4,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h5,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h6,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #toctitle,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .title {
+body:is(.article,.book,.manpage) h1,
+body:is(.article,.book,.manpage) h2,
+body:is(.article,.book,.manpage) h3,
+body:is(.article,.book,.manpage) h4,
+body:is(.article,.book,.manpage) h5,
+body:is(.article,.book,.manpage) h6,
+body:is(.article,.book,.manpage) #toctitle,
+body:is(.article,.book,.manpage) .title {
   color: #1a3a6c;
   font-weight: 400;
 }
 
 /* Uniform grey background on every listing block (hal/ini/ngc/plain). */
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock > .content,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock pre,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre,
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content > pre[class^="highlight"],
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content > pre:not(.highlight),
-body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre.highlight {
+body:is(.article,.book,.manpage) .listingblock > .content,
+body:is(.article,.book,.manpage) .literalblock > .content,
+body:is(.article,.book,.manpage) .listingblock pre,
+body:is(.article,.book,.manpage) .literalblock pre,
+body:is(.article,.book,.manpage) .listingblock > .content > pre[class^="highlight"],
+body:is(.article,.book,.manpage) .listingblock > .content > pre:not(.highlight),
+body:is(.article,.book,.manpage) .literalblock pre.highlight {
   background: #f7f7f7;
 }
 
-/* Dark mode honours the OS / browser preference; only modern opts in. */
+/* ======================================================================
+ *  Asciidoctor pages (dark, opt-in via system preference)
+ * ====================================================================== */
 @media (prefers-color-scheme: dark) {
-  /* Anyone who hasn't explicitly opted into Legacy gets the dark bg.
-     The checkbox in docinfo-footer / index*.tmpl is the only legacy
-     opt-in switch.  Pure CSS: no JS race, no FOUC. */
-  body:not(:has(#lcnc-mode:checked)) {
+  body:is(.article,.book,.manpage) {
     background: #1e1e1e;
     color: #e0e0e0;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) {
-    background: #1e1e1e;
-    color: #e0e0e0;
-  }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #header h1,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h1 {
-    color: #7fb8e8;
-  }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h2,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h3,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h4,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h5,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h6,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #toctitle,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .title {
+  body:is(.article,.book,.manpage) #header h1,
+  body:is(.article,.book,.manpage) h1,
+  body:is(.article,.book,.manpage) h2,
+  body:is(.article,.book,.manpage) h3,
+  body:is(.article,.book,.manpage) h4,
+  body:is(.article,.book,.manpage) h5,
+  body:is(.article,.book,.manpage) h6,
+  body:is(.article,.book,.manpage) #toctitle,
+  body:is(.article,.book,.manpage) .title {
     color: #7fb8e8;
     font-weight: 400;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #preamble > .sectionbody > .paragraph p,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #preamble > .sectionbody > .paragraph.lead > p {
+  body:is(.article,.book,.manpage) #preamble > .sectionbody > .paragraph p,
+  body:is(.article,.book,.manpage) #preamble > .sectionbody > .paragraph.lead > p {
     color: #d0d0d0;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) a { color: #6fa8dc; }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) a:visited { color: #b48ead; }
+  body:is(.article,.book,.manpage) a { color: #6fa8dc; }
+  body:is(.article,.book,.manpage) a:visited { color: #b48ead; }
+
   /* Single dark wrapper around listings: paint .content only, make
      the inner <pre> transparent.  Painting both gives a double-box. */
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock > .content {
+  body:is(.article,.book,.manpage) .listingblock > .content,
+  body:is(.article,.book,.manpage) .literalblock > .content {
     background: #2a2a2a;
     color: #f0f0f0;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock pre,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content > pre[class^="highlight"],
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content > pre:not(.highlight),
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre.highlight,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) pre.rouge {
+  body:is(.article,.book,.manpage) .listingblock pre,
+  body:is(.article,.book,.manpage) .literalblock pre,
+  body:is(.article,.book,.manpage) .listingblock > .content > pre[class^="highlight"],
+  body:is(.article,.book,.manpage) .listingblock > .content > pre:not(.highlight),
+  body:is(.article,.book,.manpage) .literalblock pre.highlight,
+  body:is(.article,.book,.manpage) pre.rouge {
     background: transparent !important;
     background-color: transparent !important;
     color: inherit;
   }
-  /* Leave rouge token colors alone so HAL/INI/NGC highlighting
-     survives dark mode.  Some tokens may render a bit dim against
-     #2a2a2a; a dedicated dark rouge stylesheet is the proper fix. */
+
   /* Inline code/tt only.  pre code inside listingblock would
      otherwise paint a second box inside the listing wrapper. */
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) p code,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) li code,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) td code,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) tt {
+  body:is(.article,.book,.manpage) p code,
+  body:is(.article,.book,.manpage) li code,
+  body:is(.article,.book,.manpage) td code,
+  body:is(.article,.book,.manpage) tt {
     background: #3a3a3a;
     color: #f0f0f0;
     padding: 1px 4px;
     border-radius: 3px;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) pre code,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock code,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock code {
+  body:is(.article,.book,.manpage) pre code,
+  body:is(.article,.book,.manpage) .listingblock code,
+  body:is(.article,.book,.manpage) .literalblock code {
     background: transparent !important;
     padding: 0 !important;
     color: inherit;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock th,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock td {
+
+  body:is(.article,.book,.manpage) table.tableblock,
+  body:is(.article,.book,.manpage) table.tableblock th,
+  body:is(.article,.book,.manpage) table.tableblock td {
     border-color: #444;
     color: #e0e0e0;
     background: #1e1e1e;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock tbody tr th,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock tfoot tr th,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock thead tr th {
+  body:is(.article,.book,.manpage) table.tableblock tbody tr th,
+  body:is(.article,.book,.manpage) table.tableblock tfoot tr th,
+  body:is(.article,.book,.manpage) table.tableblock thead tr th {
     background: #2a2a2a;
     color: #f0f0f0;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock tbody tr th p,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.tableblock tfoot tr th p {
+  body:is(.article,.book,.manpage) table.tableblock tbody tr th p,
+  body:is(.article,.book,.manpage) table.tableblock tfoot tr th p {
     color: #f0f0f0;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.stripes-all > * > tr,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.stripes-odd > * > tr:nth-of-type(odd),
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.stripes-even > * > tr:nth-of-type(even),
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) table.stripes-hover > * > tr:hover {
+  body:is(.article,.book,.manpage) table.stripes-all > * > tr,
+  body:is(.article,.book,.manpage) table.stripes-odd > * > tr:nth-of-type(odd),
+  body:is(.article,.book,.manpage) table.stripes-even > * > tr:nth-of-type(even),
+  body:is(.article,.book,.manpage) table.stripes-hover > * > tr:hover {
     background: #2a2a2a;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .admonitionblock > table td.content {
+  body:is(.article,.book,.manpage) .admonitionblock > table td.content {
     color: #d0d0d0;
     border-left-color: #444;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .admonitionblock > table td.icon,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .admonitionblock > table td.icon .title {
+  body:is(.article,.book,.manpage) .admonitionblock > table td.icon,
+  body:is(.article,.book,.manpage) .admonitionblock > table td.icon .title {
     color: #e06464;
     font-weight: bold;
   }
@@ -201,8 +162,8 @@ body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre
   /* Inkscape-exported SVG figures are transparent with black strokes
      and disappear on dark page bg.  Wrap SVGs only in a white card;
      PNGs/JPEGs usually carry their own background so leave them be. */
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .imageblock img[src$=".svg"],
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .image img[src$=".svg"] {
+  body:is(.article,.book,.manpage) .imageblock img[src$=".svg"],
+  body:is(.article,.book,.manpage) .image img[src$=".svg"] {
     background: #fff;
     padding: 0.5em;
     border-radius: 4px;
@@ -211,458 +172,42 @@ body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre
   /* Asciidoctor's default stylesheet sets explicit dark-on-white colors
      on these text blocks; without an override they stay black on the
      dark page bg and become unreadable. */
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock blockquote,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock p,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock dt,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock .hdlist1,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock .attribution,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock .attribution cite,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock cite,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .verseblock,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .verseblock pre,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .sidebarblock,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .exampleblock > .content,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) dt,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .hdlist1 {
+  body:is(.article,.book,.manpage) .quoteblock,
+  body:is(.article,.book,.manpage) .quoteblock blockquote,
+  body:is(.article,.book,.manpage) .quoteblock p,
+  body:is(.article,.book,.manpage) .quoteblock dt,
+  body:is(.article,.book,.manpage) .quoteblock .hdlist1,
+  body:is(.article,.book,.manpage) .quoteblock .attribution,
+  body:is(.article,.book,.manpage) .quoteblock .attribution cite,
+  body:is(.article,.book,.manpage) .quoteblock cite,
+  body:is(.article,.book,.manpage) .verseblock,
+  body:is(.article,.book,.manpage) .verseblock pre,
+  body:is(.article,.book,.manpage) .sidebarblock,
+  body:is(.article,.book,.manpage) .exampleblock > .content,
+  body:is(.article,.book,.manpage) dt,
+  body:is(.article,.book,.manpage) .hdlist1 {
     color: #e0e0e0;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .sidebarblock,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .exampleblock > .content {
+  body:is(.article,.book,.manpage) .sidebarblock,
+  body:is(.article,.book,.manpage) .exampleblock > .content {
     background: #2a2a2a;
     border-color: #444;
   }
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .quoteblock blockquote::before {
+  body:is(.article,.book,.manpage) .quoteblock blockquote::before {
     color: #888;
   }
 }
 
-/* ======================================================================
- *  LEGACY  (python-asciidoc + linuxcnc.css look)
- * ====================================================================== */
-
-
-/* ---- drop asciidoctor's letter-spacing tightening ----------------- */
-/* Asciidoctor sets h1,h2,p,td.content,summary { letter-spacing: -.01em }
-   which clashes with the wider Georgia serif body the Legacy look uses. */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h1,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h2,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) p,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) td.content,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) summary {
-  letter-spacing: normal;
-}
-
-/* ---- compat-mode #text# -> <mark>: drop yellow highlight ----------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) mark {
-  background: transparent;
-  color: inherit;
-}
-
-/* ---- inlined SVG (image::...[opts=inline]): pin light scheme -------
-   The classic theme has no dark variant, but drawio exports embed
-   `color-scheme: light dark` and `light-dark()` swatches on the SVG
-   root.  Force-only light here so the diagram stays readable when the
-   browser/OS is in dark mode.  !important is required because the
-   `color-scheme` declaration sits in the SVG root's inline style. */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) svg { color-scheme: only light !important; }
-
-/* ---- body: Georgia serif, narrow side margin, full text contrast --- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) {
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 19px;
-  line-height: normal;
-  color: #000;
-  margin: 1em 5%;
-}
-
-/* ---- paragraphs: legacy tight spacing & size ----------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) p {
-  font-family: inherit;
-  font-size: 19px;
-  line-height: normal;
-  margin: 0 0 0.5em;
-}
-
-/* Asciidoctor styles the first paragraph in #preamble as a "lead"
-   paragraph (1.21em) at specificity (1,3,1).  Beat it. */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #preamble > .sectionbody > .paragraph p,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .paragraph.lead > p {
-  font-size: 19px;
-  line-height: normal;
-  color: #000;
-}
-
-/* ---- definition list: tight legacy layout -------------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .dlist dl {
-  margin: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) dt,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .hdlist1 {
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 19px;
-  font-weight: 400;
-  color: #000080;
-  margin: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) dd {
-  margin: 0 0 0 40px;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) dd > p,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) dd .paragraph p {
-  font-size: 19px;
-  line-height: normal;
-  margin: 0 0 0.5em;
-}
-
-/* ---- section blocks: tighten padding, drop separator strike ------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .sect1,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .sect2,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .sect3 {
-  padding-bottom: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .sect1 + .sect1 {
-  border-top: 0;
-}
-
-/* ---- headings: Arial bold, light-purple underline ------------------ */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h1,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h2,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h3,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h4,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h5,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h6 {
-  font-family: Arial, Helvetica, sans-serif;
-  font-weight: 700;
-  color: #000;
-  line-height: 1.2;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h1 {
-  font-size: 32px;
-  background: #c0c0f0;
-  border-bottom: 2px solid #8080c0;
-  margin: 1.2em 0 0.5em;
-  padding: 0 0 0 0.4em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h2 {
-  font-size: 24px;
-  background: #c0c0f0;
-  border-bottom: 2px solid #8080c0;
-  margin: 1.2em 0 0.5em;
-  padding: 0.5em 0 0 0.4em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h3 {
-  display: inline-block;
-  font-size: 18.72px;
-  background: transparent;
-  border-bottom: 2px solid #8080c0;
-  padding: 0;
-  margin: 1.2em 0 0.5em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h4,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h5,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h6 {
-  display: block;
-  background: transparent;
-  border-bottom: 2px solid #8080c0;
-  padding: 0;
-  margin: 1.2em 0 0.5em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) h4 { font-size: 16px; }
-
-/* ---- :target highlight: light-blue background on jumped-to anchor -- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) :target {
-  background: #ddeeff !important;
-}
-
-/* ---- italic / em: navy (legacy asciidoc-py style) ------------------ */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) em,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) i {
-  color: #000080;
-}
-
-/* ---- links: classic blue / magenta-visited underline --------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) a {
-  color: #0000ff;
-  text-decoration: underline;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) a:visited {
-  color: #ff00ff;
-}
-
-/* ---- list bullets: restore visible markers (asciidoctor default
-       zeros padding so disc markers are clipped) -------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .ulist ul,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .olist ol,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #content ul,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #content ol {
-  padding-left: 2em;
-  margin-left: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .ulist ul { list-style: disc outside; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .ulist ul ul { list-style: circle outside; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .ulist ul ul ul { list-style: square outside; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .olist ol { list-style: decimal outside; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .ulist ul li::marker { color: #aaaaaa; }
-
-/* ---- monospace: Courier ------------------------------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) tt,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) code,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) kbd,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) pre {
-  font-family: "Courier New", Courier, monospace;
-}
-
-/* ---- inline code: navy text, no background ----------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) code {
-  background: transparent;
-  color: #000080;
-  padding: 0;
-  border: 0;
-  font-size: 0.9em;
-  font-weight: normal;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .title code {
-  font-weight: bold !important;
-  font-size: 1em;
-}
-
-/* ---- listing/literal blocks: uniform bg, thin left bar, navy text - */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock > .content,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .literalblock > .content {
-  background: #f7f7f7;
-  border: 1px solid #dedede;
-  border-left: 5px solid #f0f0f0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock pre,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .literalblock pre,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock pre.rouge,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock pre.highlight {
-  background: #f7f7f7 !important;
-  border: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock pre,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .literalblock pre,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock code,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .literalblock code {
-  color: #000080;
-  font-weight: normal;
-}
-
-/* ---- TOC: drop sidebar layout, inline at top ----------------------- */
-body:is(.article,.book,.manpage).toc2:has(#lcnc-mode:checked) {
-  padding-left: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc.toc,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc.toc2 {
-  position: static;
-  width: auto;
-  height: auto;
-  border: 0 !important;
-  background: transparent;
-  padding: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 16px;
-  margin-bottom: 2.5em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toctitle {
-  font-family: Arial, Helvetica, sans-serif;
-  font-weight: 700;
-  font-size: 1.1em;
-  color: #527bbd;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc li {
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 17px;
-  line-height: 1.05;
-  margin: 0;
-  padding: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc ul.sectlevel2 { margin-left: 2em; font-size: 0.9em; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc ul.sectlevel3 { margin-left: 4em; font-size: 0.9em; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc ul.sectlevel4 { margin-left: 6em; font-size: 0.9em; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc a,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .toc a {
-  font-family: Georgia, "Times New Roman", serif;
-  color: #0000ff;
-  text-decoration: underline;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #toc a:visited,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .toc a:visited {
-  color: #ff00ff;
-}
-
-/* ---- manpage doctype: indent section content (legacy look) -------- */
-body.manpage:has(#lcnc-mode:checked) .sectionbody {
-  margin-left: 3em;
-}
-
-/* ---- content area: no asciidoctor max-width box -------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #content,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #header,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footer,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes {
-  max-width: none;
-  margin-left: 0;
-  margin-right: 0;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/* ---- block titles (image, table, listing...): legacy blue --------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .imageblock > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .listingblock > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .literalblock > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock > caption.title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .exampleblock > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .quoteblock > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .openblock > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .paragraph > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .ulist > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .olist > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .dlist > .title,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .hdlist > .title {
-  font-family: Arial, Helvetica, sans-serif;
-  font-style: normal;
-  font-weight: bold;
-  color: #527bbd;
-}
-
-/* ---- admonition (NOTE/TIP/WARN): mixed-case label, vertical bar --- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .admonitionblock > table td.icon {
-  width: 1%;
-  white-space: nowrap;
-  text-align: left;
-  padding: 0 0.5em 0 0;
-  vertical-align: top;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .admonitionblock > table td.icon .title {
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 1em;
-  font-weight: bold;
-  text-transform: none;
-  text-decoration: underline;
-  color: #527bbd;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .admonitionblock > table td.icon [class^="fa icon-"],
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .admonitionblock > table td.icon i.fa {
-  display: none;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .admonitionblock > table td.content {
-  padding: 0 0.5em;
-  border-left: 3px solid #dddddd;
-  color: #606060;
-  font-size: 1.05em;
-  line-height: 1.2;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .admonitionblock > table td.content > .title {
-  font-family: Arial, Helvetica, sans-serif;
-  font-style: normal;
-  font-weight: bold;
-  color: #497dc2;
-}
-
-/* ---- tables (content only): centered, 3px #527bbd outer border ---- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock {
-  margin-left: auto;
-  margin-right: auto;
-  border: 3px solid #527bbd;
-  border-collapse: collapse;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock th,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock td {
-  border: 1px solid #527bbd;
-  padding: 4px 8px;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock thead th,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock th.tableblock {
-  font-family: Arial, Helvetica, sans-serif;
-  font-weight: bold;
-  font-size: 0.9em;
-  line-height: 1.2;
-  color: #527bbd;
-  background: transparent;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock td,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock td.tableblock {
-  line-height: 1.2;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock thead,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock tfoot,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) table.tableblock tbody tr {
-  background: transparent;
-}
-
-/* ---- footnotes: small, silver hairline divider -------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .footnote,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) .footnoteref,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes div.footnote { font-size: 15px; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes div.footnote p { font-size: 15px; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes div.footnote { line-height: 1.05; }
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes {
-  margin: 1em 0 0;
-  padding: 0.4em 0 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes div.footnote {
-  margin: 0 0 5px !important;
-  padding: 0 !important;
-  text-indent: 0;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes .footnote a:first-of-type {
-  text-decoration: underline;
-  color: #0000ff;
-  font-weight: 400;
-  margin-left: 0 !important;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes hr {
-  border: none;
-  border-top: 1px solid #999;
-  height: 1px;
-  width: 20%;
-  margin: 0 0 0.5em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footnotes .footnote a:first-of-type:visited {
-  color: #ff00ff;
-}
-
-/* ---- footer: small Arial, silver hairline above ------------------- */
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footer {
-  background: transparent !important;
-  color: #000 !important;
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: small;
-  border-top: 1px dashed #999;
-  padding: 0.5em 0;
-  margin-top: 1em;
-}
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footer-text,
-body:is(.article,.book,.manpage):has(#lcnc-mode:checked) #footer * {
-  color: #000 !important;
-}
-
 
 /* ======================================================================
- *  STATIC PAGES (index.html / gcode.html)
+ *  Static landing pages (index.html / gcode.html)
  *
- *  Static-legacy is a no-op: those pages already ship their own
- *  hand-rolled CSS that matches the classic linuxcnc.org look, so the
- *  Legacy view here is just the raw template.  The modern variant
- *  tweaks colors and typography toward the asciidoctor default so the
- *  static landing pages don't feel out of place when the user is on
- *  Modern.
+ *  Mirror asciidoctor's defaults so landing pages blend with the doc
+ *  pages.  Asciidoctor uses Noto Serif body / Open Sans headings /
+ *  #ba3925 heading color / #2156a5 links; we use the dark-blue accent
+ *  in line with the doc pages.
  * ====================================================================== */
-
-/* Modern static: mirror asciidoctor's defaults so landing pages
-   blend with the doc pages.  Asciidoctor uses Noto Serif body /
-   Open Sans headings / #ba3925 heading color / #2156a5 links. */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) {
+body:not(.article):not(.book):not(.manpage) {
   font-family: "Noto Serif", "DejaVu Serif", Georgia, serif;
   font-weight: 400;
   font-style: normal;
@@ -671,18 +216,18 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) {
   color: rgba(0, 0, 0, 0.85);
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
-  /* Match the asciidoctor Modern content cap (min 95% viewport,
-     max 100em / 1600px) so the static landing pages and the doc
-     pages line up at the same width on HD screens. */
+  /* Match the asciidoctor content cap (min 95% viewport, max 100em /
+     1600px) so the static landing pages and the doc pages line up at
+     the same width on HD screens. */
   max-width: min(95%, 100em);
   margin: 0 auto;
   padding: 1em 1.5em;
 }
 /* Override index.css { body { padding-left: 50px } } */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) { padding-left: 1.5em !important; }
+body:not(.article):not(.book):not(.manpage) { padding-left: 1.5em !important; }
 /* Caption acts as the page title in gcode.html; render it like
    asciidoctor's h2. */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) caption {
+body:not(.article):not(.book):not(.manpage) caption {
   font-family: "Open Sans", "DejaVu Sans", sans-serif;
   font-weight: 400;
   font-style: normal;
@@ -693,8 +238,8 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) captio
   margin: 0.5em 0;
   caption-side: top;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) p,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) dd {
+body:not(.article):not(.book):not(.manpage) p,
+body:not(.article):not(.book):not(.manpage) dd {
   font-family: inherit;
   font-size: 1.0625em;
   line-height: 1.6;
@@ -702,20 +247,20 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) dd {
 }
 /* Link lists on index.html act as a TOC; match asciidoctor's #toc ul
    styling (Open Sans, tight line-height). */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) ul,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) ol {
+body:not(.article):not(.book):not(.manpage) ul,
+body:not(.article):not(.book):not(.manpage) ol {
   font-family: "Open Sans", "DejaVu Sans", sans-serif;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) li {
+body:not(.article):not(.book):not(.manpage) li {
   line-height: 1.3334;
   margin-top: 0.3334em;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h1,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h2,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h3,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h4,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h5,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h6 {
+body:not(.article):not(.book):not(.manpage) h1,
+body:not(.article):not(.book):not(.manpage) h2,
+body:not(.article):not(.book):not(.manpage) h3,
+body:not(.article):not(.book):not(.manpage) h4,
+body:not(.article):not(.book):not(.manpage) h5,
+body:not(.article):not(.book):not(.manpage) h6 {
   font-family: "Open Sans", "DejaVu Sans", sans-serif;
   font-weight: 400;
   font-style: normal;
@@ -724,63 +269,57 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h6 {
   text-rendering: optimizeLegibility;
 }
 /* Sizes pulled from asciidoctor's desktop cascade. */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h2 {
-  font-size: 2.3125em;
-}
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h3 {
-  font-size: 1.6875em;
-}
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h4 {
-  font-size: 1.4375em;
-}
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a {
+body:not(.article):not(.book):not(.manpage) h2 { font-size: 2.3125em; }
+body:not(.article):not(.book):not(.manpage) h3 { font-size: 1.6875em; }
+body:not(.article):not(.book):not(.manpage) h4 { font-size: 1.4375em; }
+body:not(.article):not(.book):not(.manpage) a {
   color: #2156a5;
   text-decoration: none;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a:hover {
+body:not(.article):not(.book):not(.manpage) a:hover {
   text-decoration: underline;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a:visited {
+body:not(.article):not(.book):not(.manpage) a:visited {
   color: #1d4b8f;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) code,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) pre,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tt {
+body:not(.article):not(.book):not(.manpage) code,
+body:not(.article):not(.book):not(.manpage) pre,
+body:not(.article):not(.book):not(.manpage) tt {
   font-family: "Droid Sans Mono", "DejaVu Sans Mono", monospace;
 }
 
 /* gcode.html table: redo to mirror asciidoctor's table look.
-   gcode.html ships hard black borders / black header inline; we
-   strip the vertical rules, soften horizontals, and lighten the
-   header background.  !important overrides inline style="..." on
-   the section-divider rows in the static markup. */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) table {
+   gcode.html ships hard black borders / black header inline; strip
+   the vertical rules, soften horizontals, lighten the header
+   background.  !important overrides inline style="..." on the
+   section-divider rows in the static markup. */
+body:not(.article):not(.book):not(.manpage) table {
   border-collapse: collapse;
   border: 1px solid #dddddf !important;
   margin: 1em auto;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) td,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) th {
+body:not(.article):not(.book):not(.manpage) td,
+body:not(.article):not(.book):not(.manpage) th {
   border: none !important;
   border-bottom: 1px solid #dddddf !important;
   padding: 0.5em 0.625em !important;
   vertical-align: top;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) td {
+body:not(.article):not(.book):not(.manpage) td {
   background: #fff;
   color: rgba(0, 0, 0, 0.85);
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) th {
+body:not(.article):not(.book):not(.manpage) th {
   background: #f7f7f8;
   color: rgba(0, 0, 0, 0.85);
   font-weight: bold;
   text-align: left;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.odd td {
+body:not(.article):not(.book):not(.manpage) tr.odd td {
   background: #f8f8f7;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.head td,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.head th {
+body:not(.article):not(.book):not(.manpage) tr.head td,
+body:not(.article):not(.book):not(.manpage) tr.head th {
   background: #f7f7f8;
   color: rgba(0, 0, 0, 0.85);
 }
@@ -789,68 +328,65 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.hea
      <tr><th colspan="3">Sec</th></tr>                 (Distance Mode, ...)
    Paint the row background and let the cells fall through, so the
    tint covers any colgroup column not spanned by the th/td. */
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:first-child:not(:only-child)),
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:only-child) {
+body:not(.article):not(.book):not(.manpage) tr:has(> th:first-child:not(:only-child)),
+body:not(.article):not(.book):not(.manpage) tr:has(> th:only-child) {
   background: #ececef;
 }
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:first-child:not(:only-child)) > *,
-body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:only-child) > * {
+body:not(.article):not(.book):not(.manpage) tr:has(> th:first-child:not(:only-child)) > *,
+body:not(.article):not(.book):not(.manpage) tr:has(> th:only-child) > * {
   background: transparent !important;
   font-weight: bold;
 }
 
-/* ---- Modern dark: opt-in via system preference --------------------
-   Palette mirrors the asciidoctor dark block above so doc and
-   static pages share the same dark look. */
+/* ======================================================================
+ *  Static landing pages (dark, opt-in via system preference)
+ * ====================================================================== */
 @media (prefers-color-scheme: dark) {
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) {
+  body:not(.article):not(.book):not(.manpage) {
     background: #1e1e1e;
     color: #e0e0e0;
   }
-  /* All h2..h6 + <caption> render with the orange accent in dark
-     mode; matches asciidoctor's dark h2/h3 color. */
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h1,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h2,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h3,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h4,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h5,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h6,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) caption {
+  body:not(.article):not(.book):not(.manpage) h1,
+  body:not(.article):not(.book):not(.manpage) h2,
+  body:not(.article):not(.book):not(.manpage) h3,
+  body:not(.article):not(.book):not(.manpage) h4,
+  body:not(.article):not(.book):not(.manpage) h5,
+  body:not(.article):not(.book):not(.manpage) h6,
+  body:not(.article):not(.book):not(.manpage) caption {
     color: #7fb8e8;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a         { color: #6fa8dc; }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a:visited { color: #b48ead; }
+  body:not(.article):not(.book):not(.manpage) a         { color: #6fa8dc; }
+  body:not(.article):not(.book):not(.manpage) a:visited { color: #b48ead; }
 
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) table {
+  body:not(.article):not(.book):not(.manpage) table {
     border-color: #444 !important;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) td,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) th {
+  body:not(.article):not(.book):not(.manpage) td,
+  body:not(.article):not(.book):not(.manpage) th {
     border-bottom-color: #444 !important;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) td {
+  body:not(.article):not(.book):not(.manpage) td {
     background: #2a2a2a;
     color: #e0e0e0;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) th {
+  body:not(.article):not(.book):not(.manpage) th {
     background: #1a1a1a;
     color: #f0f0f0;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.odd td {
+  body:not(.article):not(.book):not(.manpage) tr.odd td {
     background: #333;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.head td,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr.head th {
+  body:not(.article):not(.book):not(.manpage) tr.head td,
+  body:not(.article):not(.book):not(.manpage) tr.head th {
     background: #1a1a1a;
     color: #f0f0f0;
   }
-  /* Section divider rows: paint row bg, transparent cells. */
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:first-child:not(:only-child)),
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:only-child) {
+  body:not(.article):not(.book):not(.manpage) tr:has(> th:first-child:not(:only-child)),
+  body:not(.article):not(.book):not(.manpage) tr:has(> th:only-child) {
     background: #161616;
   }
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:first-child:not(:only-child)) > *,
-  body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has(> th:only-child) > * {
+  body:not(.article):not(.book):not(.manpage) tr:has(> th:first-child:not(:only-child)) > *,
+  body:not(.article):not(.book):not(.manpage) tr:has(> th:only-child) > * {
     background: transparent !important;
     color: #f0f0f0;
   }

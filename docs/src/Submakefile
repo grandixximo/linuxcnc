@@ -402,7 +402,7 @@ endif
 .htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp $(DOC_DIR)/html/asciidoctor.css
 	touch $@
 
-copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css $(DOC_SRCDIR)/lcnc-theme-toggle.js
+copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css
 	if test -n "$^"; then cp -f $^ $(DOC_DIR)/html ; fi
 
 $(DOC_DIR)/html/asciidoctor.css: $(ASCIIDOCTOR_DEFAULT_CSS)
@@ -477,7 +477,7 @@ $(DOC_DIR)/LinuxCNC_Developer_%.pdf: $(DOC_SRCDIR)/%/Master_Developer.pdf
 	@ln -f $< $@
 
 
-$(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html $(DOC_SRCDIR)/docinfo-footer.html
+$(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html
 	@$(ECHO) Formatting $(notdir $<) as HTML
 	@mkdir -p $(dir $@)
 	$(Q)if grep -q '^\.so' $<; then \
@@ -805,7 +805,7 @@ $(DOC_SRCDIR)/%.html: LCNC_CSSREL=$(shell python3 -c "print('../' * '$*'.count('
 # in lowercase (en, ar, de, ...); $2 is the directory the xref index is
 # rooted at (the source tree root for the language).
 define ASCIIDOCTOR_HTML_RULE
-$$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$(DOC_SRCDIR)/%.html: $$(DOC_SRCDIR)/%.adoc $$(DOC_SRCDIR)/docinfo.html $$(DOC_SRCDIR)/docinfo-footer.html
+$$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$(DOC_SRCDIR)/%.html: $$(DOC_SRCDIR)/%.adoc $$(DOC_SRCDIR)/docinfo.html
 	$$(ECHO) "Building '$1' adoc to html: " $$<
 	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
