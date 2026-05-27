@@ -1099,6 +1099,26 @@ install with "sudo apt-get install librsvg2-bin"])
             BUILD_DOCS_HTML=no
         fi
     fi
+
+    # Rouge is required by the custom rouge_hal / rouge_ngc / rouge_ini
+    # extensions loaded by every asciidoctor invocation; without it the
+    # build dies with "cannot load such file -- rouge" deep in the make
+    # log (reported by bertho on Fedora 43 where ruby-rouge wasn't a
+    # transitive dep of asciidoctor).
+    if ( test "$BUILD_DOCS" = "yes" ) ; then
+        AC_MSG_CHECKING([for ruby rouge gem])
+        if ruby -e 'require "rouge"' 2>/dev/null ; then
+            AC_MSG_RESULT([yes])
+        else
+            AC_MSG_RESULT([no])
+            AC_MSG_WARN([no ruby rouge, documentation cannot be built
+install with "sudo apt-get install ruby-rouge" on Debian / Ubuntu,
+"sudo dnf install rubygem-rouge" on Fedora, or "gem install rouge"])
+            BUILD_DOCS=no
+            BUILD_DOCS_PDF=no
+            BUILD_DOCS_HTML=no
+        fi
+    fi
 fi
 
 # Programs required only for building the PDF documentation
