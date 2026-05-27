@@ -42,26 +42,12 @@ tr.odd td { background: #d9d9d9; }
 tr.head td, tr.head th { background: black; color: white; }
 --></style>
 <link rel="stylesheet" href="lcnc-overrides.css" id="lcnc-overrides-link"/>
-<script>
-(function () {
-  try {
-    var t = localStorage.getItem('lcnc-theme') || 'legacy';
-    var dark = window.matchMedia &&
-               window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (t === 'modern' && dark) {
-      var s = document.createElement('style');
-      s.id = 'lcnc-fouc-guard';
-      s.textContent = 'html,body{background:#1e1e1e !important;' +
-                      'color:#e0e0e0 !important;}';
-      document.head.appendChild(s);
-    }
-  } catch (e) {}
-})();
-</script>
 <script src="lcnc-theme-toggle.js"></script>
 </head>
 
 <body>
+<input type="checkbox" id="lcnc-mode" class="lcnc-mode-input" aria-label="Switch to Legacy theme" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0"/>
+<label for="lcnc-mode" class="lcnc-mode-toggle" title="Switch between LinuxCNC legacy and asciidoctor modern themes" style="position:fixed;top:8px;right:8px;z-index:9999;padding:4px 10px;font:12px sans-serif;border:1px solid #999;background:#fff;color:#333;border-radius:3px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.2);user-select:none"><span class="lcnc-when-modern">Legacy</span><span class="lcnc-when-legacy" style="display:none">Modern</span></label>
 <table id="ref1">
   <caption> LinuxCNC "G-code" Quick Reference </caption>
   <colgroup>
