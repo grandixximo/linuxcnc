@@ -1,7 +1,12 @@
 # docs/src/extensions/rouge_ini.rb
 #
-# This fixes the default Rouge lexer for INI files to include comments with
-# leading '#' which are not followed by an emtpy line.
+# Fixes Rouge's default INI lexer for LinuxCNC INI files:
+#   - accepts `#`/`;` comments without a trailing newline (end of file/block),
+#   - accepts leading whitespace before `key = value` lines,
+#   - highlights the `#INCLUDE` directive as a preprocessor token.
+#
+# Reopening `state :basic do` would replace the upstream rules and lose the
+# whitespace handler, so we rebuild it explicitly here.
 #
 # Loaded via the asciidoctor -r flag from the docs Submakefile.
 
@@ -11,10 +16,15 @@ module Rouge
   module Lexers
     class INI < RegexLexer
       title "INI"
-      desc "Fixed INI lexer for # comments"
+      desc "INI with LinuxCNC #INCLUDE + tolerant comments / whitespace"
 
       state :basic do
-        rule %r/^[ \t]*[;#][^\n]*(?=\n|\z)/, Comment
+        rule %r/(^#INCLUDE)([ \t]+)([^\n]+)/ do
+          groups Comment::Preproc, Text, Str
+        end
+        rule %r/[;#].*?(?=\n|\z)/, Comment
+        rule %r/\s+/, Text
+        rule %r/\\\n/, Str::Escape
       end
     end
   end

@@ -1031,7 +1031,7 @@ Example: `loadrt motmod ... unlock_joints_mask=0x38` creates unlock-pins for joi
 
 * `OFFSET_AV_RATIO = 0.1` - (real) If nonzero, this item enables the use of HAL input pins for external axis offsets:
 +
-[source,ini]
+[source,hal]
 ----
 axis.<letter>.eoffset-enable
 axis.<letter>.eoffset-count

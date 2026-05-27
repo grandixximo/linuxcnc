@@ -399,7 +399,7 @@ TRANSLATED_ADOC_TARGETS := $(addprefix $(DOC_SRCDIR)/, \
 $(TRANSLATED_ADOC_TARGETS): | translateddocs ;
 endif
 
-.htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp $(DOC_DIR)/html/asciidoctor.css
+.htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp $(DOC_DIR)/html/asciidoctor.css $(DOC_DIR)/html/rouge-github.css
 	touch $@
 
 copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css
@@ -408,6 +408,22 @@ copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc
 $(DOC_DIR)/html/asciidoctor.css: $(ASCIIDOCTOR_DEFAULT_CSS)
 	@mkdir -p $(dir $@)
 	cp -f $< $@
+
+# Rouge ships theme CSS in the gem; with -a linkcss asciidoctor emits
+# <link href="<stylesdir>/rouge-<style>.css"> per page but does not copy
+# the file when -a copycss! is set.  Render the theme via the Rouge API
+# so the spans asciidoctor emits get coloured.  Combine light + dark
+# variants (dark gated on prefers-color-scheme) into one file.
+$(DOC_DIR)/html/rouge-github.css:
+	@mkdir -p $(dir $@)
+	ruby -e ' \
+	  require "rouge"; \
+	  Rouge::Themes::Github.light!; \
+	  puts Rouge::Themes::Github.new(scope: ".rouge").render; \
+	  puts "@media (prefers-color-scheme: dark) {"; \
+	  Rouge::Themes::Github.dark!; \
+	  puts Rouge::Themes::Github.new(scope: ".rouge").render; \
+	  puts "}"' > $@
 
 gen_complist: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
 	mkdir -p $(DOC_DIR)/html/hal
