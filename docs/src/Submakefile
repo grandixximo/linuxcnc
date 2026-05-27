@@ -32,6 +32,8 @@ SRCDIR=../src
 DOC_DIR=../docs
 DOC_SRCDIR=../docs/src
 
+ASCIIDOCTOR_DEFAULT_CSS := $(shell ruby -e 'require "asciidoctor"; print Asciidoctor::DATA_DIR' 2>/dev/null)/stylesheets/asciidoctor-default.css
+
 # The following line determines for the Makefile what languages should be addressed.
 # Edit the file po4a.cfg in this source tree to adjust.
 LANGUAGES := $(strip $(shell sed -e's/#.*//' < $(DOC_DIR)/po4a.cfg | grep '^\[po4a_langs\]' | cut -d" " -f2-))
@@ -397,11 +399,15 @@ TRANSLATED_ADOC_TARGETS := $(addprefix $(DOC_SRCDIR)/, \
 $(TRANSLATED_ADOC_TARGETS): | translateddocs ;
 endif
 
-.htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp
+.htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp $(DOC_DIR)/html/asciidoctor.css
 	touch $@
 
 copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css $(DOC_SRCDIR)/lcnc-theme-toggle.js
 	if test -n "$^"; then cp -f $^ $(DOC_DIR)/html ; fi
+
+$(DOC_DIR)/html/asciidoctor.css: $(ASCIIDOCTOR_DEFAULT_CSS)
+	@mkdir -p $(dir $@)
+	cp -f $< $@
 
 gen_complist: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
 	mkdir -p $(DOC_DIR)/html/hal
@@ -503,6 +509,8 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html $(DOC_SR
 			-a source-highlighter=rouge \
 			-a rouge-style=github \
 			-a webfonts! \
+			-a linkcss -a copycss! \
+			-a "stylesdir=../../" \
 			-o $@ \
 			"$$F" \
 			; \
@@ -813,6 +821,8 @@ $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$
 		 -a source-highlighter=rouge \
 		 -a rouge-style=github \
 		 -a webfonts! \
+		 -a linkcss -a copycss! \
+		 -a "stylesdir=$$(LCNC_CSSREL)" \
 		 -d book -a toc -a numbered \
 		 -o $$@ $$< || (X=$$$$?; rm -f $$@; exit $$$$X)
 endef
