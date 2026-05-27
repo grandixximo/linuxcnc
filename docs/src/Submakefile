@@ -930,7 +930,7 @@ endif
 	dot -Tpng -o$@ $<
 
 %.svg: %.dot
-	dot -Tsvg -o$@ $<
+	dot -Tsvg -Gbgcolor=transparent -o$@ $<
 
 %.png:; $(error Required image file $@ does not exist)
 %.jpg:; $(error Required image file $@ does not exist)
