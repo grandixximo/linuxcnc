@@ -1202,6 +1202,9 @@ if ( test "$BUILD_DOCS" = "yes" && test "$BUILD_DOCS_TRANSLATED_EXPLICIT" = "yes
         BUILD_DOCS_TRANSLATED=yes
     fi
 fi
+if test "$BUILD_DOCS" = "yes" && test "$BUILD_DOCS_TRANSLATED" = "no" ; then
+    AC_MSG_NOTICE([documentation will be built for English only; pass --enable-build-documentation-translation to also build de/es/fr/nb/ru/uk/zh_CN])
+fi
 AC_SUBST(BUILD_DOCS)
 AC_SUBST(BUILD_DOCS_PDF)
 AC_SUBST(BUILD_DOCS_HTML)
