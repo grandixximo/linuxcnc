@@ -502,6 +502,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html $(DOC_SR
 			-a docinfodir=$(realpath $(DOC_SRCDIR)) \
 			-a source-highlighter=rouge \
 			-a rouge-style=github \
+			-a webfonts! \
 			-o $@ \
 			"$$F" \
 			; \
@@ -821,6 +822,7 @@ $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$
 		 -a docinfodir=$$(realpath $$(DOC_SRCDIR)) \
 		 -a source-highlighter=rouge \
 		 -a rouge-style=github \
+		 -a webfonts! \
 		 -d book -a toc -a numbered \
 		 -o $$@ $$< || (X=$$$$?; rm -f $$@; exit $$$$X)
 endef
