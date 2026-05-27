@@ -489,7 +489,6 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/%
 			exit 1; \
 		fi; \
 		asciidoctor \
-			-r $(realpath $(DOC_SRCDIR))/extensions/list_blanks.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 			-r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
@@ -633,7 +632,6 @@ $(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp
 	$(ECHO) Building $@
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \
-		 -r $(realpath $(DOC_SRCDIR))/extensions/list_blanks.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/image_resolver.rb \
 		 -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
@@ -704,7 +702,6 @@ $(DOC_DIR)/LinuxCNC_Manual_Pages.pdf: objects/LinuxCNC_Manual_Pages.adoc $(DOC_F
 	@$(ECHO) Formatting manual pages as PDF
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \
-	    -r $(realpath $(DOC_SRCDIR))/extensions/list_blanks.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_hal.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 	    -r $(realpath $(DOC_SRCDIR))/extensions/rouge_ini.rb \
@@ -811,8 +808,7 @@ $(DOC_SRCDIR)/%.html: LCNC_CSSREL=$(shell python3 -c "print('../' * '$*'.count('
 define ASCIIDOCTOR_HTML_RULE
 $$(patsubst %.adoc,$$(DOC_SRCDIR)/%.html,$$(DOC_SRCS_$(call toUC,$1)_SMALL)): $$(DOC_SRCDIR)/%.html: $$(DOC_SRCDIR)/%.adoc
 	$$(ECHO) "Building '$1' adoc to html: " $$<
-	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/list_blanks.rb \
-		 -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
+	$$(Q)asciidoctor -r $$(realpath $$(DOC_SRCDIR))/extensions/xref_resolver.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ngc.rb \
 		 -r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ini.rb \
