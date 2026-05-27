@@ -67,6 +67,22 @@ body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) mark {
   color: inherit;
 }
 
+/* Headings + block titles: asciidoctor default is #ba3925 (brick red).
+   Hansu requested near-black / very dark blue. Apply to h1..h6 and to
+   .title (image/listing/table captions) so figure captions like
+   "Figure 1. ..." stop rendering in red. */
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h1,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h2,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h3,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h4,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h5,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h6,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #toctitle,
+body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .title {
+  color: #1a3a6c;
+  font-weight: 400;
+}
+
 /* Uniform grey background on every listing block (hal/ini/ngc/plain). */
 body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .listingblock > .content,
 body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock > .content,
@@ -93,17 +109,17 @@ body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .literalblock pre
   }
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #header h1,
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h1 {
-    color: #f0f0f0;
+    color: #7fb8e8;
   }
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h2,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #toctitle {
-    color: #e08a5a;
-  }
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h3,
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h4,
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h5,
-  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h6 {
-    color: #d8a070;
+  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) h6,
+  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #toctitle,
+  body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) .title {
+    color: #7fb8e8;
+    font-weight: 400;
   }
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #preamble > .sectionbody > .paragraph p,
   body:is(.article,.book,.manpage):not(:has(#lcnc-mode:checked)) #preamble > .sectionbody > .paragraph.lead > p {
@@ -668,10 +684,10 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) { padd
    asciidoctor's h2. */
 body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) caption {
   font-family: "Open Sans", "DejaVu Sans", sans-serif;
-  font-weight: 300;
+  font-weight: 400;
   font-style: normal;
   font-size: 2.3125em;
-  color: #ba3925;
+  color: #1a3a6c;
   text-rendering: optimizeLegibility;
   text-align: left;
   margin: 0.5em 0;
@@ -701,9 +717,9 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h4,
 body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h5,
 body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h6 {
   font-family: "Open Sans", "DejaVu Sans", sans-serif;
-  font-weight: 300;
+  font-weight: 400;
   font-style: normal;
-  color: #ba3925;
+  color: #1a3a6c;
   line-height: 1.2;
   text-rendering: optimizeLegibility;
 }
@@ -800,7 +816,7 @@ body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) tr:has
   body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h5,
   body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) h6,
   body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) caption {
-    color: #e08a5a;
+    color: #7fb8e8;
   }
   body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a         { color: #6fa8dc; }
   body:not(.article):not(.book):not(.manpage):not(:has(#lcnc-mode:checked)) a:visited { color: #b48ead; }
