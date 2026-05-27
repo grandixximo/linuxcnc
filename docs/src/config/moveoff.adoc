@@ -126,7 +126,7 @@ for HAL files that connect the pins for `joint.N.motor-pos-cmd`,
 [HAL]
 HALUI   = halui
 HALFILE = existing_configuration_halfile_1
-...
+# ...
 HALFILE = existing_configuration_halfile_n
 HALFILE = LIB:hookup_moveoff.tcl
 ----
@@ -217,7 +217,7 @@ and mv.bactrack-enable pins to signals:
 ----
 [HAL]
 HALUI = halui
-...
+# ...
 HALFILE = LIB:hookup_moveoff.tcl
 HALFILE = LIB:moveoff_external.hal
 ----

@@ -43,7 +43,7 @@ MDI_COMMAND = G0 X0
 MDI_COMMAND = G0 G53 Z0
 MDI_COMMAND = G28
 MDI_COMMAND = o<mysub>call
-...
+# ...
 ----
 
 When halui starts it will read the `MDI_COMMAND` fields in the INI and

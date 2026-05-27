@@ -53,7 +53,7 @@ module string parameter 'sparm' with an INI file setting like:
 ----
 [KINS]
 KINEMATICS = xyzac-trt-kins sparm=identityfirst
-...
+# ...
 ----
 
 === Identity letter assignments

@@ -199,14 +199,14 @@ subfiles and to augment the search path(s).  For this example:
 [source,ini]
 ----
 [RS274NGC]
-...
+# ...
 SUBROUTINE_PATH = /home/myusername/mysubs:../../nc_files/ngcgui_lib:../../nc_files/gcmc_lib:../../nc_files/ngcgui_lib/utilitysubs
 USER_M_PATH     = /home/myusername/mymfiles:../../nc_files/ngcgui_lib/mfiles
 
 [DISPLAY]
-...
+# ...
 NGCGUI_SUBFILE = example.ngc
-...
+# ...
 ----
 
 LinuxCNC (and NGCGUI) use the first file found when searching
@@ -401,7 +401,7 @@ prepended to the gcmc search order with the GCMC_INCLUDE_PATH item.
 [source,ini]
 ----
 [RS274NGC]
-...
+# ...
 SUBROUTINE_PATH   = ../../nc_files/ngcgui_lib:../../ngcgui_lib/utilitysubs
 USER_M_PATH       = ../../nc_files/ngcgui_lib/mfiles
 

@@ -201,7 +201,7 @@ To add a custom variable to an existing LinuxCNC section, simply include the var
 ----
 [JOINT_0]
 TYPE = LINEAR
-...
+# ...
 SCALE = 16000
 ----
 
