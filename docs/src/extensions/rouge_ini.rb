@@ -18,13 +18,30 @@ module Rouge
       title "INI"
       desc "INI with LinuxCNC #INCLUDE + tolerant comments / whitespace"
 
-      state :basic do
-        rule %r/(^#INCLUDE)([ \t]+)([^\n]+)/ do
-          groups Comment::Preproc, Text, Str
+      identifier = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+      state :includefile do
+        # An include directive must start at the first character on the line
+        # and has a strict line format with mandatory leading and optional
+        # trailing whitespace arround the filename.
+        rule %r/^(#INCLUDE)(\s+)(.*)(\s*)$/ do
+          groups Keyword, Text, Str, Text
         end
-        rule %r/[;#].*?(?=\n|\z)/, Comment
-        rule %r/\s+/, Text
-        rule %r/\\\n/, Str::Escape
+      end
+
+      state :root do
+        mixin :includefile
+        mixin :basic
+
+        rule %r/(#{identifier})(\s*)(=)/ do
+          groups Name::Property, Text, Punctuation
+          push :value
+        end
+
+        rule %r/^[ \t]*[;#][^\n]*(?=\n|\z)/, Comment
+        rule %r/(\[)(#{identifier})(\])(\s*)([;#].*)?/ do
+          groups Punctuation, Name::Namespace, Punctuation, Text, Comment
+        end
       end
     end
   end

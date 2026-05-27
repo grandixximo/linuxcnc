@@ -37,6 +37,8 @@ module Rouge
         initf
       ].join('|').freeze
 
+      identifier = /[a-zA-Z_][a-zA-Z0-9_]*/
+
       state :root do
         rule %r/\s+/, Text
         rule %r/#.*$/, Comment::Single
@@ -51,7 +53,9 @@ module Rouge
         # for both the section name and the variable name (it normalises
         # internally), so the lexer follows the source-highlight ini.lang
         # convention of taking any letter/digit/underscore.
-        rule %r/\[[A-Za-z_]\w*\][A-Za-z_]\w*/, Name::Constant
+        rule %r/(\[)(#{identifier})(\])(#{identifier})/ do
+          groups Punctuation, Name::Namespace, Punctuation, Name::Property
+        end
 
         # Environment variables (POSIX shell rules: any case allowed)
         rule %r/\$\([A-Za-z_]\w*\)/, Name::Variable

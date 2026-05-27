@@ -46,6 +46,12 @@ module Rouge
         call
       ].join('|').freeze
 
+      identifier = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+      # This definition limits hal pin names to minimum 2 characters.
+      # Should be no problem.
+      halpinname = /[a-zA-Z][a-zA-Z0-9_.-]*[a-zA-Z0-9]/
+
       state :root do
         rule %r/\s+/, Text
 
@@ -64,13 +70,13 @@ module Rouge
         #
         #   #<_ini[SECTION]NAME>   - value of NAME in [SECTION] of the INI
         #   #<_hal[pin.or.signal]> - current value of a HAL pin or signal
-        rule %r/(#<)(_ini)(\[)([^\]]+)(\])([^>]*)(>)/i do
-          groups Name::Variable, Name::Builtin, Punctuation,
-                 Name::Constant, Punctuation, Name::Constant, Name::Variable
+        rule %r/(#<)(_ini)(\[)(#{identifier})(\])(#{identifier})(>)/i do
+          groups Punctuation, Name::Builtin, Punctuation,
+                 Name::Namespace, Punctuation, Name::Property, Punctuation
         end
-        rule %r/(#<)(_hal)(\[)([^\]]+)(\])(>)/i do
-          groups Name::Variable, Name::Builtin, Punctuation,
-                 Name::Attribute, Punctuation, Name::Variable
+        rule %r/(#<)(_hal)(\[)(#{halpinname})(\])(>)/i do
+          groups Punctuation, Name::Builtin, Punctuation,
+                 Name::Namespace, Punctuation, Punctuation
         end
 
         # Parameters (named / numbered, generic)
