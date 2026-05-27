@@ -1111,6 +1111,22 @@ or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
         BUILD_DOCS_PDF=no
     fi
 
+    # fontTools (python3-fonttools) is used by otf2ttf.py to convert the
+    # CFF/OTF NotoSerifCJK .ttc into a TrueType the prawn PDF engine can
+    # embed.
+    if ( test "$BUILD_DOCS_PDF" = "yes" ) ; then
+        AC_MSG_CHECKING([for python3 fontTools module])
+        if python3 -c 'import fontTools' 2>/dev/null ; then
+            AC_MSG_RESULT([yes])
+        else
+            AC_MSG_RESULT([no])
+            AC_MSG_WARN([no python3 fontTools, PDF documentation cannot be built
+install with "sudo apt-get install python3-fonttools"])
+            BUILD_DOCS_PDF=no
+        fi
+    fi
+
+    if ( test "$BUILD_DOCS_PDF" = "yes" ) ; then
     # NotoSerifCJK is the fallback font that asciidoctor-pdf reaches
     # for when a glyph (zh_CN, Japanese, Korean) is missing from the
     # base text font.  We need the .ttc TrueType Collection, because
@@ -1156,6 +1172,7 @@ install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
     AC_MSG_RESULT([$NOTOCJK_BOLD_TTC])
     AC_SUBST(NOTOCJK_REGULAR_TTC)
     AC_SUBST(NOTOCJK_BOLD_TTC)
+    fi
 fi
 
 # Programs required only for building the HTML documentation
