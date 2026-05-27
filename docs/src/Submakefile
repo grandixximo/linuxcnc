@@ -575,7 +575,7 @@ $(DOC_DIR)/html/index.html: $(DOC_SRCDIR)/index.tmpl objects/index.incl $(DOC_SR
 # to the directory of the source file so each language tree gets
 # its own anchor index (Master_*.adoc under DOC_SRCDIR for English,
 # DOC_SRCDIR/<lang>/Master_*.adoc for translations).
-DOC_FONT_DIR  = $(DOC_SRCDIR)/.fonts
+DOC_FONT_DIR  = objects/.fonts
 # Locations of the NotoSerifCJK Regular / Bold TrueType Collections are
 # discovered by configure (via fontconfig with package-path fallbacks)
 # and exported through Makefile.inc, so the build works on any distro

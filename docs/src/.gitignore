@@ -2,7 +2,6 @@
 *.xml
 !docs.xml
 !terms.xml
-.fonts/
 drivers/mb2hal_HOWTO.ini
 */drivers/mb2hal_HOWTO.ini
 # Ignore po4a-generated files for other languages
