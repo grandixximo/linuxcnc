@@ -1,6 +1,7 @@
 # docs/src/extensions/rouge_ini.rb
 #
-# This extends the default Rouge lexer for INI files to include comments with leading '#'.
+# This fixes the default Rouge lexer for INI files to include comments with
+# leading '#' which are not followed by an emtpy line.
 #
 # Loaded via the asciidoctor -r flag from the docs Submakefile.
 
@@ -8,18 +9,12 @@ require "rouge"
 
 module Rouge
   module Lexers
-    class LinuxCNCINI < Rouge::Lexers::INI
+    class INI < RegexLexer
       title "INI"
-      desc "LinuxCNC INI dialect with # comments"
+      desc "Fixed INI lexer for # comments"
 
-      state :root do
-        # add # comments
-        rule %r/#.*$/, Comment::Single
-
-        # keep existing ; comments
-        rule %r/;.*$/, Comment::Single
-
-        mixin :base
+      state :basic do
+        rule %r/^[ \t]*[;#][^\n]*(?=\n|\z)/, Comment
       end
     end
   end
