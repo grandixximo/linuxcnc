@@ -508,16 +508,6 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html $(DOC_SR
 			; \
 	fi;
 
-SA := <p><a onclick=\"return toggle('man_
-SB := ')\"><img id=\"man_
-SC := _image\" src=\"plus.png\" alt=\"plus\" style=\"border:0;margin-right:5px;vertical-align:middle\"/>
-
-SD := <div id=\"man_
-SE := \" style=\"-moz-column-width: 25ex; \
-	-moz-column-gap: 4ex; \
-	-webkit-column-width: \
-	25ex; -webkit-column-gap: 4ex;\">
-
 #
 # This function appends a section to the "manpages" HTML fragment called
 # index.incl, listing all the specified manpages.  It takes 3 arguments:
@@ -527,24 +517,24 @@ SE := \" style=\"-moz-column-width: 25ex; \
 #
 ADD_HTML_MANPAGES = \
 	echo "Adding manpages: $(strip $(1)): $(strip $(2))"; \
-	echo "$(SA)$(strip $(1))$(SB)$(strip $(1))$(SC)$(strip $(2))</a></p>" >> objects/index.incl; \
-	echo "$(SD)$(strip $(1))$(SE)" >> objects/index.incl; \
-	echo "<ul>" >> objects/index.incl; \
+	echo "<details>" >> objects/index.incl; \
+	echo "<summary>man($(strip $(1))) - $(strip $(2))</summary>" >> objects/index.incl; \
+	echo "<div class=\"details-list\"><ul>" >> objects/index.incl; \
 	for HTML_FILE in $(sort $(3)); do \
 		BASENAME=$$(basename $$HTML_FILE .html); \
 		echo "<li><a href=\"$${HTML_FILE\#$(DOC_DIR)/html/}\">$${BASENAME%.*}</a></li>"; \
 	done >> objects/index.incl; \
-	echo "</ul></div>" >> objects/index.incl; \
+	echo "</ul></div></details>" >> objects/index.incl; \
 
 
 objects/index.incl: $(GENERATED_MANPAGES) objects/var-MAN_HTML_TARGETS $(DOC_SRCDIR)/Submakefile
 	rm -f $@
 	$(call ADD_HTML_MANPAGES, 1, Commands and userspace components, $(filter $(DOC_DIR)/html/man/man1/%.html, $(MAN_HTML_TARGETS))) \
 	$(call ADD_HTML_MANPAGES, 9, Realtime components and kernel modules, $(filter $(DOC_DIR)/html/man/man9/%.html, $(MAN_HTML_TARGETS))) \
-	$(call ADD_HTML_MANPAGES, hal,   API: HAL,      $(filter $(DOC_DIR)/html/man/man3/hal%.html, $(MAN_HTML_TARGETS))) \
-	$(call ADD_HTML_MANPAGES, rtapi, API: RTAPI,    $(filter $(DOC_DIR)/html/man/man3/rtapi%.html, $(MAN_HTML_TARGETS))) \
-	$(call ADD_HTML_MANPAGES, hm2,   API: Hostmot2, $(filter $(DOC_DIR)/html/man/man3/hm2%.html, $(MAN_HTML_TARGETS))) \
-	$(call ADD_HTML_MANPAGES, 3,     API: General,  $(filter-out $(DOC_DIR)/html/man/man3/hal%.html, $(filter-out $(DOC_DIR)/html/man/man3/rtapi%.html, $(filter-out $(DOC_DIR)/html/man/man3/hm2%.html, $(filter $(DOC_DIR)/html/man/man3/%.html, $(MAN_HTML_TARGETS)))))) \
+	$(call ADD_HTML_MANPAGES, 3, API: HAL,      $(filter $(DOC_DIR)/html/man/man3/hal%.html, $(MAN_HTML_TARGETS))) \
+	$(call ADD_HTML_MANPAGES, 3, API: RTAPI,    $(filter $(DOC_DIR)/html/man/man3/rtapi%.html, $(MAN_HTML_TARGETS))) \
+	$(call ADD_HTML_MANPAGES, 3, API: Hostmot2, $(filter $(DOC_DIR)/html/man/man3/hm2%.html, $(MAN_HTML_TARGETS))) \
+	$(call ADD_HTML_MANPAGES, 3, API: General,  $(filter-out $(DOC_DIR)/html/man/man3/hal%.html, $(filter-out $(DOC_DIR)/html/man/man3/rtapi%.html, $(filter-out $(DOC_DIR)/html/man/man3/hm2%.html, $(filter $(DOC_DIR)/html/man/man3/%.html, $(MAN_HTML_TARGETS)))))) \
 	# now make sure all manpages made it into the html index
 	FAIL=0; \
 	for F in $$(find $(DOC_DIR)/man/man* -type f); do \
