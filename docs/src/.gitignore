@@ -32,3 +32,4 @@ zh_CN/*
 index_*.tmpl
 man/man1/linuxcnc.1.adoc
 rouge-*.css
+docinfo-header.html
