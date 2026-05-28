@@ -541,7 +541,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html
 #
 ADD_HTML_MANPAGES = \
 	echo "Adding manpages: $(strip $(1)): $(strip $(2))"; \
-	echo "<details>" >> objects/index.incl; \
+	echo "<details open=\"open\">" >> objects/index.incl; \
 	echo "<summary>man($(strip $(1))) - $(strip $(2))</summary>" >> objects/index.incl; \
 	echo "<div class=\"details-list\"><ul>" >> objects/index.incl; \
 	for HTML_FILE in $(sort $(3)); do \
