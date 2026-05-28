@@ -257,8 +257,14 @@ $(DOC_DIR)/po/documentation.pot: $(addprefix $(DOC_SRCDIR)/, $(DOC_SRCS_EN)) $(D
 pofiles: $(DOC_DIR)/po/documentation.pot
 
 ifeq ($(BUILD_DOCS_TRANSLATED),yes)
-translateddocs: manpages $(DOC_DIR)/po/documentation.pot
+# Stamp-file gate: without it `translateddocs` is a phony-style target with
+# no file output, so make re-runs po4a every build.  po4a rewrites the
+# per-language .adoc files, bumping their mtime past the downstream PDFs
+# and triggering a full translated-PDF rebuild on every invocation.
+$(DOC_DIR)/.translateddocs-stamp: $(DOC_DIR)/po/documentation.pot $(wildcard $(DOC_DIR)/po/*.po) | manpages
 	cd $(DOC_DIR) && ${TIME_CMD} po4a $(PO4A_VERBOSE) --msgmerge-opt='-v' --no-update po4a.cfg
+	@touch $@
+translateddocs: $(DOC_DIR)/.translateddocs-stamp
 else
 translateddocs:
 endif
@@ -434,9 +440,15 @@ $(DOC_DIR)/html/rouge-github.css:
 	    puts "}"; \
 	  end' > $@
 
-gen_complist: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
+# Stamp-file gate.  The phony alias was running the python script on
+# every build, rewriting components_gen.adoc with a fresh mtime, which
+# in turn invalidated documentation.pot and re-triggered po4a/HTML.
+$(DOC_DIR)/.gen_complist-stamp: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
 	mkdir -p $(DOC_DIR)/html/hal
 	python3 $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc
+	@touch $@
+
+gen_complist: $(DOC_DIR)/.gen_complist-stamp
 
 
 CHECKREF_TARGETS := checkref_en $(foreach L,$(LANGUAGES),checkref_$(L))
@@ -466,11 +478,17 @@ PDF_MAN_ORDER := man1/linuxcnc.1 $(filter-out %/linuxcnc.1, $(filter man1/%, $(M
 # CJK_TTFS / DOC_FONT_DIR without forward references.
 
 
-# Translated Master_*.pdf are reached only via a pattern-rule chain
-# (.adoc -> %/Master_*.pdf -> LinuxCNC_*_<lang>.pdf), which makes them
-# intermediate; without this declaration make rm's them at the end of
-# every build and the next run rebuilds them from scratch.
-.SECONDARY: $(foreach L,$(LANGUAGES),$(foreach D,Getting_Started Documentation Integrator Developer,$(DOC_SRCDIR)/$(L)/Master_$(D).pdf))
+# Files produced by pattern rules but not named as explicit goals are
+# treated as intermediate and deleted at the end of every build, which
+# triggers a full rebuild on the next invocation.  Two groups bite us:
+#  - per-language Master_*.pdf  (chain: .adoc -> %/Master_*.pdf
+#    -> LinuxCNC_*_<lang>.pdf)
+#  - the per-manpage HTML files  (chain: man/% -> html/man/%.html, used
+#    via $(HTML_TARGETS) but never as an explicit goal name)
+# Declaring them .SECONDARY keeps them on disk without affecting precious
+# -on-error semantics.
+.SECONDARY: $(foreach L,$(LANGUAGES),$(foreach D,Getting_Started Documentation Integrator Developer,$(DOC_SRCDIR)/$(L)/Master_$(D).pdf)) \
+            $(MAN_HTML_TARGETS)
 
 PDF_TARGETS_LinuxCNC_Getting_Started := $(DOC_DIR)/LinuxCNC_Getting_Started.pdf $(foreach L,$(LANGUAGES),$(DOC_DIR)/LinuxCNC_Getting_Started_$(L).pdf)
 
@@ -512,7 +530,7 @@ $(DOC_DIR)/html/man/%.html: $(DOC_DIR)/man/% $(DOC_SRCDIR)/docinfo.html
 	@$(ECHO) Formatting $(notdir $<) as HTML
 	@mkdir -p $(dir $@)
 	$(Q)if grep -q '^\.so' $<; then \
-		ln -srf ../docs/html/man/$$(basename $$(dirname $<))/$$(awk '{print $$2}' $<).html $@; \
+		ln -srf ../docs/html/man/$$(basename $$(dirname $<))/$$(basename $$(awk '{print $$2}' $<)).html $@; \
 	else \
 		N="$$(basename "$<").adoc"; \
 		D="$$(dirname "$<")"; \
@@ -809,7 +827,7 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 
 # Copy all images used by translated adoc files into the directories
 # with translated adoc files.
-.adoc-images-stamp: translateddocs $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS)))
+.adoc-images-stamp: $(DOC_DIR)/.translateddocs-stamp $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS)))
 	set -e; for ADOC_FILE in $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS))); do \
 		ADOC_DIR=$$(echo $$(dirname $$ADOC_FILE) | sed s%$(DOC_SRCDIR)/%% ); \
 		echo Processing $$ADOC_FILE, dir $$ADOC_DIR; \
