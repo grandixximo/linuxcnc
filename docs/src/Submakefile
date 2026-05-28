@@ -242,18 +242,20 @@ else
 endif
 
 # components_gen.adoc is referenced as a translation master in po4a.cfg
-# (so each language has its own translated copy in <lang>/hal/), but it
-# is auto-generated from the English manpages by gen_complist.py.  The
-# file therefore must exist before po4a is invoked, otherwise po4a aborts
-# with "master file does not exist".  The lighter rule below is enough
-# for that: gen_complist.py reads from $(DOC_DIR)/man/, so it only needs
-# manpages (the full gen_complist target also pulls in MAN_HTML_TARGETS
-# for link validation, which is too heavy a dep for the .pot path).
-$(DOC_SRCDIR)/hal/components_gen.adoc: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc | manpages
+# (so each language has its own translated copy in <lang>/hal/) and is
+# auto-generated from the English manpages by gen_complist.py.  It must
+# exist before po4a is invoked, otherwise po4a aborts with "master file
+# does not exist".  gen_complist.py reads the manpage source list from
+# $(DOC_DIR)/man/, so changes to that set must invalidate the file --
+# hence $(MAN_SRCS) as a real prereq (the script is content-stable via
+# write_if_changed, so re-running over the same set is a no-op for
+# mtime, which keeps downstream po4a from re-firing every build).
+$(DOC_SRCDIR)/hal/components_gen.adoc: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_SRCS) | manpages
 	python3 $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc
 
 $(DOC_DIR)/po/documentation.pot: $(addprefix $(DOC_SRCDIR)/, $(DOC_SRCS_EN)) $(DOC_SRCDIR)/hal/components_gen.adoc
 	cd $(DOC_DIR) && ${TIME_CMD} po4a $(PO4A_VERBOSE) --msgmerge-opt='-v' --no-translations po4a.cfg
+	@touch $@
 pofiles: $(DOC_DIR)/po/documentation.pot
 
 ifeq ($(BUILD_DOCS_TRANSLATED),yes)
@@ -443,9 +445,16 @@ $(DOC_DIR)/html/rouge-github.css:
 # Stamp-file gate.  The phony alias was running the python script on
 # every build, rewriting components_gen.adoc with a fresh mtime, which
 # in turn invalidated documentation.pot and re-triggered po4a/HTML.
-$(DOC_DIR)/.gen_complist-stamp: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
+#
+# components_gen.adoc itself is produced by the lighter rule above
+# (line ~252) which fires before po4a; that rule's $(MAN_SRCS) prereq
+# keeps the file in sync with the manpage source set.  Re-running
+# gen_complist.py here after MAN_HTML_TARGETS would rewrite the file
+# with HTML-existence-dependent content (different miss_in_man set),
+# bumping mtime past .pot and re-triggering po4a on the next build.
+# Broken-link validation against generated HTML is checkref's job.
+$(DOC_DIR)/.gen_complist-stamp: $(DOC_SRCDIR)/hal/components_gen.adoc $(MAN_HTML_TARGETS)
 	mkdir -p $(DOC_DIR)/html/hal
-	python3 $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc
 	@touch $@
 
 gen_complist: $(DOC_DIR)/.gen_complist-stamp
@@ -826,8 +835,13 @@ $(DOC_TARGETS_HTML): $(DOC_DIR)/html/%.html: $(DOC_SRCDIR)/%.html
 	done) > $@.new && mv $@.new $@
 
 # Copy all images used by translated adoc files into the directories
-# with translated adoc files.
-.adoc-images-stamp: $(DOC_DIR)/.translateddocs-stamp $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS)))
+# with translated adoc files.  The .translateddocs-stamp prerequisite
+# only exists when BUILD_DOCS_TRANSLATED=yes; without it the rule has
+# no work to do (filter-out yields empty) so we skip the dep too.
+ifeq ($(BUILD_DOCS_TRANSLATED),yes)
+ADOC_IMAGES_STAMP_DEPS := $(DOC_DIR)/.translateddocs-stamp
+endif
+.adoc-images-stamp: $(ADOC_IMAGES_STAMP_DEPS) $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS)))
 	set -e; for ADOC_FILE in $(addprefix $(DOC_SRCDIR)/, $(filter-out $(DOC_SRCS_EN), $(DOC_SRCS))); do \
 		ADOC_DIR=$$(echo $$(dirname $$ADOC_FILE) | sed s%$(DOC_SRCDIR)/%% ); \
 		echo Processing $$ADOC_FILE, dir $$ADOC_DIR; \
