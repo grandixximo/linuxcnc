@@ -29,6 +29,49 @@ using namespace std;
 #include "hal.h"
 #include "hal_priv.h"
 
+// ============ INSTRUMENTATION (#4063 pyhalitem use-after-free) ============
+// Logs every hal_init / hal_exit / pin-create / find / read with the
+// pyhalitem.u pointer and a mincore() check confirming whether the page
+// is still mapped in the process. Demonstrates that after hal_exit and
+// rtapi_shmem_delete, snapshotted u pointers in QPin.REGISTRY refer to
+// unmapped memory, and the next pyhal_read_common() is a SIGSEGV.
+//
+// Output goes to /logs/inst.log. Debug-only branch, not for merge.
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <time.h>
+
+static FILE *inst_log = NULL;
+static void inst_init_log() {
+    if (!inst_log) {
+        inst_log = fopen("/logs/inst.log", "a");
+        if (!inst_log) inst_log = stderr;
+        setvbuf(inst_log, NULL, _IOLBF, 0);
+    }
+}
+static double inst_ts() {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+#define INST(fmt, ...) do { inst_init_log(); fprintf(inst_log, "[%.6f pid=%d] " fmt "\n", inst_ts(), getpid(), ##__VA_ARGS__); } while(0)
+
+struct UOwner { std::string comp; std::string pin; int hal_id; long seq; bool alive; };
+static std::map<void*, UOwner> g_u_owners;
+static std::map<int, std::string> g_alive_ids;
+static long g_seq = 0;
+
+static int is_mapped(void *p) {
+    if (!p) return 0;
+    static long pagesize = sysconf(_SC_PAGESIZE);
+    unsigned char vec = 0;
+    void *page = (void*)((uintptr_t)p & ~(uintptr_t)(pagesize - 1));
+    return mincore(page, 1, &vec) == 0 ? 1 : 0;
+}
+// ============ END INSTRUMENTATION ============
+
 #define EXCEPTION_IF_NOT_LIVE(retval) do { \
         if(self->hal_id <= 0) { \
             PyErr_SetString(PyExc_RuntimeError, "Invalid operation on closed HAL component"); \
@@ -249,9 +292,13 @@ static int pyhal_init(PyObject *_self, PyObject *args, PyObject *kw) {
 
     self->hal_id = hal_init(name);
     if(self->hal_id <= 0) {
+        INST("hal_init FAILED name=%s rc=%d", name, self->hal_id);
         pyhal_error(self->hal_id);
         return -1;
     }
+    INST("hal_init OK name=%s prefix=%s hal_id=%d halobject=%p",
+         name, prefix?prefix:name, self->hal_id, (void*)self);
+    g_alive_ids[self->hal_id] = name;
 
     self->name = strdup(name);
     self->prefix = strdup(prefix ? prefix : name);
@@ -268,6 +315,20 @@ static int pyhal_init(PyObject *_self, PyObject *args, PyObject *kw) {
 }
 
 static void pyhal_exit_impl(halobject *self) {
+    INST("hal_exit name=%s hal_id=%d halobject=%p map_size=%zu",
+         self->name?self->name:"?", self->hal_id, (void*)self,
+         self->items?self->items->size():0);
+    if (self->hal_id > 0) {
+        int killed = 0;
+        for (auto &kv : g_u_owners) {
+            if (kv.second.hal_id == self->hal_id && kv.second.alive) {
+                kv.second.alive = false;
+                killed++;
+            }
+        }
+        INST("hal_exit marked %d u's as dead for hal_id=%d", killed, self->hal_id);
+        g_alive_ids.erase(self->hal_id);
+    }
     if(self->hal_id > 0)
         hal_exit(self->hal_id);
     self->hal_id = 0;
@@ -371,7 +432,34 @@ static int pyhal_write_common(halitem *pin, PyObject *value) {
 }
 
 static PyObject *pyhal_read_common(halitem *item) {
-    if(!item) return NULL;
+    if(!item) { INST("READ item=NULL"); return NULL; }
+    {
+        void *u = (void*)item->u;
+        auto it = g_u_owners.find(u);
+        int known = it != g_u_owners.end();
+        int alive = known && it->second.alive;
+        int u_mapped = is_mapped(u);
+        void *deref = NULL;
+        int deref_mapped = -1;
+        if (u && u_mapped) {
+            memcpy(&deref, u, sizeof(void*));
+            deref_mapped = is_mapped(deref);
+        }
+        INST("READ item=%p is_pin=%d type=%d u=%p known=%d alive=%d owner=%s/%s/id=%d seq=%ld u_mapped=%d *u=%p *u_mapped=%d",
+             (void*)item, item->is_pin, item->type, u,
+             known, alive,
+             known?it->second.comp.c_str():"?",
+             known?it->second.pin.c_str():"?",
+             known?it->second.hal_id:-1,
+             known?it->second.seq:-1L,
+             u_mapped, deref, deref_mapped);
+        if (!known || !alive || !u_mapped || deref_mapped != 1) {
+            INST("READ UNSAFE - aborting deref");
+            PyErr_Format(PyExc_RuntimeError, "stale/unknown halitem u=%p known=%d alive=%d u_mapped=%d *u_mapped=%d",
+                         u, known, alive, u_mapped, deref_mapped);
+            return NULL;
+        }
+    }
     if(item->is_pin) {
         switch(item->type) {
             case HAL_BIT: return to_python(*(item->u->pin.b));
@@ -402,15 +490,22 @@ static PyObject *pyhal_read_common(halitem *item) {
 }
 
 static halitem *find_item(halobject *self, const char *name) {
-    if(!name) return NULL;
-
+    if(!name) { INST("FIND name=NULL"); return NULL; }
+    if(!self || !self->items) {
+        INST("FIND name=%s self=%p items=NULL", name, (void*)self);
+        return NULL;
+    }
     itemmap::iterator i = self->items->find(name);
 
     if(i == self->items->end()) {
+        INST("FIND comp=%s name=%s NOT_FOUND map_size=%zu",
+             self->name?self->name:"?", name, self->items->size());
         PyErr_Format(PyExc_AttributeError, "Pin '%s' does not exist", name);
         return NULL;
     }
-
+    INST("FIND comp=%s name=%s -> item=%p u=%p hal_id=%d",
+         self->name?self->name:"?", name, (void*)&(i->second),
+         (void*)i->second.u, self->hal_id);
     return &(i->second);
 }
 
@@ -440,6 +535,13 @@ static PyObject * pyhal_create_param(halobject *self, char *name, hal_type_t typ
     if(res) return pyhal_error(res);
 
     (*self->items)[name] = param;
+    {
+        UOwner uo = {self->name?self->name:"?", name, self->hal_id, ++g_seq, true};
+        g_u_owners[(void*)param.u] = uo;
+        INST("CREATE_PARAM comp=%s param=%s full=%s u=%p hal_id=%d seq=%ld",
+             self->name?self->name:"?", name, param_name, (void*)param.u,
+             self->hal_id, g_seq);
+    }
 
     return pyhal_pin_new(&param, name);
 }
@@ -475,6 +577,15 @@ static PyObject * pyhal_create_pin(halobject *self, char *name, hal_type_t type,
     if(res) return pyhal_error(res);
 
     (*self->items)[name] = pin;
+    {
+        void *deref = NULL;
+        memcpy(&deref, pin.u, sizeof(void*));
+        UOwner uo = {self->name?self->name:"?", name, self->hal_id, ++g_seq, true};
+        g_u_owners[(void*)pin.u] = uo;
+        INST("CREATE_PIN comp=%s pin=%s full=%s u=%p *u=%p hal_id=%d seq=%ld map_size=%zu",
+             self->name?self->name:"?", name, pin_name, (void*)pin.u, deref,
+             self->hal_id, g_seq, self->items->size());
+    }
 
     return pyhal_pin_new(&pin, name);
 }
@@ -565,6 +676,32 @@ static PyObject *pyhal_unready(PyObject *_self, PyObject * /*o*/) {
 
 static PyObject *pyhal_exit(PyObject *_self, PyObject * /*o*/) {
     halobject *self = reinterpret_cast<halobject *>(_self);
+    {
+        inst_init_log();
+        fprintf(inst_log, "[%.6f pid=%d] PYHAL_EXIT_CALLED halobject=%p hal_id=%d name=%s -- Python stack:\n",
+                inst_ts(), getpid(), (void*)self, self->hal_id,
+                self->name?self->name:"?");
+        PyObject *ptype = NULL, *pvalue = NULL, *ptraceback = NULL;
+        if (PyErr_Occurred()) PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+        PyObject *traceback_mod = PyImport_ImportModule("traceback");
+        if (traceback_mod) {
+            PyObject *fmt = PyObject_CallMethod(traceback_mod, "format_stack", NULL);
+            if (fmt) {
+                PyObject *joined = PyUnicode_FromString("");
+                PyObject *res = PyObject_CallMethod(joined, "join", "O", fmt);
+                if (res) {
+                    const char *s = PyUnicode_AsUTF8(res);
+                    if (s) fprintf(inst_log, "%s", s);
+                    Py_DECREF(res);
+                }
+                Py_DECREF(joined);
+                Py_DECREF(fmt);
+            }
+            Py_DECREF(traceback_mod);
+        }
+        fprintf(inst_log, "[%.6f pid=%d] END_STACK\n", inst_ts(), getpid());
+        if (ptype) PyErr_Restore(ptype, pvalue, ptraceback);
+    }
     pyhal_exit_impl(self);
     Py_INCREF(Py_None);
     return Py_None;
@@ -579,12 +716,17 @@ static PyObject *pyhal_repr(PyObject *_self) {
 static PyObject *pyhal_getattro(PyObject *_self, PyObject *attro)  {
     PyObject *result;
     halobject *self = reinterpret_cast<halobject *>(_self);
+    const char *_an = (attro && PyUnicode_Check(attro)) ? PyUnicode_AsUTF8(attro) : "?";
+    INST("GETATTRO halobject=%p hal_id=%d name=%s attro=%s",
+         (void*)self, self?self->hal_id:-1,
+         self?(self->name?self->name:"?"):"?", _an);
     EXCEPTION_IF_NOT_LIVE(NULL);
 
     result = PyObject_GenericGetAttr(reinterpret_cast<PyObject*>(self), attro);
-    if(result) return result;
+    if(result) { INST("GETATTRO attro=%s -> GenericGetAttr hit", _an); return result; }
 
     PyErr_Clear();
+    INST("GETATTRO attro=%s -> falling to find_item", _an);
     return pyhal_read_common(find_item(self, PyUnicode_AsUTF8(attro)));
 }
 
