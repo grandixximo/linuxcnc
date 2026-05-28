@@ -466,6 +466,12 @@ PDF_MAN_ORDER := man1/linuxcnc.1 $(filter-out %/linuxcnc.1, $(filter man1/%, $(M
 # CJK_TTFS / DOC_FONT_DIR without forward references.
 
 
+# Translated Master_*.pdf are reached only via a pattern-rule chain
+# (.adoc -> %/Master_*.pdf -> LinuxCNC_*_<lang>.pdf), which makes them
+# intermediate; without this declaration make rm's them at the end of
+# every build and the next run rebuilds them from scratch.
+.SECONDARY: $(foreach L,$(LANGUAGES),$(foreach D,Getting_Started Documentation Integrator Developer,$(DOC_SRCDIR)/$(L)/Master_$(D).pdf))
+
 PDF_TARGETS_LinuxCNC_Getting_Started := $(DOC_DIR)/LinuxCNC_Getting_Started.pdf $(foreach L,$(LANGUAGES),$(DOC_DIR)/LinuxCNC_Getting_Started_$(L).pdf)
 
 $(DOC_DIR)/LinuxCNC_Getting_Started.pdf: $(DOC_SRCDIR)/Master_Getting_Started.pdf
