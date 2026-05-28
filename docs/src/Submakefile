@@ -418,12 +418,21 @@ $(DOC_DIR)/html/rouge-github.css:
 	@mkdir -p $(dir $@)
 	ruby -e ' \
 	  require "rouge"; \
-	  Rouge::Themes::Github.light!; \
-	  puts Rouge::Themes::Github.new(scope: ".rouge").render; \
-	  puts "@media (prefers-color-scheme: dark) {"; \
-	  Rouge::Themes::Github.dark!; \
-	  puts Rouge::Themes::Github.new(scope: ".rouge").render; \
-	  puts "}"' > $@
+	  t = Rouge::Themes::Github; \
+	  if t.respond_to?(:light!) && t.respond_to?(:dark!); \
+	    t.light!; \
+	    puts t.new(scope: ".rouge").render; \
+	    puts "@media (prefers-color-scheme: dark) {"; \
+	    t.dark!; \
+	    puts t.new(scope: ".rouge").render; \
+	    puts "}"; \
+	  else \
+	    warn "rouge does not support theme modes (Rouge::Themes::Github.light!); dark mode code highlighting will use Monokai"; \
+	    puts t.new(scope: ".rouge").render; \
+	    puts "@media (prefers-color-scheme: dark) {"; \
+	    puts Rouge::Themes::Monokai.new(scope: ".rouge").render; \
+	    puts "}"; \
+	  end' > $@
 
 gen_complist: $(DOC_SRCDIR)/gen_complist.py $(DOC_SRCDIR)/hal/components.adoc $(MAN_HTML_TARGETS)
 	mkdir -p $(DOC_DIR)/html/hal
