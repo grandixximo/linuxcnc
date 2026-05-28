@@ -1036,21 +1036,18 @@ AC_ARG_ENABLE(build-documentation,
             BUILD_DOCS=yes
             BUILD_DOCS_PDF=yes
             BUILD_DOCS_HTML=yes
-            BUILD_DOCS_PDF_EXPLICIT=no
             AC_MSG_RESULT([PDF and HTML requested])
         ;;
         html)
             BUILD_DOCS=yes
             BUILD_DOCS_PDF=no
             BUILD_DOCS_HTML=yes
-            BUILD_DOCS_PDF_EXPLICIT=no
             AC_MSG_RESULT([HTML requested])
 	;;
         pdf)
             BUILD_DOCS=yes
             BUILD_DOCS_PDF=yes
             BUILD_DOCS_HTML=no
-            BUILD_DOCS_PDF_EXPLICIT=yes
             AC_MSG_RESULT([PDF requested])
 	;;
         *)
@@ -1064,13 +1061,12 @@ AC_ARG_ENABLE(build-documentation,
         AC_MSG_RESULT([no])
     ])
 
-# Programs required for building documentation.  Policy splits on
-# BUILD_DOCS_PDF_EXPLICIT: --enable-build-documentation=pdf is treated
-# as a user opt-in, so any missing tool or invalid font is a hard
-# error (used by CI and by anyone who actually wants PDF).  The
-# default =Y / =html path warn-and-disables instead, so a debian
-# arch-only build (debuild --build=any) that deliberately skips the
-# Build-Depends-Indep does not die in configure.
+# Programs required for building documentation.  Missing PDF-only
+# tools or an invalid CJK font are a hard error whenever PDF was
+# requested (BUILD_DOCS_PDF=yes -- i.e. anything except
+# --enable-build-documentation=html).  =html itself warn-and-disables
+# only the missing PDF tools; users who want PDF best-effort can pass
+# =html and rebuild after installing the missing tools.
 if ( test "$BUILD_DOCS" = "yes" ) ; then
     AC_PATH_PROG(ASCIIDOCTOR,asciidoctor,"none")
     if ( test "none" = "$ASCIIDOCTOR" ) ; then
@@ -1128,19 +1124,9 @@ fi
 if ( test "$BUILD_DOCS_PDF" = "yes" ) ; then
     AC_PATH_PROG(ASCIIDOCTOR_PDF,asciidoctor-pdf,"none")
     if ( test "none" = "$ASCIIDOCTOR_PDF" ) ; then
-        # User passed --enable-build-documentation=pdf explicitly: they
-        # want PDF, so a missing tool is a hard error rather than a
-        # silent downgrade.  The default =Y / debian-rules path still
-        # warns and disables (see comment at top of the docs probe).
-        if ( test "$BUILD_DOCS_PDF_EXPLICIT" = "yes" ) ; then
-            AC_MSG_ERROR([no asciidoctor-pdf, PDF documentation cannot be built
+        AC_MSG_ERROR([no asciidoctor-pdf, PDF documentation cannot be built
 install with "sudo apt-get install asciidoctor-pdf" (Debian sid/trixie)
 or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
-        fi
-        AC_MSG_WARN([no asciidoctor-pdf, PDF documentation cannot be built
-install with "sudo apt-get install asciidoctor-pdf" (Debian sid/trixie)
-or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
-        BUILD_DOCS_PDF=no
     fi
 
     # fontTools (python3-fonttools) is used by otf2ttf.py to convert the
@@ -1208,8 +1194,7 @@ install with "sudo apt-get install python3-fonttools"])
     fi
 
     if test -n "$cjk_disable_pdf_reason" ; then
-        if ( test "$BUILD_DOCS_PDF_EXPLICIT" = "yes" ) ; then
-            AC_MSG_ERROR([$cjk_disable_pdf_reason, PDF documentation cannot be built
+        AC_MSG_ERROR([$cjk_disable_pdf_reason, PDF documentation cannot be built
 install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
 "sudo pacman -S noto-fonts-cjk" on Arch, or
 "sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.
@@ -1217,16 +1202,6 @@ fontconfig also picks up user installs under ~/.fonts; run "fc-cache -f" after c
 For a fully custom path, set the var directly:
    ./configure NOTOCJK_REGULAR_TTC=/path/to/NotoSerifCJK-Regular.ttc \
               NOTOCJK_BOLD_TTC=/path/to/NotoSerifCJK-Bold.ttc])
-        fi
-        AC_MSG_WARN([$cjk_disable_pdf_reason, PDF documentation cannot be built
-install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
-"sudo pacman -S noto-fonts-cjk" on Arch, or
-"sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.
-fontconfig also picks up user installs under ~/.fonts; run "fc-cache -f" after copying the .ttc there.
-For a fully custom path, set the var directly:
-   ./configure NOTOCJK_REGULAR_TTC=/path/to/NotoSerifCJK-Regular.ttc \
-              NOTOCJK_BOLD_TTC=/path/to/NotoSerifCJK-Bold.ttc])
-        BUILD_DOCS_PDF=no
     fi
     AC_SUBST(NOTOCJK_REGULAR_TTC)
     AC_SUBST(NOTOCJK_BOLD_TTC)
