@@ -309,9 +309,14 @@ endif
 
 $(foreach L,en $(LANGUAGES),\
   $(eval DOC_SRCS_$(call toUC,$(L))_SMALL := \
-    $(filter-out Master_%,$(DOC_SRCS_$(call toUC,$(L))))))
+    $(filter-out Master_% man/% $(L)/man/%,$(DOC_SRCS_$(call toUC,$(L))))))
 
-DOC_SRCS_HTML = $(patsubst %.adoc, %.html, $(foreach p, $(DOC_SRCS), $(if $(findstring Master_, $(p)),, $p)))
+# Manpages are produced by the translated-manpage pipeline further
+# down (asciidoctor --doctype=manpage), not the generic adoc-to-html
+# rule.  Filter them out of DOC_SRCS_HTML so DOC_TARGETS_HTML does not
+# claim the same html/<L>/man/... output paths.
+DOC_SRCS_HTML = $(patsubst %.adoc, %.html, $(foreach p, $(DOC_SRCS), \
+    $(if $(findstring Master_, $(p)),, $(if $(findstring /man/, /$(p)),, $(p)))))
 DOC_TARGETS_HTML = $(addprefix $(DOC_DIR)/html/,$(DOC_SRCS_HTML)) #$(subst /,_,$(DOC_SRCS_HTML))
 DOC_TARGETS_XML = $(patsubst $(DOC_DIR)/html/%.html, objects/%.xml, $(DOC_TARGETS_HTML))
 
@@ -639,6 +644,7 @@ objects/index.incl: $(GENERATED_MANPAGES) objects/var-MAN_HTML_TARGETS $(DOC_SRC
 	find $(DOC_DIR)/man -name "*.png" ! -name "grohtml*" -exec mv {} "$(DOC_DIR)/html/man/man/images/" \;
 
 $(DOC_DIR)/html/%/index.html: $(DOC_SRCDIR)/index_%.tmpl ../VERSION $(DOC_SRCDIR)/index.foot
+	@mkdir -p $(dir $@)
 	cat $(filter-out ../VERSION, $^) | \
 		sed "s/@VERSION@/`cat ../VERSION`/" | \
 		if [ "yes" != "$(BUILD_DOCS_TRANSLATED)" ]; then sed '/@TRANSLATIONS@/,/@ENDTRANSLATIONS@/d' ; else grep -Ev '@(END)?TRANSLATIONS@'; fi > $@
@@ -1044,3 +1050,74 @@ $(DOC_DIR)/man/%: $(DOC_DIR)/src/man/%.adoc
 		-a mansource=LinuxCNC \
 		-a manmanual='LinuxCNC Documentation' \
 		$<
+
+# Translated manpages.  po4a produces docs/src/<L>/man/man*/X.adoc for
+# every English manpage listed in po4a.cfg.  Mirror the English toolchain
+# above (troff via asciidoctor manpage backend, then HTML manpage)
+# per-language so each supported language gets a man/ tree.  Wired into
+# translateddocs and HTML_TARGETS below.
+define TRANSLATED_MANPAGE_RULES
+TRANSLATED_GENERATED_MANPAGES_$1 := $$(patsubst $$(DOC_DIR)/src/$1/man/%.adoc, $$(DOC_DIR)/$1/man/%, $$(wildcard $$(DOC_DIR)/src/$1/man/man?/*.adoc))
+
+$$(DOC_DIR)/$1/man/%: $$(DOC_DIR)/src/$1/man/%.adoc | $$(DOC_DIR)/.translateddocs-stamp
+	$$(ECHO) Making translated manpage $1 $$(notdir $$@)
+	@mkdir -p $$(dir $$@)
+	$$(Q)asciidoctor --doctype=manpage \
+		--backend=manpage \
+		--destination-dir="$$(dir $$@)" \
+		-a compat-mode \
+		-a mansource=LinuxCNC \
+		-a manmanual='LinuxCNC Documentation' \
+		$$<
+
+TRANSLATED_MAN_HTML_TARGETS_$1 := $$(patsubst $$(DOC_DIR)/$1/man/%, $$(DOC_DIR)/html/$1/man/%.html, $$(TRANSLATED_GENERATED_MANPAGES_$1))
+
+$$(DOC_DIR)/html/$1/man/%.html: $$(DOC_DIR)/$1/man/% $$(DOC_SRCDIR)/docinfo.html
+	@$$(ECHO) Formatting translated manpage $1 $$(notdir $$<) as HTML
+	@mkdir -p $$(dir $$@)
+	$$(Q)if grep -q '^\.so' $$<; then \
+		ln -srf ../docs/html/$1/man/$$$$(basename $$$$(dirname $$<))/$$$$(basename $$$$(awk '{print $$$$2}' $$<)).html $$@; \
+	else \
+		N="$$$$(basename "$$<").adoc"; \
+		D="$$$$(dirname "$$<")"; \
+		S="$$$$(basename "$$$$D")"; \
+		if [ -r "$$(DOC_SRCDIR)/$1/man/$$$$S/$$$$N" ]; then \
+			F="$$(DOC_SRCDIR)/$1/man/$$$$S/$$$$N"; \
+		else \
+			echo "Error: Cannot find translated manpage '$$<' in adoc format"; \
+			exit 1; \
+		fi; \
+		asciidoctor \
+			-r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_hal.rb \
+			-r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ngc.rb \
+			-r $$(realpath $$(DOC_SRCDIR))/extensions/rouge_ini.rb \
+			--doctype=manpage \
+			--backend=html5 \
+			-a compat-mode \
+			-a mansource=LinuxCNC \
+			-a manmanual='LinuxCNC Documentation' \
+			-a "lcnc-cssrel=../../../" \
+			-a docinfo=shared \
+			-a docinfodir=$$(realpath $$(DOC_SRCDIR)) \
+			-a source-highlighter=rouge \
+			-a rouge-style=github \
+			-a webfonts! \
+			-a linkcss -a copycss! \
+			-a "stylesdir=../../../" \
+			-o $$@ \
+			"$$$$F" \
+		; \
+	fi
+endef
+
+ifeq ($(BUILD_DOCS_TRANSLATED),yes)
+$(foreach L,$(LANGUAGES),$(eval $(call TRANSLATED_MANPAGE_RULES,$(L))))
+TRANSLATED_GENERATED_MANPAGES := $(foreach L,$(LANGUAGES),$(TRANSLATED_GENERATED_MANPAGES_$(L)))
+TRANSLATED_MAN_HTML_TARGETS := $(foreach L,$(LANGUAGES),$(TRANSLATED_MAN_HTML_TARGETS_$(L)))
+# Wire translated manpages into `docs` only (not `manpages`).  Pulling
+# them into `manpages` would create a cycle: the troff rule's order-only
+# dep on .translateddocs-stamp resolves through po4a -> manpages, and
+# adding the translated manpages back to that node closes the loop.
+docs: $(TRANSLATED_MAN_HTML_TARGETS)
+.SECONDARY: $(TRANSLATED_MAN_HTML_TARGETS) $(TRANSLATED_GENERATED_MANPAGES)
+endif
