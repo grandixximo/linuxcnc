@@ -5,6 +5,10 @@ set -x
 
 cd src
 ./autogen.sh
+# Canary: run configure with explicit =pdf so any regression in
+# asciidoctor-pdf / fontTools / NotoSerifCJK on the runner image
+# fails fast (hard error from configure.ac).  No build, just probe.
+./configure --disable-check-runtime-deps --enable-build-documentation=pdf
 ./configure --disable-check-runtime-deps \
             --enable-build-documentation=html \
             --enable-build-documentation-translation

@@ -1036,18 +1036,21 @@ AC_ARG_ENABLE(build-documentation,
             BUILD_DOCS=yes
             BUILD_DOCS_PDF=yes
             BUILD_DOCS_HTML=yes
+            BUILD_DOCS_PDF_EXPLICIT=no
             AC_MSG_RESULT([PDF and HTML requested])
         ;;
         html)
             BUILD_DOCS=yes
             BUILD_DOCS_PDF=no
             BUILD_DOCS_HTML=yes
+            BUILD_DOCS_PDF_EXPLICIT=no
             AC_MSG_RESULT([HTML requested])
 	;;
         pdf)
             BUILD_DOCS=yes
             BUILD_DOCS_PDF=yes
             BUILD_DOCS_HTML=no
+            BUILD_DOCS_PDF_EXPLICIT=yes
             AC_MSG_RESULT([PDF requested])
 	;;
         *)
@@ -1061,13 +1064,13 @@ AC_ARG_ENABLE(build-documentation,
         AC_MSG_RESULT([no])
     ])
 
-# Programs required for building all documentation.  Missing tools
-# warn and disable docs rather than erroring: debian/rules unconditionally
-# passes --enable-build-documentation, and an arch-only build (debuild
-# --build=any) deliberately skips the Build-Depends-Indep that supply
-# these tools, so a hard error here would break that path.  The make
-# rules themselves error clearly if you ask for `pdfdocs`/`htmldocs`
-# when BUILD_DOCS=no.
+# Programs required for building documentation.  Policy splits on
+# BUILD_DOCS_PDF_EXPLICIT: --enable-build-documentation=pdf is treated
+# as a user opt-in, so any missing tool or invalid font is a hard
+# error (used by CI and by anyone who actually wants PDF).  The
+# default =Y / =html path warn-and-disables instead, so a debian
+# arch-only build (debuild --build=any) that deliberately skips the
+# Build-Depends-Indep does not die in configure.
 if ( test "$BUILD_DOCS" = "yes" ) ; then
     AC_PATH_PROG(ASCIIDOCTOR,asciidoctor,"none")
     if ( test "none" = "$ASCIIDOCTOR" ) ; then
@@ -1125,6 +1128,15 @@ fi
 if ( test "$BUILD_DOCS_PDF" = "yes" ) ; then
     AC_PATH_PROG(ASCIIDOCTOR_PDF,asciidoctor-pdf,"none")
     if ( test "none" = "$ASCIIDOCTOR_PDF" ) ; then
+        # User passed --enable-build-documentation=pdf explicitly: they
+        # want PDF, so a missing tool is a hard error rather than a
+        # silent downgrade.  The default =Y / debian-rules path still
+        # warns and disables (see comment at top of the docs probe).
+        if ( test "$BUILD_DOCS_PDF_EXPLICIT" = "yes" ) ; then
+            AC_MSG_ERROR([no asciidoctor-pdf, PDF documentation cannot be built
+install with "sudo apt-get install asciidoctor-pdf" (Debian sid/trixie)
+or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
+        fi
         AC_MSG_WARN([no asciidoctor-pdf, PDF documentation cannot be built
 install with "sudo apt-get install asciidoctor-pdf" (Debian sid/trixie)
 or "sudo apt-get install ruby-asciidoctor-pdf" (Debian bookworm)])
@@ -1151,12 +1163,12 @@ install with "sudo apt-get install python3-fonttools"])
     # for when a glyph (zh_CN, Japanese, Korean) is missing from the
     # base text font.  We need the .ttc TrueType Collection, because
     # otf2ttf.py picks index 2 (SC) out of it.  Probe via fontconfig
-    # first; fall back to the package paths shipped by the major
-    # distributions if fc-match is not available or did not return a
-    # .ttc.  Kept as a hard error (rather than warn-and-disable like
-    # the tool checks above) because a missing font otherwise surfaces
-    # as the cryptic "No rule to make target NotoSerifCJK-Regular.ttc"
-    # deep in the make output -- the original hansu complaint on #4053.
+    # first, then load through python+fontTools to validate, because
+    # some distros ship a file named .ttc that is not actually a
+    # TrueType Collection (otf2ttf would die mid-build on it).  Probe
+    # failure warn-and-disables PDF on the default =Y path so other
+    # docs still build; explicit =pdf is treated as a hard error.
+    cjk_disable_pdf_reason=""
     AC_MSG_CHECKING([for NotoSerifCJK Regular .ttc])
     NOTOCJK_REGULAR_TTC="`fc-match --format='%{file}' 'Noto Serif CJK SC:style=Regular' 2>/dev/null`"
     case "$NOTOCJK_REGULAR_TTC" in
@@ -1165,7 +1177,39 @@ install with "sudo apt-get install python3-fonttools"])
     esac
     if test -z "$NOTOCJK_REGULAR_TTC" ; then
         AC_MSG_RESULT([no])
-        AC_MSG_ERROR([NotoSerifCJK Regular TrueType Collection not found via fc-match, cannot build PDF documentation
+        cjk_disable_pdf_reason="no NotoSerifCJK Regular TrueType Collection found via fc-match"
+    else
+        AC_MSG_RESULT([$NOTOCJK_REGULAR_TTC])
+    fi
+
+    if test -z "$cjk_disable_pdf_reason" ; then
+        AC_MSG_CHECKING([for NotoSerifCJK Bold .ttc])
+        NOTOCJK_BOLD_TTC="`fc-match --format='%{file}' 'Noto Serif CJK SC:style=Bold' 2>/dev/null`"
+        case "$NOTOCJK_BOLD_TTC" in
+            *.ttc) test -r "$NOTOCJK_BOLD_TTC" || NOTOCJK_BOLD_TTC="" ;;
+            *)     NOTOCJK_BOLD_TTC="" ;;
+        esac
+        if test -z "$NOTOCJK_BOLD_TTC" ; then
+            AC_MSG_RESULT([no])
+            cjk_disable_pdf_reason="no NotoSerifCJK Bold TrueType Collection found via fc-match"
+        else
+            AC_MSG_RESULT([$NOTOCJK_BOLD_TTC])
+        fi
+    fi
+
+    if test -z "$cjk_disable_pdf_reason" ; then
+        AC_MSG_CHECKING([that NotoSerifCJK .ttc loads as a TrueType Collection])
+        if python3 -c 'import sys; from fontTools.ttLib import TTCollection; TTCollection(sys.argv[[1]]).fonts[[2]]; TTCollection(sys.argv[[2]]).fonts[[2]]' "$NOTOCJK_REGULAR_TTC" "$NOTOCJK_BOLD_TTC" 2>/dev/null ; then
+            AC_MSG_RESULT([yes])
+        else
+            AC_MSG_RESULT([no])
+            cjk_disable_pdf_reason="NotoSerifCJK file at $NOTOCJK_REGULAR_TTC is not a valid TrueType Collection (index 2 unavailable)"
+        fi
+    fi
+
+    if test -n "$cjk_disable_pdf_reason" ; then
+        if ( test "$BUILD_DOCS_PDF_EXPLICIT" = "yes" ) ; then
+            AC_MSG_ERROR([$cjk_disable_pdf_reason, PDF documentation cannot be built
 install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
 "sudo pacman -S noto-fonts-cjk" on Arch, or
 "sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.
@@ -1173,23 +1217,17 @@ fontconfig also picks up user installs under ~/.fonts; run "fc-cache -f" after c
 For a fully custom path, set the var directly:
    ./configure NOTOCJK_REGULAR_TTC=/path/to/NotoSerifCJK-Regular.ttc \
               NOTOCJK_BOLD_TTC=/path/to/NotoSerifCJK-Bold.ttc])
-    fi
-    AC_MSG_RESULT([$NOTOCJK_REGULAR_TTC])
-
-    AC_MSG_CHECKING([for NotoSerifCJK Bold .ttc])
-    NOTOCJK_BOLD_TTC="`fc-match --format='%{file}' 'Noto Serif CJK SC:style=Bold' 2>/dev/null`"
-    case "$NOTOCJK_BOLD_TTC" in
-        *.ttc) test -r "$NOTOCJK_BOLD_TTC" || NOTOCJK_BOLD_TTC="" ;;
-        *)     NOTOCJK_BOLD_TTC="" ;;
-    esac
-    if test -z "$NOTOCJK_BOLD_TTC" ; then
-        AC_MSG_RESULT([no])
-        AC_MSG_ERROR([NotoSerifCJK Bold TrueType Collection not found via fc-match, cannot build PDF documentation
+        fi
+        AC_MSG_WARN([$cjk_disable_pdf_reason, PDF documentation cannot be built
 install with "sudo apt-get install fonts-noto-cjk" on Debian / Ubuntu,
 "sudo pacman -S noto-fonts-cjk" on Arch, or
-"sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.])
+"sudo dnf install google-noto-sans-cjk-fonts google-noto-serif-cjk-fonts" on Fedora.
+fontconfig also picks up user installs under ~/.fonts; run "fc-cache -f" after copying the .ttc there.
+For a fully custom path, set the var directly:
+   ./configure NOTOCJK_REGULAR_TTC=/path/to/NotoSerifCJK-Regular.ttc \
+              NOTOCJK_BOLD_TTC=/path/to/NotoSerifCJK-Bold.ttc])
+        BUILD_DOCS_PDF=no
     fi
-    AC_MSG_RESULT([$NOTOCJK_BOLD_TTC])
     AC_SUBST(NOTOCJK_REGULAR_TTC)
     AC_SUBST(NOTOCJK_BOLD_TTC)
     fi
