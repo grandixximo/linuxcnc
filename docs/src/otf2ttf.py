@@ -68,7 +68,9 @@ def convert(src, dst, ttc_index=None, text=None):
     else:
         font = TTFont(src)
 
-    if text:
+    # `is not None`, not `if text:`: an empty scan result must still subset
+    # (to notdef) rather than convert the full ~65k-glyph face (~200s).
+    if text is not None:
         opts = Options()
         opts.layout_features = ['*']
         opts.notdef_outline = True
@@ -92,9 +94,17 @@ def main():
     p.add_argument('input')
     p.add_argument('output')
     p.add_argument('--ttc-index', type=int, default=None)
-    p.add_argument('--text-from', help='directory scanned for adoc/po sources; output subset to characters found there')
+    p.add_argument('--text-from', action='append', default=[], metavar='DIR',
+                   help='directory scanned for adoc/po sources; subset output '
+                        'to characters found there.  Repeatable.')
     a = p.parse_args()
-    text = ''.join(sorted(scan_cjk(a.text_from))) if a.text_from else None
+    if a.text_from:
+        seen = set()
+        for d in a.text_from:
+            seen.update(scan_cjk(d))
+        text = ''.join(sorted(seen))
+    else:
+        text = None
     convert(a.input, a.output, a.ttc_index, text)
 
 

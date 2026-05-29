@@ -263,7 +263,13 @@ ifeq ($(BUILD_DOCS_TRANSLATED),yes)
 # no file output, so make re-runs po4a every build.  po4a rewrites the
 # per-language .adoc files, bumping their mtime past the downstream PDFs
 # and triggering a full translated-PDF rebuild on every invocation.
-$(DOC_DIR)/.translateddocs-stamp: $(DOC_DIR)/po/documentation.pot $(wildcard $(DOC_DIR)/po/*.po) | manpages
+#
+# Depend on the committed .po files and components_gen.adoc (a po4a master),
+# NOT documentation.pot: regenerating the pot runs po4a in msgmerge mode,
+# rewriting every docs/po/*.po with a fresh POT-Creation-Date on each build
+# (dirty tree + mtime cascade).  Building needs only `po4a --no-update`;
+# pot/po extraction stays on the explicit `pofiles` target.
+$(DOC_DIR)/.translateddocs-stamp: $(DOC_SRCDIR)/hal/components_gen.adoc $(wildcard $(DOC_DIR)/po/*.po) | manpages
 	cd $(DOC_DIR) && ${TIME_CMD} po4a $(PO4A_VERBOSE) --msgmerge-opt='-v' --no-update po4a.cfg
 	@touch $@
 translateddocs: $(DOC_DIR)/.translateddocs-stamp
@@ -407,11 +413,18 @@ TRANSLATED_ADOC_TARGETS := $(addprefix $(DOC_SRCDIR)/, \
 $(TRANSLATED_ADOC_TARGETS): | translateddocs ;
 endif
 
-.htmldoc-stamp: copy_asciidoc_files gen_complist $(HTML_TARGETS) .images-stamp .include-stamp $(DOC_DIR)/html/asciidoctor.css $(DOC_DIR)/html/rouge-github.css
+# Depend on the stamp files, not the phony copy_asciidoc_files /
+# gen_complist aliases: a phony prereq is always "newer", so naming them
+# re-touched .htmldoc-stamp every run, dragging checkref and the css copy
+# with it.  The stamps fire only when their real inputs change.
+.htmldoc-stamp: .copy-asciidoc-stamp $(DOC_DIR)/.gen_complist-stamp $(HTML_TARGETS) .images-stamp .include-stamp $(DOC_DIR)/html/asciidoctor.css $(DOC_DIR)/html/rouge-github.css
 	touch $@
 
-copy_asciidoc_files: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css
+# Stamp-gated css/js copy; copy_asciidoc_files stays as a phony alias.
+copy_asciidoc_files: .copy-asciidoc-stamp
+.copy-asciidoc-stamp: $(wildcard /etc/asciidoc/stylesheets/*.css) $(wildcard /etc/asciidoc/javascripts/*.js) $(DOC_SRCDIR)/lcnc-overrides.css
 	if test -n "$^"; then cp -f $^ $(DOC_DIR)/html ; fi
+	@touch $@
 
 $(DOC_DIR)/html/asciidoctor.css: $(ASCIIDOCTOR_DEFAULT_CSS)
 	@mkdir -p $(dir $@)
@@ -464,13 +477,20 @@ CHECKREF_TARGETS := checkref_en $(foreach L,$(LANGUAGES),checkref_$(L))
 .PHONY: $(CHECKREF_TARGETS)
 checkref: $(CHECKREF_TARGETS)
 
-checkref_en: $(DOC_TARGETS_HTML_EN) $(DOC_DIR)/html/index.html $(DOC_DIR)/html/gcode.html .htmldoc-stamp
-	$(DOC_SRCDIR)/checkref English $^
+# checkref_* stay phony aliases; the link check lives in stamp-gated rules
+# so it only re-runs when the HTML changes.  .htmldoc-stamp is filtered out
+# of the args so the stamp file is not handed to the link checker.
+checkref_en: $(DOC_DIR)/.checkref-english-stamp
+$(DOC_DIR)/.checkref-english-stamp: $(DOC_TARGETS_HTML_EN) $(DOC_DIR)/html/index.html $(DOC_DIR)/html/gcode.html .htmldoc-stamp
+	$(DOC_SRCDIR)/checkref English $(filter %.html,$^)
+	@touch $@
 
 # Pattern rule for all languages
-checkref_%: $$(DOC_TARGETS_HTML_$$(call uc,$$*)) \
+checkref_%: $(DOC_DIR)/.checkref-%-stamp ;
+$(DOC_DIR)/.checkref-%-stamp: $$(DOC_TARGETS_HTML_$$(call uc,$$*)) \
              $$(DOC_DIR)/html/%/gcode.html .htmldoc-stamp
-	$(DOC_SRCDIR)/checkref $(call lang_name,$*) $$^
+	$(DOC_SRCDIR)/checkref $(call lang_name,$*) $(filter %.html,$$^)
+	@touch $@
 
 
 MAN_SRCS_NOSO = $(patsubst $(DOC_DIR)/man/%,%, \
@@ -655,15 +675,20 @@ DOC_FONTS     = $(CJK_TTFS) $(DEJAVU_TTFS)
 # CFF outlines, so we convert the curves with cu2qu first.  This is the
 # fallback font that lets the translated docs render their few non-Latin
 # characters; the base text is still served by Noto Serif.
-$(DOC_FONT_DIR)/NotoSerifCJKsc-Regular.ttf: $(NOTOCJK_REGULAR_TTC) $(DOC_SRCDIR)/otf2ttf.py
+# Scan both docs/src and the po catalogues: the .po files hold the full
+# translated text, so the glyph subset no longer depends on whether po4a
+# has produced the per-language .adoc yet.  Without this the subset can
+# come up empty on a fresh build and the converter falls back to the full
+# ~65k-glyph face (~200s vs ~1.5s).
+$(DOC_FONT_DIR)/NotoSerifCJKsc-Regular.ttf: $(NOTOCJK_REGULAR_TTC) $(DOC_SRCDIR)/otf2ttf.py $(wildcard $(DOC_DIR)/po/*.po)
 	@mkdir -p $(DOC_FONT_DIR)
 	$(ECHO) "Converting CJK font to TTF: $(notdir $@)"
-	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) $< $@.tmp && mv $@.tmp $@
+	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) --text-from $(DOC_DIR)/po $< $@.tmp && mv $@.tmp $@
 
-$(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf: $(NOTOCJK_BOLD_TTC) $(DOC_SRCDIR)/otf2ttf.py
+$(DOC_FONT_DIR)/NotoSerifCJKsc-Bold.ttf: $(NOTOCJK_BOLD_TTC) $(DOC_SRCDIR)/otf2ttf.py $(wildcard $(DOC_DIR)/po/*.po)
 	@mkdir -p $(DOC_FONT_DIR)
 	$(ECHO) "Converting CJK font to TTF: $(notdir $@)"
-	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) $< $@.tmp && mv $@.tmp $@
+	$(Q)python3 $(DOC_SRCDIR)/otf2ttf.py --ttc-index 2 --text-from $(DOC_SRCDIR) --text-from $(DOC_DIR)/po $< $@.tmp && mv $@.tmp $@
 
 # DejaVu Sans Mono discovery: fc-match resolves the canonical .ttf for
 # each style, we symlink it into DOC_FONT_DIR under its expected filename
@@ -685,7 +710,10 @@ $(eval $(call DEJAVU_RULE,DejaVuSansMono-BoldOblique.ttf,DejaVu Sans Mono:style=
 $(DOC_FONT_DIR):
 	@mkdir -p $@
 
-$(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc svgs_made_from_dots .adoc-images-stamp $(DOC_FONTS)
+# svgs_made_from_dots is .PHONY; as a normal prereq it forces every PDF to
+# rebuild on every run.  Order-only (after the |) instead; the SVGs the PDF
+# embeds are tracked via .adoc-images-stamp.
+$(DOC_SRCDIR)/%.pdf: $(DOC_SRCDIR)/%.adoc .adoc-images-stamp $(DOC_FONTS) | svgs_made_from_dots
 	$(ECHO) Building $@
 	@rm -f $@ $@.raw
 	$(Q)timeout 900 asciidoctor-pdf \
@@ -951,10 +979,14 @@ docclean:
 	-rm -f $(DOC_DIR)/html/man/man9/*.*
 	-rm -f $(DOC_TARGETS_HTML) $(DOC_DIR)/html/xref*.html $(DOC_DIR)/html/index*.html $(DOC_DIR)/*.png $(DOC_DIR)/man/*.png
 	-rm -f .htmldoc-stamp
+	-rm -f .copy-asciidoc-stamp
 	-rm -f .adoc-images-stamp
 	-rm -f .html-images-stamp
 	-rm -f .images-stamp
 	-rm -f .include-stamp
+	-rm -f $(DOC_DIR)/.translateddocs-stamp
+	-rm -f $(DOC_DIR)/.gen_complist-stamp
+	-rm -f $(DOC_DIR)/.checkref-*-stamp
 	-rm -f $(DOTFILES:.dot=.svg)
 	$(RM) $(DOC_SRCDIR)/man/man1/linuxcnc.1.adoc
 
