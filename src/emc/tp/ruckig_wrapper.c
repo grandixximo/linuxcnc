@@ -134,6 +134,16 @@ static struct {
 } ruckig_pool[RUCKIG_POOL_SIZE];
 static int ruckig_pool_inited = 0;
 
+/* ---- Solve-rate instrumentation (diagnostic) ----
+ * g_ruckig_solves  = number of full cruckig_calculate() solves (the expensive,
+ *                    root-finding part) — incremented at each plan call.
+ * g_ruckig_samples = number of per-cycle trajectory samples (ruckig_next_cycle).
+ * Periodically prints the delta of each so we can see, live, how many solves
+ * happen per servo cycle on dense vs long programs. resolve_frac ~ solves/sample
+ * near 1.0 => re-solving almost every cycle (guard ineffective). */
+static unsigned long g_ruckig_solves  = 0;
+static unsigned long g_ruckig_samples = 0;
+
 RuckigPlanner ruckig_pool_acquire(double cycle_time) {
     int i;
 
@@ -364,6 +374,7 @@ int ruckig_plan_position(RuckigPlanner planner,
     }
 
     /* Execute planning */
+    g_ruckig_solves++;
     CRuckigResult result = cruckig_calculate(impl->otg, impl->input, impl->trajectory);
 
     int rc = handle_result(result, planner, "ruckig_plan_position",
@@ -446,6 +457,7 @@ int ruckig_plan_velocity(RuckigPlanner planner,
     }
 
     /* Execute planning */
+    g_ruckig_solves++;
     CRuckigResult result = cruckig_calculate(impl->otg, impl->input, impl->trajectory);
 
     int rc = handle_result(result, planner, "ruckig_plan_velocity",
@@ -592,6 +604,21 @@ int ruckig_next_cycle(RuckigPlanner planner,
                       double *jerk) {
     if (!planner) {
         return -1;
+    }
+
+    /* Diagnostic: count per-cycle samples and periodically report the solve rate.
+     * Print every 4000 samples (~1 s at 250 us/cycle with ~1-2 samples/cycle). */
+    g_ruckig_samples++;
+    if ((g_ruckig_samples % 4000u) == 0u) {
+        static unsigned long last_solves = 0, last_samples = 0;
+        unsigned long d_solves  = g_ruckig_solves  - last_solves;
+        unsigned long d_samples = g_ruckig_samples - last_samples;
+        last_solves  = g_ruckig_solves;
+        last_samples = g_ruckig_samples;
+        rtapi_print_msg(RTAPI_MSG_ERR,
+            "RUCKIG rate: +%lu solves / +%lu samples  (resolve_frac=%d%%)\n",
+            d_solves, d_samples,
+            d_samples ? (int)(100u * d_solves / d_samples) : 0);
     }
 
     double next_time = current_time + cycle_time;
