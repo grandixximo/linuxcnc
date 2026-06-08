@@ -139,11 +139,18 @@ RuckigPlanner ruckig_pool_acquire(double cycle_time) {
 
     /* One-time lazy init: allocate the whole pool on first use (program start). */
     if (!ruckig_pool_inited) {
+        int ok = 0;
         for (i = 0; i < RUCKIG_POOL_SIZE; i++) {
             ruckig_pool[i].planner = ruckig_create(cycle_time);
             ruckig_pool[i].in_use  = 0;
+            if (ruckig_pool[i].planner) ok++;
         }
         ruckig_pool_inited = 1;
+        /* MSG_ERR so it is ALWAYS visible in the linuxcnc log: proves the
+         * patched module is the one loaded and that the pool path is active. */
+        rtapi_print_msg(RTAPI_MSG_ERR,
+            "RUCKIG PLANNER POOL active: %d/%d planners preallocated (cycle_time=%g)\n",
+            ok, RUCKIG_POOL_SIZE, cycle_time);
     }
 
     /* Hand out a free, reset planner. */
@@ -158,8 +165,16 @@ RuckigPlanner ruckig_pool_acquire(double cycle_time) {
     /* Pool exhausted (or lazy init failed): fall back to a live create so the
      * caller still gets a valid planner. Loses the no-alloc benefit only for
      * this one segment; ruckig_pool_release() will destroy it. */
-    rtapi_print_msg(RTAPI_MSG_DBG,
-        "ruckig_pool_acquire: pool exhausted, falling back to ruckig_create\n");
+    {
+        static int warned_exhausted = 0;
+        if (!warned_exhausted) {
+            warned_exhausted = 1;
+            rtapi_print_msg(RTAPI_MSG_ERR,
+                "RUCKIG POOL EXHAUSTED (>%d concurrent planners): falling back to "
+                "ruckig_create; raise RUCKIG_POOL_SIZE if this recurs\n",
+                RUCKIG_POOL_SIZE);
+        }
+    }
     return ruckig_create(cycle_time);
 }
 
