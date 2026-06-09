@@ -77,6 +77,83 @@ static void scurve_memo_put(scurve_memo_t *t, double a, double b, double c, doub
     t[h].k0 = a; t[h].k1 = b; t[h].k2 = c; t[h].k3 = d; t[h].val = val; t[h].valid = 1;
 }
 
+/* ---------------------------------------------------------------------------
+ * Closed-form S-curve max-start-speed (replacement for the Ruckig solve).
+ *
+ * Want: the maximum start velocity Vs such that a jerk-limited deceleration
+ * from Vs (accel=0) down to Ve (accel=0) fits within `distance`.
+ *
+ * Key identity: when acceleration starts AND ends at 0, the accel profile is
+ * symmetric about its time-midpoint, so velocity is point-symmetric and the
+ * travelled distance is exactly  d = (Vs+Ve)/2 * T(dv),  dv = Vs-Ve, with
+ *     T(dv) = 2*sqrt(dv/J)        if dv <= A^2/J   (triangular accel, peak < A)
+ *           = A/J + dv/A          otherwise        (trapezoidal accel, hits A)
+ *
+ * Inverting d = (Ve + dv/2) * T(dv):
+ *   triangular  -> u^3 + (2*Ve)*u - d*sqrt(J) = 0,  u = sqrt(dv)   (one real root)
+ *   trapezoidal -> dv^2/(2A) + dv*(Ve/A + A/(2J)) + (Ve*A/J - d) = 0  (quadratic)
+ * Constant-time, no iteration, no solver.
+ * ------------------------------------------------------------------------- */
+static double scurve_cbrt(double x) { return (x < 0.0) ? -pow(-x, 1.0/3.0) : pow(x, 1.0/3.0); }
+
+static double scurve_max_start_speed_analytic(double distance, double Ve, double A, double J) {
+    if (distance <= 0.0 || A <= 0.0 || J <= 0.0) return fabs(Ve);
+    if (Ve < 0.0) Ve = 0.0;
+
+    /* distance at the triangular/trapezoidal boundary (dv = A^2/J, T = 2A/J) */
+    double dv_thresh = (A * A) / J;
+    double d_thresh  = (Ve + 0.5 * dv_thresh) * (2.0 * A / J);
+
+    double dv;
+    if (distance <= d_thresh) {
+        /* triangular accel: depressed cubic u^3 + p*u + q = 0, p>=0 -> single real root */
+        double p = 2.0 * Ve;
+        double q = -distance * sqrt(J);
+        double disc = (q * q) / 4.0 + (p * p * p) / 27.0;   /* > 0 for p>=0 */
+        double s = sqrt(disc);
+        double u = scurve_cbrt(-0.5 * q + s) + scurve_cbrt(-0.5 * q - s);
+        dv = u * u;
+    } else {
+        /* trapezoidal accel: a*dv^2 + b*dv + c = 0 */
+        double a = 1.0 / (2.0 * A);
+        double b = Ve / A + A / (2.0 * J);
+        double c = Ve * A / J - distance;
+        double disc = b * b - 4.0 * a * c;
+        if (disc < 0.0) disc = 0.0;
+        dv = (-b + sqrt(disc)) / (2.0 * a);
+    }
+    if (dv < 0.0) dv = 0.0;
+    return Ve + dv;
+}
+
+/* Analytic equivalent of findSCurveMaxStartSpeed's full result, including the
+ * original's clamp to the rest-to-rest peak (findSCurveVSpeed == 0->peak->0 over
+ * `distance` == max-start-speed to stop over distance/2). */
+static double scurve_max_start_speed_full_analytic(double distance, double Ve, double A, double J) {
+    double vs   = scurve_max_start_speed_analytic(distance, Ve, A, J);
+    double peak = scurve_max_start_speed_analytic(distance * 0.5, 0.0, A, J);
+    return fmin(vs, peak);
+}
+
+/* A/B validation: compare analytic vs the trusted Ruckig result; track + print
+ * the worst deviation periodically. Returns nothing; motion keeps using Ruckig
+ * until we trust the analytic. */
+static void scurve_validate_ab(double distance, double Ve, double ruck, double an) {
+    static unsigned long n = 0;
+    static double max_abs = 0.0, max_rel = 0.0;
+    static double w_dist = 0, w_Ve = 0, w_ruck = 0, w_an = 0;
+    double ad = fabs(an - ruck);
+    double rd = (fabs(ruck) > 1e-6) ? ad / fabs(ruck) : 0.0;
+    if (ad > max_abs) max_abs = ad;
+    if (rd > max_rel) { max_rel = rd; w_dist = distance; w_Ve = Ve; w_ruck = ruck; w_an = an; }
+    if ((++n % 20000u) == 0u) {
+        rtapi_print_msg(RTAPI_MSG_ERR,
+            "SCURVE A/B: max|an-ruck|=%.4g maxrel=%.3f%%  worst: dist=%.4g Ve=%.3f ruck=%.4f an=%.4f\n",
+            max_abs, max_rel * 100.0, w_dist, w_Ve, w_ruck, w_an);
+        max_abs = 0.0; max_rel = 0.0;   /* per-window reset */
+    }
+}
+
 /* Internal (uncached) implementations; public names below are cached wrappers. */
 static int findSCurveVSpeed_impl(double distence, double maxA, double maxJ, double *req_v);
 static int findSCurveMaxStartSpeed_impl(double distance, double Ve, double maxA, double maxJ, double *req_v);
@@ -93,7 +170,14 @@ int findSCurveMaxStartSpeed(double distance, double Ve, double maxA, double maxJ
     double cached;
     if (scurve_memo_get(memo_maxstart, distance, Ve, maxA, maxJ, &cached)) { *req_v = cached; return 1; }
     int r = findSCurveMaxStartSpeed_impl(distance, Ve, maxA, maxJ, req_v);
-    if (r == 1) scurve_memo_put(memo_maxstart, distance, Ve, maxA, maxJ, *req_v);
+    if (r == 1) {
+        /* A/B validation: motion still uses the Ruckig value (*req_v); we only
+         * measure how close the closed-form result is. Flip to analytic once
+         * the logged deviation is confirmed negligible. */
+        double an = scurve_max_start_speed_full_analytic(distance, Ve, maxA, maxJ);
+        scurve_validate_ab(distance, Ve, *req_v, an);
+        scurve_memo_put(memo_maxstart, distance, Ve, maxA, maxJ, *req_v);
+    }
     return r;
 }
 
