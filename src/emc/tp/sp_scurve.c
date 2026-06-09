@@ -626,60 +626,20 @@ static double calc_scurve_speed_with_t_analytic(double amax, double jerk, double
 }
 
 double calcSCurveSpeedWithT(double amax, double jerk, double T) {
-    /* Parameter validation */
     if (amax <= 0.0 || jerk <= 0.0 || T <= 0.0) {
         return 0.0;
     }
-
-    /* Use the cached planner */
-    RuckigPlanner planner = get_cached_planner();
-    if (!planner) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "calcSCurveSpeedWithT: planner not initialized, call sp_scurve_init() first\n");
-        return 0.0;
-    }
-
-    /* Reset planner state */
-    ruckig_reset(planner);
-
-    /* Estimate a target position large enough that the trajectory will not
-     * reach it within time T.  Use the trapezoidal formula as a conservative
-     * estimate: s = 0.5 * amax * T^2.  Double it for safety. */
-    double target_pos = 0.5 * amax * T * T * 2.0;
-
-    /* Set a max velocity large enough to not be the limiting factor */
-    double max_vel = amax * T * 2.0;  /* conservative estimate */
-
-    g_scurve_solves++;
-    int result = ruckig_plan_position(planner,
-                                      0.0,        /* start position */
-                                      0.0,        /* start velocity */
-                                      0.0,        /* start acceleration */
-                                      target_pos, /* target position (large enough) */
-                                      max_vel,    /* target velocity (large, not limiting) */
-                                      0.0,        /* target acceleration */
-                                      0.0,        /* min velocity (unidirectional) */
-                                      max_vel * 2.0,  /* max velocity (ensures no limiting) */
-                                      amax,       /* max acceleration */
-                                      jerk);      /* max jerk */
-
-    if (result != 0) {
-        /* Planning failed — use conservative fallback estimate.
-         * For an S-curve the velocity upper bound at time T is amax*T
-         * (trapezoidal), but the S-curve value is smaller. */
-        return fmin(amax * T, sqrt(amax * amax * T / jerk));
-    }
-
-    /* Sample velocity at time T */
-    double pos, vel, acc, jerk_val;
-    result = ruckig_at_time(planner, T, &pos, &vel, &acc, &jerk_val);
-    if (result != 0) {
-        /* Sampling failed — use conservative fallback */
-        return fmin(amax * T, sqrt(amax * amax * T / jerk));
-    }
-
-    /* A/B: log analytic-vs-Ruckig deviation; still return Ruckig until proven. */
-    scurve_validate_ab(T, 0.0, vel, calc_scurve_speed_with_t_analytic(amax, jerk, T));
-    return vel;
+    /* The original here asked Ruckig to reach target_vel=amax*T*2 within
+     * target_pos=amax*T^2 — geometrically impossible (needs ~2x the distance),
+     * so the plan ALWAYS failed and the function ALWAYS returned this fallback.
+     * Return it directly: behaviour-identical, and removes a guaranteed-failing
+     * Ruckig solve from every blend. */
+#if SCURVE_FAITHFUL
+    return fmin(amax * T, sqrt(amax * amax * T / jerk));
+#else
+    /* Option 2: the true jerk-limited v(T) reached accelerating from rest. */
+    return calc_scurve_speed_with_t_analytic(amax, jerk, T);
+#endif
 }
 
 /* ================================================================
