@@ -174,11 +174,19 @@ static int findSCurveVSpeed_impl(double distence, double maxA, double maxJ, doub
 static int findSCurveMaxStartSpeed_impl(double distance, double Ve, double maxA, double maxJ, double *req_v);
 
 int findSCurveVSpeed(double distence, double maxA, double maxJ, double *req_v) {
-    double cached;
-    if (scurve_memo_get(memo_vspeed, distence, maxA, maxJ, 0.0, &cached)) { *req_v = cached; return 1; }
-    int r = findSCurveVSpeed_impl(distence, maxA, maxJ, req_v);
-    if (r == 1) scurve_memo_put(memo_vspeed, distence, maxA, maxJ, 0.0, *req_v);
-    return r;
+    /* FLIPPED to closed form. Rest-to-rest peak over `distence` == max-start-speed
+     * to stop over distence/2. SCURVE_FAITHFUL halves it to reproduce the original
+     * Ruckig findSCurveVSpeed (which returns half the true peak — the proven 2x).
+     * This is the same formula already A/B-validated as the findSCurveMaxStartSpeed
+     * peak clamp (maxrel=0). Removes the solve that findSCurveVPeak (blendmath.h)
+     * triggered on every arc/blend — the arc-section opt bursts. */
+    if (distence <= 0.0 || maxA <= 0.0 || maxJ <= 0.0) { *req_v = 0.0; return -1; }
+    double peak = scurve_max_start_speed_analytic(distence * 0.5, 0.0, maxA, maxJ);
+#if SCURVE_FAITHFUL
+    peak *= 0.5;
+#endif
+    *req_v = peak;
+    return 1;
 }
 
 int findSCurveMaxStartSpeed(double distance, double Ve, double maxA, double maxJ, double *req_v) {
