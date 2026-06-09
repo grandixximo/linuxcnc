@@ -610,14 +610,17 @@ int ruckig_next_cycle(RuckigPlanner planner,
      * Print every 4000 samples (~1 s at 250 us/cycle with ~1-2 samples/cycle). */
     g_ruckig_samples++;
     if ((g_ruckig_samples % 4000u) == 0u) {
-        static unsigned long last_solves = 0, last_samples = 0;
+        extern unsigned long g_scurve_solves;   /* velocity-query (optimizer) solves */
+        static unsigned long last_solves = 0, last_samples = 0, last_scurve = 0;
         unsigned long d_solves  = g_ruckig_solves  - last_solves;
         unsigned long d_samples = g_ruckig_samples - last_samples;
+        unsigned long d_scurve  = g_scurve_solves  - last_scurve;
         last_solves  = g_ruckig_solves;
         last_samples = g_ruckig_samples;
+        last_scurve  = g_scurve_solves;
         rtapi_print_msg(RTAPI_MSG_ERR,
-            "RUCKIG rate: +%lu solves / +%lu samples  (resolve_frac=%d%%)\n",
-            d_solves, d_samples,
+            "RUCKIG rate: +%lu solves (opt=%lu exec=%lu) / +%lu samples  (frac=%d%%)\n",
+            d_solves, d_scurve, d_solves - d_scurve, d_samples,
             d_samples ? (int)(100u * d_solves / d_samples) : 0);
     }
 

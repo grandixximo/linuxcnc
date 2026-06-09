@@ -31,6 +31,12 @@
 static RuckigPlanner cached_planner = NULL;
 static double cached_cycle_time = 0.0;  /* cycle time used by the current planner */
 
+/* Diagnostic: counts solves issued by the s-curve VELOCITY-QUERY path
+ * (findSCurveMaxStartSpeed / findSCurveVSpeed*, called by the look-ahead
+ * optimizer). The ruckig wrapper's g_ruckig_solves is the grand total, so
+ * execution-path solves = total - g_scurve_solves. */
+unsigned long g_scurve_solves = 0;
+
 /**
  * @brief Initialize the S-curve planner (call at program entry).
  *
@@ -142,6 +148,7 @@ int findSCurveVSpeedWithEndSpeed(double distance, double Ve,
     /* Plan a complete trajectory from (0, 0, 0) to (distance, Ve, 0).
      * Ruckig will automatically find the peak velocity that satisfies
      * the distance and end-velocity constraints. */
+    g_scurve_solves++;
     int result = ruckig_plan_position(planner,
                                       0.0,            /* start position */
                                       0.0,            /* start velocity */
@@ -232,6 +239,7 @@ int findSCurveMaxStartSpeed(double distance, double Ve,
         Vs_estimate = fabs(Ve) * 2.0;
     }
 
+    g_scurve_solves++;
     int result = ruckig_plan_position(planner,
                                       0.0,
                                       Vs_estimate,
@@ -304,6 +312,7 @@ int findSCurveVSpeed(double distence, double maxA, double maxJ, double* req_v){
     ruckig_reset(planner);
 
     /* Plan a complete trajectory from (0, 0, 0) to (distance, 0, 0) */
+    g_scurve_solves++;
     int result = ruckig_plan_position(planner,
                                       0.0,            /* start position */
                                       0.0,            /* start velocity */
@@ -474,6 +483,7 @@ double calcSCurveSpeedWithT(double amax, double jerk, double T) {
     /* Set a max velocity large enough to not be the limiting factor */
     double max_vel = amax * T * 2.0;  /* conservative estimate */
 
+    g_scurve_solves++;
     int result = ruckig_plan_position(planner,
                                       0.0,        /* start position */
                                       0.0,        /* start velocity */
