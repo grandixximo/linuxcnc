@@ -31,52 +31,6 @@
 static RuckigPlanner cached_planner = NULL;
 static double cached_cycle_time = 0.0;  /* cycle time used by the current planner */
 
-/* Diagnostic: counts solves issued by the s-curve VELOCITY-QUERY path
- * (findSCurveMaxStartSpeed / findSCurveVSpeed*, called by the look-ahead
- * optimizer). The ruckig wrapper's g_ruckig_solves is the grand total, so
- * execution-path solves = total - g_scurve_solves. */
-unsigned long g_scurve_solves = 0;
-
-/* ---------------------------------------------------------------------------
- * Memoization of the s-curve velocity queries.
- *
- * findSCurveVSpeed()/findSCurveMaxStartSpeed() each run 1-2 full Ruckig solves
- * just to return a scalar velocity bound. They are PURE functions of their
- * scalar inputs (each ruckig_reset()s then solves deterministically), so the
- * same inputs always yield the same result and never go stale. The look-ahead
- * optimizer calls them every servo cycle for the same segments with constant
- * inputs (target/accel/jerk fixed; finalvel constant once converged), so a
- * value-keyed cache turns those repeats into O(1) lookups instead of solves.
- *
- * A hit returns the exact value the solver would have produced => zero change
- * in motion behaviour. A miss just solves as before. Direct-mapped; a collision
- * simply evicts and re-solves. Single-threaded (servo loop) => no locking.
- * ------------------------------------------------------------------------- */
-#define SCURVE_MEMO_SIZE 1024u   /* power of two */
-typedef struct { double k0, k1, k2, k3, val; int valid; } scurve_memo_t;
-static scurve_memo_t memo_vspeed[SCURVE_MEMO_SIZE];
-static scurve_memo_t memo_maxstart[SCURVE_MEMO_SIZE];
-
-static unsigned scurve_memo_hash(double a, double b, double c, double d) {
-    union { double dv; unsigned long long uv; } u;
-    unsigned long long h = 1469598103934665603ULL;      /* FNV-1a 64 */
-    double v[4]; v[0] = a; v[1] = b; v[2] = c; v[3] = d;
-    for (int i = 0; i < 4; ++i) { u.dv = v[i]; h = (h ^ u.uv) * 1099511628211ULL; }
-    return (unsigned)(h & (SCURVE_MEMO_SIZE - 1u));
-}
-static int scurve_memo_get(const scurve_memo_t *t, double a, double b, double c, double d, double *out) {
-    unsigned h = scurve_memo_hash(a, b, c, d);
-    if (t[h].valid && t[h].k0 == a && t[h].k1 == b && t[h].k2 == c && t[h].k3 == d) {
-        *out = t[h].val;
-        return 1;
-    }
-    return 0;
-}
-static void scurve_memo_put(scurve_memo_t *t, double a, double b, double c, double d, double val) {
-    unsigned h = scurve_memo_hash(a, b, c, d);
-    t[h].k0 = a; t[h].k1 = b; t[h].k2 = c; t[h].k3 = d; t[h].val = val; t[h].valid = 1;
-}
-
 /* ---------------------------------------------------------------------------
  * Closed-form S-curve max-start-speed (replacement for the Ruckig solve).
  *
@@ -148,31 +102,6 @@ static double scurve_max_start_speed_full_analytic(double distance, double Ve, d
     return fmax(Ve, fmin(vs, peak));
 }
 
-/* A/B validation: compare analytic vs the trusted Ruckig result; track + print
- * the worst deviation periodically. Returns nothing; motion keeps using Ruckig
- * until we trust the analytic. */
-/* A/B accumulators: updated here, read+reset by the RUCKIG rate print in the
- * ruckig wrapper so the deviation rides on a print we know fires reliably. */
-double g_scurve_dev_abs = 0.0, g_scurve_dev_rel = 0.0;
-double g_scurve_dev_dist = 0.0, g_scurve_dev_Ve = 0.0, g_scurve_dev_ruck = 0.0, g_scurve_dev_an = 0.0;
-unsigned long g_scurve_ab_n = 0;
-
-static void scurve_validate_ab(double distance, double Ve, double ruck, double an) {
-    g_scurve_ab_n++;
-    double ad = fabs(an - ruck);
-    double rd = (fabs(ruck) > 1e-6) ? ad / fabs(ruck) : 0.0;
-    if (ad > g_scurve_dev_abs) g_scurve_dev_abs = ad;
-    if (rd > g_scurve_dev_rel) {
-        g_scurve_dev_rel = rd;
-        g_scurve_dev_dist = distance; g_scurve_dev_Ve = Ve;
-        g_scurve_dev_ruck = ruck; g_scurve_dev_an = an;
-    }
-}
-
-/* Internal (uncached) implementations; public names below are cached wrappers. */
-static int findSCurveVSpeed_impl(double distence, double maxA, double maxJ, double *req_v);
-static int findSCurveMaxStartSpeed_impl(double distance, double Ve, double maxA, double maxJ, double *req_v);
-
 int findSCurveVSpeed(double distence, double maxA, double maxJ, double *req_v) {
     /* FLIPPED to closed form. Rest-to-rest peak over `distence` == max-start-speed
      * to stop over distence/2. SCURVE_FAITHFUL halves it to reproduce the original
@@ -190,11 +119,10 @@ int findSCurveVSpeed(double distence, double maxA, double maxJ, double *req_v) {
 }
 
 int findSCurveMaxStartSpeed(double distance, double Ve, double maxA, double maxJ, double *req_v) {
-    /* FLIPPED to the closed form: proven bit-identical to the Ruckig path
-     * (A/B maxrel=0.000% across the full input distribution). Constant-time, no
-     * solver — this is what removes the per-cycle look-ahead solve storm.
-     * (The Ruckig _impl + memo + A/B scaffolding is now dead and gets removed in
-     * the production cleanup; the offline proof lives in scurve_analytic_test.c.) */
+    /* Closed form: proven bit-identical to the original Ruckig path (A/B
+     * maxrel=0.000% across the full input distribution). Constant-time, no
+     * solver — removes the per-cycle look-ahead solve storm. Offline proof in
+     * scurve_analytic_test.c. */
     *req_v = scurve_max_start_speed_full_analytic(distance, Ve, maxA, maxJ);
     return 1;
 }
@@ -310,7 +238,6 @@ int findSCurveVSpeedWithEndSpeed(double distance, double Ve,
     /* Plan a complete trajectory from (0, 0, 0) to (distance, Ve, 0).
      * Ruckig will automatically find the peak velocity that satisfies
      * the distance and end-velocity constraints. */
-    g_scurve_solves++;
     int result = ruckig_plan_position(planner,
                                       0.0,            /* start position */
                                       0.0,            /* start velocity */
@@ -342,169 +269,6 @@ int findSCurveVSpeedWithEndSpeed(double distance, double Ve,
     return 1;
 }
 
-/**
- * @brief Compute the maximum start speed that can decelerate to Ve within
- *        a given distance (jerk-constrained).
- *
- * Find the largest Vs such that a trajectory exists from (0, Vs, 0) to
- * (distance, Ve, 0) under (maxA, maxJ) constraints.
- *
- * Method: use the constant-acceleration upper bound
- *   Vs_estimate = sqrt(Ve^2 + 2*maxA*distance)
- * as an initial guess and pass it to Ruckig.  If planning succeeds,
- * Vs_estimate is feasible.  If it fails, the jerk constraint requires
- * more distance — return a guaranteed-feasible upper bound instead.
- *
- * On failure, instead of returning 0.9*Vs_estimate (which may still
- * exceed the jerk-feasible value), return the 0->0 S-curve peak for
- * the same distance.  That value is always jerk-feasible and prevents
- * downstream planning failures.  On success the same peak is used as
- * an upper-bound clamp.
- *
- * @param distance  total distance
- * @param Ve        end velocity
- * @param maxA      maximum acceleration
- * @param maxJ      maximum jerk
- * @param req_v     [out] computed maximum start speed
- * @return          1 on success, -1 on failure
- */
-static int findSCurveMaxStartSpeed_impl(double distance, double Ve,
-                            double maxA, double maxJ, double* req_v) {
-    if (distance <= 0 || maxA <= 0 || maxJ <= 0) {
-        *req_v = fabs(Ve);
-        return -1;
-    }
-
-    if (fabs(Ve) <= TP_VEL_EPSILON) {
-        return findSCurveVSpeed(distance, maxA, maxJ, req_v);
-    }
-
-    /* 0->0 S-curve peak for this distance — reliable jerk-constrained upper bound,
-     * used as fallback on failure and as a clamp on success. */
-    double v_0_to_0_peak = 0.0;
-    if (findSCurveVSpeed(distance, maxA, maxJ, &v_0_to_0_peak) != 1) {
-        /* findSCurveVSpeed failed: use triangular upper bound to avoid unbounded result */
-        v_0_to_0_peak = sqrt(maxA * distance);
-    }
-
-    RuckigPlanner planner = get_cached_planner();
-    if (!planner) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "findSCurveMaxStartSpeed: planner not initialized, call sp_scurve_init() first\n");
-        *req_v = fmin(fabs(Ve) * 2.0, v_0_to_0_peak);
-        return -1;
-    }
-
-    ruckig_reset(planner);
-
-    double Vs_estimate = sqrt(Ve * Ve + 2.0 * maxA * distance);
-    if (Vs_estimate < fabs(Ve)) {
-        Vs_estimate = fabs(Ve) * 2.0;
-    }
-
-    g_scurve_solves++;
-    int result = ruckig_plan_position(planner,
-                                      0.0,
-                                      Vs_estimate,
-                                      0.0,
-                                      distance,
-                                      Ve,
-                                      0.0,
-                                      0.0,
-                                      Vs_estimate * 2.0,
-                                      maxA,
-                                      maxJ);
-
-    if (result == 0) {
-        double duration = ruckig_get_duration(planner);
-        if (duration > 0.0) {
-            double actual_pos, actual_vel, actual_acc, actual_jerk;
-            int query_result = ruckig_at_time(planner, duration,
-                                             &actual_pos, &actual_vel,
-                                             &actual_acc, &actual_jerk);
-            if (query_result == 0) {
-                double pos_error = fabs(actual_pos - distance);
-                if (pos_error < 1e-6) {
-                    double start_vel = 0.0;
-                    if (ruckig_get_start_velocity(planner, &start_vel) == 0) {
-                        *req_v = fmin(start_vel, v_0_to_0_peak);
-                        return 1;
-                    }
-                }
-            }
-        }
-        *req_v = fmin(Vs_estimate, v_0_to_0_peak);
-        return 1;
-    }
-
-    /* Planning failed: jerk constraint makes Vs_estimate infeasible.
-     * Return the guaranteed-feasible 0->0 peak to avoid downstream failures. */
-    *req_v = fmax(fabs(Ve), v_0_to_0_peak);
-    return 1;
-}
-
-/**
- * @brief Compute the rest-to-rest S-curve peak velocity (using Ruckig planning).
- *
- * Given a total distance, plan a complete trajectory from (0, 0, 0) to
- * (distance, 0, 0), then read the peak velocity directly from the
- * profile — no iteration required.
- *
- * @param distence  total distance (rest to rest)
- * @param maxA      maximum acceleration
- * @param maxJ      maximum jerk
- * @param req_v     [out] computed peak velocity
- * @return          1 on success, -1 on failure
- */
-static int findSCurveVSpeed_impl(double distence, double maxA, double maxJ, double* req_v){
-    /* Parameter validation */
-    if (distence <= 0 || maxA <= 0 || maxJ <= 0) {
-        *req_v = 0.0;
-        return -1;
-    }
-
-    /* Use the cached planner */
-    RuckigPlanner planner = get_cached_planner();
-    if (!planner) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "findSCurveVSpeed: planner not initialized, call sp_scurve_init() first\n");
-        *req_v = 0.0;
-        return -1;
-    }
-
-    /* Reset planner state */
-    ruckig_reset(planner);
-
-    /* Plan a complete trajectory from (0, 0, 0) to (distance, 0, 0) */
-    g_scurve_solves++;
-    int result = ruckig_plan_position(planner,
-                                      0.0,            /* start position */
-                                      0.0,            /* start velocity */
-                                      0.0,            /* start acceleration */
-                                      distence,       /* target position */
-                                      0.0,            /* target velocity */
-                                      0.0,            /* target acceleration */
-                                      0.0,            /* min velocity (unidirectional) */
-                                      sqrt(maxA * distence) * 2.0,  /* max velocity (conservative, ensures no limiting) */
-                                      maxA,           /* max acceleration */
-                                      maxJ);          /* max jerk */
-
-    if (result != 0) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "findSCurveVSpeed: ruckig_plan_position failed (result=%d)\n", result);
-        *req_v = 0.0;
-        return -1;
-    }
-
-    /* Read the peak velocity directly from the profile */
-    double peak_vel = 0.0;
-    result = ruckig_get_peak_velocity(planner, &peak_vel);
-    if (result != 0) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "findSCurveVSpeed: ruckig_get_peak_velocity failed\n");
-        *req_v = 0.0;
-        return -1;
-    }
-
-    *req_v = peak_vel;
-    return 1;
-}
 
 /**
  * @brief Compute S-curve deceleration time parameters using analytical formulas
@@ -621,17 +385,19 @@ double calcDecelerateTimes(double v, double amax, double jerk, double* t1, doubl
  * @param T     time in seconds
  * @return      maximum velocity at time T, or 0.0 on failure
  */
+#if !SCURVE_FAITHFUL
 /* Closed form for calcSCurveSpeedWithT: velocity after accelerating from rest
  * for time T under jerk-limited (S-curve) acceleration, no distance/vel limit.
  *   t <= amax/jerk : still in the jerk ramp        v = 0.5*jerk*T^2
  *   t >  amax/jerk : in constant-accel phase       v = amax*T - amax^2/(2*jerk)
- */
+ * Only used by the option-2 (non-faithful) path below. */
 static double calc_scurve_speed_with_t_analytic(double amax, double jerk, double T) {
     if (amax <= 0.0 || jerk <= 0.0 || T <= 0.0) return 0.0;
     double Tj = amax / jerk;
     if (T <= Tj) return 0.5 * jerk * T * T;
     return amax * T - (amax * amax) / (2.0 * jerk);
 }
+#endif
 
 double calcSCurveSpeedWithT(double amax, double jerk, double T) {
     if (amax <= 0.0 || jerk <= 0.0 || T <= 0.0) {
