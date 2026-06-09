@@ -129,9 +129,19 @@ static double scurve_max_start_speed_analytic(double distance, double Ve, double
 /* Analytic equivalent of findSCurveMaxStartSpeed's full result, including the
  * original's clamp to the rest-to-rest peak (findSCurveVSpeed == 0->peak->0 over
  * `distance` == max-start-speed to stop over distance/2). */
+/* SCURVE_FAITHFUL: reproduce the ORIGINAL Ruckig behaviour exactly (it returns
+ * HALF the true rest-to-rest peak — see scurve_analytic_test.c / A/B logs). With
+ * the 0.5 this is a behaviour-identical drop-in (zero motion change, just no
+ * solver). Set to 0 for the physically-correct values (option 2: ~2x cornering
+ * velocity within the same jerk/accel limits) — a deliberate, separately
+ * validated performance change. */
+#define SCURVE_FAITHFUL 1
 static double scurve_max_start_speed_full_analytic(double distance, double Ve, double A, double J) {
     double vs   = scurve_max_start_speed_analytic(distance, Ve, A, J);
     double peak = scurve_max_start_speed_analytic(distance * 0.5, 0.0, A, J);
+#if SCURVE_FAITHFUL
+    peak *= 0.5;                 /* match the original's halved clamp */
+#endif
     return fmin(vs, peak);
 }
 
