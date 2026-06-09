@@ -37,6 +37,66 @@ static double cached_cycle_time = 0.0;  /* cycle time used by the current planne
  * execution-path solves = total - g_scurve_solves. */
 unsigned long g_scurve_solves = 0;
 
+/* ---------------------------------------------------------------------------
+ * Memoization of the s-curve velocity queries.
+ *
+ * findSCurveVSpeed()/findSCurveMaxStartSpeed() each run 1-2 full Ruckig solves
+ * just to return a scalar velocity bound. They are PURE functions of their
+ * scalar inputs (each ruckig_reset()s then solves deterministically), so the
+ * same inputs always yield the same result and never go stale. The look-ahead
+ * optimizer calls them every servo cycle for the same segments with constant
+ * inputs (target/accel/jerk fixed; finalvel constant once converged), so a
+ * value-keyed cache turns those repeats into O(1) lookups instead of solves.
+ *
+ * A hit returns the exact value the solver would have produced => zero change
+ * in motion behaviour. A miss just solves as before. Direct-mapped; a collision
+ * simply evicts and re-solves. Single-threaded (servo loop) => no locking.
+ * ------------------------------------------------------------------------- */
+#define SCURVE_MEMO_SIZE 1024u   /* power of two */
+typedef struct { double k0, k1, k2, k3, val; int valid; } scurve_memo_t;
+static scurve_memo_t memo_vspeed[SCURVE_MEMO_SIZE];
+static scurve_memo_t memo_maxstart[SCURVE_MEMO_SIZE];
+
+static unsigned scurve_memo_hash(double a, double b, double c, double d) {
+    union { double dv; unsigned long long uv; } u;
+    unsigned long long h = 1469598103934665603ULL;      /* FNV-1a 64 */
+    double v[4]; v[0] = a; v[1] = b; v[2] = c; v[3] = d;
+    for (int i = 0; i < 4; ++i) { u.dv = v[i]; h = (h ^ u.uv) * 1099511628211ULL; }
+    return (unsigned)(h & (SCURVE_MEMO_SIZE - 1u));
+}
+static int scurve_memo_get(const scurve_memo_t *t, double a, double b, double c, double d, double *out) {
+    unsigned h = scurve_memo_hash(a, b, c, d);
+    if (t[h].valid && t[h].k0 == a && t[h].k1 == b && t[h].k2 == c && t[h].k3 == d) {
+        *out = t[h].val;
+        return 1;
+    }
+    return 0;
+}
+static void scurve_memo_put(scurve_memo_t *t, double a, double b, double c, double d, double val) {
+    unsigned h = scurve_memo_hash(a, b, c, d);
+    t[h].k0 = a; t[h].k1 = b; t[h].k2 = c; t[h].k3 = d; t[h].val = val; t[h].valid = 1;
+}
+
+/* Internal (uncached) implementations; public names below are cached wrappers. */
+static int findSCurveVSpeed_impl(double distence, double maxA, double maxJ, double *req_v);
+static int findSCurveMaxStartSpeed_impl(double distance, double Ve, double maxA, double maxJ, double *req_v);
+
+int findSCurveVSpeed(double distence, double maxA, double maxJ, double *req_v) {
+    double cached;
+    if (scurve_memo_get(memo_vspeed, distence, maxA, maxJ, 0.0, &cached)) { *req_v = cached; return 1; }
+    int r = findSCurveVSpeed_impl(distence, maxA, maxJ, req_v);
+    if (r == 1) scurve_memo_put(memo_vspeed, distence, maxA, maxJ, 0.0, *req_v);
+    return r;
+}
+
+int findSCurveMaxStartSpeed(double distance, double Ve, double maxA, double maxJ, double *req_v) {
+    double cached;
+    if (scurve_memo_get(memo_maxstart, distance, Ve, maxA, maxJ, &cached)) { *req_v = cached; return 1; }
+    int r = findSCurveMaxStartSpeed_impl(distance, Ve, maxA, maxJ, req_v);
+    if (r == 1) scurve_memo_put(memo_maxstart, distance, Ve, maxA, maxJ, *req_v);
+    return r;
+}
+
 /**
  * @brief Initialize the S-curve planner (call at program entry).
  *
@@ -206,7 +266,7 @@ int findSCurveVSpeedWithEndSpeed(double distance, double Ve,
  * @param req_v     [out] computed maximum start speed
  * @return          1 on success, -1 on failure
  */
-int findSCurveMaxStartSpeed(double distance, double Ve,
+static int findSCurveMaxStartSpeed_impl(double distance, double Ve,
                             double maxA, double maxJ, double* req_v) {
     if (distance <= 0 || maxA <= 0 || maxJ <= 0) {
         *req_v = fabs(Ve);
@@ -293,7 +353,7 @@ int findSCurveMaxStartSpeed(double distance, double Ve,
  * @param req_v     [out] computed peak velocity
  * @return          1 on success, -1 on failure
  */
-int findSCurveVSpeed(double distence, double maxA, double maxJ, double* req_v){
+static int findSCurveVSpeed_impl(double distence, double maxA, double maxJ, double* req_v){
     /* Parameter validation */
     if (distence <= 0 || maxA <= 0 || maxJ <= 0) {
         *req_v = 0.0;
