@@ -142,7 +142,10 @@ static double scurve_max_start_speed_full_analytic(double distance, double Ve, d
 #if SCURVE_FAITHFUL
     peak *= 0.5;                 /* match the original's halved clamp */
 #endif
-    return fmin(vs, peak);
+    /* Floor at Ve: when the segment is too short to reach Ve (peak clamp < Ve),
+     * the original Ruckig path fails and falls back to fmax(Ve, peak). Max start
+     * speed can never be below the end speed, so clamp up to Ve. */
+    return fmax(Ve, fmin(vs, peak));
 }
 
 /* A/B validation: compare analytic vs the trusted Ruckig result; track + print
