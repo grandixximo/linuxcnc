@@ -613,6 +613,18 @@ double calcDecelerateTimes(double v, double amax, double jerk, double* t1, doubl
  * @param T     time in seconds
  * @return      maximum velocity at time T, or 0.0 on failure
  */
+/* Closed form for calcSCurveSpeedWithT: velocity after accelerating from rest
+ * for time T under jerk-limited (S-curve) acceleration, no distance/vel limit.
+ *   t <= amax/jerk : still in the jerk ramp        v = 0.5*jerk*T^2
+ *   t >  amax/jerk : in constant-accel phase       v = amax*T - amax^2/(2*jerk)
+ */
+static double calc_scurve_speed_with_t_analytic(double amax, double jerk, double T) {
+    if (amax <= 0.0 || jerk <= 0.0 || T <= 0.0) return 0.0;
+    double Tj = amax / jerk;
+    if (T <= Tj) return 0.5 * jerk * T * T;
+    return amax * T - (amax * amax) / (2.0 * jerk);
+}
+
 double calcSCurveSpeedWithT(double amax, double jerk, double T) {
     /* Parameter validation */
     if (amax <= 0.0 || jerk <= 0.0 || T <= 0.0) {
@@ -665,6 +677,8 @@ double calcSCurveSpeedWithT(double amax, double jerk, double T) {
         return fmin(amax * T, sqrt(amax * amax * T / jerk));
     }
 
+    /* A/B: log analytic-vs-Ruckig deviation; still return Ruckig until proven. */
+    scurve_validate_ab(T, 0.0, vel, calc_scurve_speed_with_t_analytic(amax, jerk, T));
     return vel;
 }
 
