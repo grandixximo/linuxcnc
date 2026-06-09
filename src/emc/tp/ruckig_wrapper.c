@@ -622,6 +622,16 @@ int ruckig_next_cycle(RuckigPlanner planner,
             "RUCKIG rate: +%lu solves (opt=%lu exec=%lu) / +%lu samples  (frac=%d%%)\n",
             d_solves, d_scurve, d_solves - d_scurve, d_samples,
             d_samples ? (int)(100u * d_solves / d_samples) : 0);
+
+        /* A/B: analytic-vs-Ruckig deviation since last print, then reset. */
+        extern double g_scurve_dev_abs, g_scurve_dev_rel, g_scurve_dev_dist,
+                      g_scurve_dev_Ve, g_scurve_dev_ruck, g_scurve_dev_an;
+        extern unsigned long g_scurve_ab_n;
+        rtapi_print_msg(RTAPI_MSG_ERR,
+            "SCURVE A/B: n=%lu maxabs=%.4g maxrel=%.3f%%  worst[dist=%.4g Ve=%.3f ruck=%.4f an=%.4f]\n",
+            g_scurve_ab_n, g_scurve_dev_abs, g_scurve_dev_rel * 100.0,
+            g_scurve_dev_dist, g_scurve_dev_Ve, g_scurve_dev_ruck, g_scurve_dev_an);
+        g_scurve_dev_abs = 0.0; g_scurve_dev_rel = 0.0; g_scurve_ab_n = 0;
     }
 
     double next_time = current_time + cycle_time;

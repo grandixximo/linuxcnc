@@ -138,19 +138,21 @@ static double scurve_max_start_speed_full_analytic(double distance, double Ve, d
 /* A/B validation: compare analytic vs the trusted Ruckig result; track + print
  * the worst deviation periodically. Returns nothing; motion keeps using Ruckig
  * until we trust the analytic. */
+/* A/B accumulators: updated here, read+reset by the RUCKIG rate print in the
+ * ruckig wrapper so the deviation rides on a print we know fires reliably. */
+double g_scurve_dev_abs = 0.0, g_scurve_dev_rel = 0.0;
+double g_scurve_dev_dist = 0.0, g_scurve_dev_Ve = 0.0, g_scurve_dev_ruck = 0.0, g_scurve_dev_an = 0.0;
+unsigned long g_scurve_ab_n = 0;
+
 static void scurve_validate_ab(double distance, double Ve, double ruck, double an) {
-    static unsigned long n = 0;
-    static double max_abs = 0.0, max_rel = 0.0;
-    static double w_dist = 0, w_Ve = 0, w_ruck = 0, w_an = 0;
+    g_scurve_ab_n++;
     double ad = fabs(an - ruck);
     double rd = (fabs(ruck) > 1e-6) ? ad / fabs(ruck) : 0.0;
-    if (ad > max_abs) max_abs = ad;
-    if (rd > max_rel) { max_rel = rd; w_dist = distance; w_Ve = Ve; w_ruck = ruck; w_an = an; }
-    if ((++n % 20000u) == 0u) {
-        rtapi_print_msg(RTAPI_MSG_ERR,
-            "SCURVE A/B: max|an-ruck|=%.4g maxrel=%.3f%%  worst: dist=%.4g Ve=%.3f ruck=%.4f an=%.4f\n",
-            max_abs, max_rel * 100.0, w_dist, w_Ve, w_ruck, w_an);
-        max_abs = 0.0; max_rel = 0.0;   /* per-window reset */
+    if (ad > g_scurve_dev_abs) g_scurve_dev_abs = ad;
+    if (rd > g_scurve_dev_rel) {
+        g_scurve_dev_rel = rd;
+        g_scurve_dev_dist = distance; g_scurve_dev_Ve = Ve;
+        g_scurve_dev_ruck = ruck; g_scurve_dev_an = an;
     }
 }
 
