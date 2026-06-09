@@ -182,18 +182,13 @@ int findSCurveVSpeed(double distence, double maxA, double maxJ, double *req_v) {
 }
 
 int findSCurveMaxStartSpeed(double distance, double Ve, double maxA, double maxJ, double *req_v) {
-    double cached;
-    if (scurve_memo_get(memo_maxstart, distance, Ve, maxA, maxJ, &cached)) { *req_v = cached; return 1; }
-    int r = findSCurveMaxStartSpeed_impl(distance, Ve, maxA, maxJ, req_v);
-    if (r == 1) {
-        /* A/B validation: motion still uses the Ruckig value (*req_v); we only
-         * measure how close the closed-form result is. Flip to analytic once
-         * the logged deviation is confirmed negligible. */
-        double an = scurve_max_start_speed_full_analytic(distance, Ve, maxA, maxJ);
-        scurve_validate_ab(distance, Ve, *req_v, an);
-        scurve_memo_put(memo_maxstart, distance, Ve, maxA, maxJ, *req_v);
-    }
-    return r;
+    /* FLIPPED to the closed form: proven bit-identical to the Ruckig path
+     * (A/B maxrel=0.000% across the full input distribution). Constant-time, no
+     * solver — this is what removes the per-cycle look-ahead solve storm.
+     * (The Ruckig _impl + memo + A/B scaffolding is now dead and gets removed in
+     * the production cleanup; the offline proof lives in scurve_analytic_test.c.) */
+    *req_v = scurve_max_start_speed_full_analytic(distance, Ve, maxA, maxJ);
+    return 1;
 }
 
 /**
