@@ -314,6 +314,11 @@ int joint_is_lockable(int joint_num);
 #define SET_MOTION_ENABLE_FLAG(fl) if (fl) emcmotStatus->motionFlag |= EMCMOT_MOTION_ENABLE_BIT; else emcmotStatus->motionFlag &= ~EMCMOT_MOTION_ENABLE_BIT;
 
 #define GET_TRAJ_PLANNER_TYPE() (emcmotStatus->planner_type)
+/* S-curve rest-to-rest peak scale (0.5 faithful .. 1.0 full). Clamp defends the
+ * pre-INI window where shmem is still zeroed -> treat out-of-range as 0.5. */
+#define GET_SCURVE_PEAK_SCALE() \
+    ((emcmotStatus && emcmotStatus->scurve_peak_scale >= 0.1 && emcmotStatus->scurve_peak_scale <= 1.0) \
+        ? emcmotStatus->scurve_peak_scale : 0.5)
 
 #define SET_TRAK_PLANNER_TYPE(tp) (emcmotStatus->planner_type = tp)
 
