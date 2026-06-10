@@ -521,7 +521,8 @@ void SET_TOOL_TABLE_ENTRY(int /*pocket*/, int /*toolno*/, const EmcPose& /*offse
                           double /*frontangle*/, double /*backangle*/, int /*orientation*/) {
 }
 
-void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset) {
+/* G43_4_RTCP: preview module ignores the kins-switch arg (no motion) */
+void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset, int /*switchkins_type*/) {
     tool_offset = offset;
     maybe_new_line();
     if(interp_error) return;

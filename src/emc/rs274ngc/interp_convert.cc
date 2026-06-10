@@ -6247,11 +6247,19 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
   EmcPose tool_offset;
   ZERO_EMC_POSE(tool_offset);
   settings->g43_with_zero_offset = 0;
-  
+  /* G43_4_RTCP: kinematics switch piggybacked on the tool-offset canon call.
+   * STATELESS by design (no interp-side mode flag that could desync from
+   * motion across aborts): G43.4 always requests TCP (1), G49 always requests
+   * identity (0), anything else leaves kinematics unchanged (-1). Motion
+   * silently ignores identity requests on non-switchable machines and errors
+   * loudly on TCP requests there (R10). */
+  int kins_switch = -1;
+
   CHKS((settings->cutter_comp_side != CUTTER_COMP::OFF),
        (_("Cannot change tool offset with cutter radius compensation on")));
   if (g_code == G_49) {
     idx = 0;
+    kins_switch = 0;  /* G43_4_RTCP: G49 always lands in identity kinematics */
   } else if (g_code == G_43 || g_code == G_43_4) {  /* G43_4_RTCP: G43.4 uses same tool-length offset as G43 */
       logDebug("convert_tool_length_offset h_flag=%d h_number=%d toolchange_flag=%d current_pocket=%d\n",
 	      block->h_flag,block->h_number,settings->toolchange_flag,settings->current_pocket);
@@ -6289,6 +6297,13 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
       !(tool_offset.tran.x || tool_offset.tran.y || tool_offset.tran.z ||
         tool_offset.a || tool_offset.b || tool_offset.c ||
         tool_offset.u || tool_offset.v || tool_offset.w);
+    if (g_code == G_43_4) {  /* G43_4_RTCP */
+      /* R8 guard: TCP with a zero tool length means the tip math is wrong by
+       * construction (forgotten tool / unmeasured tool table entry). */
+      CHKS(settings->g43_with_zero_offset,
+           (_("G43.4: tool length offset is all zero - load a measured tool (Tn M6 or H word) before enabling TCP")));
+      kins_switch = 1;  /* request TCP kinematics */
+    }
   } else if (g_code == G_43_1) {
     tool_offset = settings->tool_offset;
     idx = -1;
@@ -6336,7 +6351,7 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
   } else {
     ERS("BUG: Code not G43, G43.1, G43.2, G43.4, G43.5, or G49");
   }
-  USE_TOOL_LENGTH_OFFSET(tool_offset);
+  USE_TOOL_LENGTH_OFFSET(tool_offset, kins_switch);  /* G43_4_RTCP */
 
   double dx, dy;
 

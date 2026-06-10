@@ -1306,7 +1306,13 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 		 * if the loaded kins module is not switchable. */
 		rtapi_print_msg(RTAPI_MSG_DBG, "SET_SWITCHKINS_TYPE, type(%d)", emcmotCommand->switchkins_type);
 		if (!kinematicsSwitchable()) {
-			reportError(_("kinematics module is not switchable - kins switch (G43.4/G49) ignored"));
+			/* type 0 (identity) on a non-switchable machine is a harmless
+			 * no-op (G49 always requests it, stateless) - stay silent.
+			 * type >= 1 (G43.4/TCP) without a switchable kins = real
+			 * operator error (R10) - report loudly. */
+			if (emcmotCommand->switchkins_type >= 1) {
+				reportError(_("G43.4: kinematics module is not switchable - TCP mode not available"));
+			}
 			break;
 		}
 		{

@@ -543,9 +543,12 @@ void SET_TOOL_TABLE_ENTRY(int idx, int toolno, const EmcPose& offset, double dia
             frontangle, backangle, orientation);
 }
 
-void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset)
+void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset, int switchkins_type)
 {
     _sai._tool_offset = offset;
+    /* G43_4_RTCP: standalone-interp echo of a piggybacked kins switch */
+    if (switchkins_type >= 0)
+        PRINT("SET_SWITCHKINS_TYPE(%d)\n", switchkins_type);
     ECHO_WITH_ARGS("%.4f %.4f %.4f, %.4f %.4f %.4f, %.4f %.4f %.4f",
          offset.tran.x, offset.tran.y, offset.tran.z, offset.a, offset.b, offset.c, offset.u, offset.v, offset.w);
 }

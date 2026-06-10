@@ -1189,6 +1189,20 @@ int emcTrajPlannerType(int type)
     return retval;
 }
 
+/* G43_4_RTCP: command a switchkins kinematics type (G43.4 -> 1, G49 -> 0) */
+int emcTrajSetSwitchkinsType(int type)
+{
+    emcmotCommand.command = EMCMOT_SET_SWITCHKINS_TYPE;
+    emcmotCommand.switchkins_type = type;
+
+    int retval = usrmotWriteEmcmotCommand(&emcmotCommand);
+
+    if (emc_debug & EMC_DEBUG_CONFIG) {
+        rcs_print("%s(%d) returned %d\n", __FUNCTION__, type, retval);
+    }
+    return retval;
+}
+
 int emcTrajSetScurvePeakScale(double scale)
 {
     emcmotCommand.command = EMCMOT_SET_SCURVE_PEAK_SCALE;

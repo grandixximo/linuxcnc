@@ -3097,11 +3097,16 @@ void SET_TOOL_TABLE_ENTRY(int pocket, int toolno, const EmcPose& offset, double 
   EMC has no tool length offset. To implement it, we save it here,
   and apply it when necessary
   */
-void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset)
+void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset, int switchkins_type)
 {
     auto set_offset_msg = std::make_unique<EMC_TRAJ_SET_OFFSET>();
 
     flush_segments();
+
+    /* G43_4_RTCP: carry an optional kinematics switch (G43.4 -> 1/TCP,
+     * G49 -> 0/identity) on the queued offset message so it is applied in
+     * program order, after previous motions complete. -1 = unchanged. */
+    set_offset_msg->switchkins_type = switchkins_type;
 
     /* convert to mm units for internal canonical use */
     canon.toolOffset.tran.x = FROM_PROG_LEN(offset.tran.x);

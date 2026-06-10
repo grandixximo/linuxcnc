@@ -1880,6 +1880,14 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 	// update tool offset
 	emcStatus->task.toolOffset = (reinterpret_cast<EMC_TRAJ_SET_OFFSET *>(cmd))->offset;
         retval = emcTrajSetOffset(emcStatus->task.toolOffset);
+	/* G43_4_RTCP: G43.4/G49 piggyback a kinematics switch on this message.
+	 * Task already gates EMC_TRAJ_SET_OFFSET on WAITING_FOR_MOTION, so the
+	 * switch lands in program order with motion complete. -1 = unchanged. */
+	if (retval == 0
+	    && (reinterpret_cast<EMC_TRAJ_SET_OFFSET *>(cmd))->switchkins_type >= 0) {
+	    retval = emcTrajSetSwitchkinsType(
+	        (reinterpret_cast<EMC_TRAJ_SET_OFFSET *>(cmd))->switchkins_type);
+	}
 	break;
 
     case EMC_TRAJ_SET_ROTATION_TYPE:

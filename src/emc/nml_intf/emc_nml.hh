@@ -829,7 +829,8 @@ class EMC_TRAJ_SET_OFFSET:public EMC_TRAJ_CMD_MSG {
   public:
     EMC_TRAJ_SET_OFFSET()
       : EMC_TRAJ_CMD_MSG(EMC_TRAJ_SET_OFFSET_TYPE, sizeof(EMC_TRAJ_SET_OFFSET)),
-        offset{}
+        offset{},
+        switchkins_type(-1)  /* G43_4_RTCP: -1 = no kinematics switch */
     {};
 
     // Sub-class update() calls base-class update()
@@ -838,6 +839,11 @@ class EMC_TRAJ_SET_OFFSET:public EMC_TRAJ_CMD_MSG {
     void update(CMS * cms);
 
     EmcPose offset;
+    /* G43_4_RTCP (fork extension): G43.4/G49 fold a switchkins kinematics
+     * switch onto the tool-offset message they already emit, so the switch is
+     * applied in program order AFTER previous motions (task gates this message
+     * on WAITING_FOR_MOTION). -1 = not specified, leave kinematics unchanged. */
+    int switchkins_type;
 };
 
 class EMC_TRAJ_SET_G5X:public EMC_TRAJ_CMD_MSG {

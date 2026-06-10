@@ -658,7 +658,10 @@ extern void USE_NO_SPINDLE_FORCE();
 /* Tool Functions */
 extern void SET_TOOL_TABLE_ENTRY(int pocket, int toolno, const EmcPose& offset, double diameter,
                                  double frontangle, double backangle, int orientation);
-extern void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset);
+/* G43_4_RTCP: optional trailing arg folds a switchkins kinematics switch
+ * (G43.4 -> TCP, G49 -> identity) onto the tool-offset message. Default -1 =
+ * "no switch", so all existing callers are unaffected. */
+extern void USE_TOOL_LENGTH_OFFSET(const EmcPose& offset, int switchkins_type = -1);
 
 extern void CHANGE_TOOL();
 

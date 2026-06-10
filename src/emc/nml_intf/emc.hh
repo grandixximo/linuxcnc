@@ -388,6 +388,7 @@ extern int emcTrajSetJerk(double jerk);
 extern int emcTrajSetMaxJerk(double jerk);
 extern int emcTrajPlannerType(int type);
 extern int emcTrajSetScurvePeakScale(double scale);
+extern int emcTrajSetSwitchkinsType(int type);	/* G43_4_RTCP */
 // implementation functions for EMC_MOTION aggregate types
 
 extern int emcMotionInit();
