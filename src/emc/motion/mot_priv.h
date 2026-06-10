@@ -326,6 +326,10 @@ int joint_is_lockable(int joint_num);
  * from emcmotController() to apply a latched planner-type switch once motion is idle. */
 extern void emcmotApplyPendingPlannerType(void);
 
+/* G43_4_RTCP (reversible): same pattern for the commanded switchkins kinematics
+ * switch (G43.4/G49). Defined in command.c, called each cycle from emcmotController(). */
+extern void emcmotApplyPendingSwitchkinsType(void);
+
 /* joint flags */
 
 #define GET_JOINT_ENABLE_FLAG(joint) ((joint)->flag & EMCMOT_JOINT_ENABLE_BIT ? 1 : 0)

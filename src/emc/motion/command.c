@@ -115,6 +115,31 @@ void emcmotApplyPendingPlannerType(void)
 }
 /* ===== END PLANNER_SWITCH_DEFER ==================================================== */
 
+/* ===== BEGIN G43_4_RTCP (reversible) ===============================================
+ * Commanded switchkins kinematics switch (G43.4 -> TCP, G49 -> identity), same
+ * defer-until-idle discipline as the planner switch above (guards R1). The actual
+ * switch + position reconciliation happens in control.c handle_kinematicsSwitch(). */
+extern int kinematicsSwitchable(void);          /* provided by the loaded kins module */
+extern void emcmotRequestSwitchkinsType(int);   /* control.c */
+
+static int switchkins_switch_pending = 0;
+static int switchkins_pending_value  = 0;
+
+/* Called once per servo cycle from emcmotController(). */
+void emcmotApplyPendingSwitchkinsType(void)
+{
+    if (!switchkins_switch_pending) {
+        return;
+    }
+    if (planner_switch_motion_idle()) {
+        emcmotRequestSwitchkinsType(switchkins_pending_value);
+        switchkins_switch_pending = 0;
+        rtapi_print_msg(RTAPI_MSG_INFO,
+            "kinematics switch applied (switchkins type %d)", switchkins_pending_value);
+    }
+}
+/* ===== END G43_4_RTCP ============================================================== */
+
 /* limits_ok() returns 1 if none of the hard limits are set,
    0 if any are set. Called on a linear and circular move. */
 STATIC int limits_ok(void)
@@ -1271,6 +1296,32 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 			}
 		}
 		/* ===== END PLANNER_SWITCH_DEFER ==================================== */
+		break;
+
+	case EMCMOT_SET_SWITCHKINS_TYPE:
+		/* ===== G43_4_RTCP (reversible) =====================================
+		 * Command a switchkins kinematics type (G43.4 -> TCP, G49 -> identity).
+		 * Idle: applied this/next cycle. Moving: latched, applied at queue-idle
+		 * (never aborts) with a GUI notice. Backstop guard R10: refuse cleanly
+		 * if the loaded kins module is not switchable. */
+		rtapi_print_msg(RTAPI_MSG_DBG, "SET_SWITCHKINS_TYPE, type(%d)", emcmotCommand->switchkins_type);
+		if (!kinematicsSwitchable()) {
+			reportError(_("kinematics module is not switchable - kins switch (G43.4/G49) ignored"));
+			break;
+		}
+		{
+			int req = emcmotCommand->switchkins_type;
+			if (planner_switch_motion_idle()) {
+				emcmotRequestSwitchkinsType(req);
+				switchkins_switch_pending = 0;
+			} else {
+				switchkins_pending_value = req;
+				if (!switchkins_switch_pending) {
+					switchkins_switch_pending = 1;
+					reportError(_("kinematics switch deferred until motion stops (switchkins type %d)"), req);
+				}
+			}
+		}
 		break;
 
 	case EMCMOT_SET_SCURVE_PEAK_SCALE:
