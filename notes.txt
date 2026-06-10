@@ -1,0 +1,274 @@
+================================================================================
+  CUSTOM TRAJECTORY PLANNER  —  PATCH NOTES
+  LinuxCNC (grandixximo fork)
+  Source tree:  ~/linuxcnc-grandixximo-6.1
+  Branch:       fork  ==  ruckig-planner-pool
+  Tip commit:   039666ee77
+  Last updated: 2026-06-10
+================================================================================
+
+WHAT THIS IS
+------------
+This is a patched LinuxCNC whose trajectory planner (TP) has been rebuilt around
+a jerk-limited S-curve motion profile (originally driven by the Ruckig library).
+On top of that base we made four changes that, together, give a fast, smooth,
+production-grade planner with a clean operator control surface:
+
+  1. Eliminated a servo-time / following-error PEAK on dense G-code.
+  2. Added a runtime CORNERING-AGGRESSIVENESS knob  (SCURVE_PEAK_SCALE).
+  3. Made the TRAPEZOIDAL <-> S-CURVE switch safe (no jerk shock mid-motion).
+  4. Exposed it all from G-code through one Fanuc-style dial:  G64 ... R<value>.
+
+The machine runs the global Debian package "linuxcnc-uspace" (installed with
+dpkg). The same patched source builds both that package and the run-in-place
+(RIP) tree.
+
+Two planner styles exist in this build:
+  * planner_type 0  =  TRAPEZOIDAL   (bounded acceleration, jerk not limited;
+                                       Siemens calls this "BRISK")
+  * planner_type 1  =  S-CURVE       (jerk-limited, smoother, less machine
+                                       stress; Siemens calls this "SOFT")
+
+
+================================================================================
+QUICK START  —  how to use it day to day
+================================================================================
+
+FROM G-CODE (recommended; put it at the top of the program):
+
+    G64 P0.01 Q0.01 R0      ; continuous mode, TRAPEZOIDAL planner
+    G64 P0.01 Q0.01 R0.5    ; continuous mode, S-CURVE, faithful cornering
+    G64 P0.01 Q0.01 R1.0    ; continuous mode, S-CURVE, full cornering
+    G64 P0.01               ; continuous mode, planner LEFT UNCHANGED (no R)
+
+  R is a single "smoothness / aggressiveness" dial:
+       R omitted    -> leave the planner exactly as it was (modal)
+       R = 0        -> trapezoidal planner
+       R = 0.1..1.0 -> S-curve planner, with cornering peak scale = R
+       R > 1.0      -> S-curve planner, clamped to 1.0
+  (P = path blending tolerance, Q = naive-CAM tolerance, both unchanged from
+   stock LinuxCNC. R is our extension.)
+
+FROM HAL (live tuning while running):
+
+    halcmd setp ini.traj-planner-type 1            ; 0 = trapezoidal, 1 = S-curve
+    halcmd setp ini.traj-scurve-peak-scale 0.8     ; 0.1 .. 1.0 cornering scale
+  (Exact pin names: verify once with  `halcmd show pin | grep -i scurve` ;
+   LinuxCNC's inihal exposes them with dashes, prefixed "ini.".)
+
+FROM THE INI FILE (startup defaults), in the [TRAJ] section:
+
+    [TRAJ]
+    PLANNER_TYPE       = 1        # 0 = trapezoidal, 1 = S-curve
+    SCURVE_PEAK_SCALE  = 1.0      # 0.5 = faithful .. 1.0 = full cornering
+
+NOTE on when a switch takes effect:
+  Changing the PLANNER TYPE while the machine is moving does NOT take effect
+  instantly (that would cause an acceleration shock). It is DEFERRED and applied
+  the moment motion next goes idle (program end, pause, M0/M2). While idle, a
+  switch is instant. If you flip it during motion you will see a one-time
+  operator message in the GUI:
+        "planner switch deferred until motion stops (requested type N)"
+  This is why the recommended pattern is to set G64 ... R at the TOP of the
+  program, where the machine is idle and the switch is instant.
+
+
+================================================================================
+THE FOUR CHANGES  (detail)
+================================================================================
+
+--------------------------------------------------------------------------------
+1) SERVO-TIME / FOLLOWING-ERROR PEAK  —  ELIMINATED
+--------------------------------------------------------------------------------
+SYMPTOM
+  On large/dense programs (e.g. 150k+ tiny segments, tight finishing zones) the
+  servo-thread execution time PEAKED and joints threw following-error spikes.
+  It was pure RT compute cost, not disk, graphics, or kernel.
+
+ROOT CAUSE
+  The look-ahead / blend optimizer was performing full Ruckig ROOT-SOLVES every
+  servo cycle (roughly 4-8 solves per cycle), and the per-solve cost exploded on
+  very short / degenerate segments. The culprits were the velocity queries
+  findSCurveMaxStartSpeed, findSCurveVSpeed (reached via the static-inline
+  findSCurveVPeak in blendmath.h, including the arc/blend path), and
+  calcSCurveSpeedWithT.
+
+FIX
+  Every one of those Ruckig velocity solves was replaced with a CLOSED-FORM
+  ANALYTIC S-curve formula. The analytic forms were proven bit-identical to the
+  original solver across the full input range with an offline test harness
+  (src/emc/tp/scurve_analytic_test.c). Result: zero look-ahead/blend solves on
+  both straight (G1) and arc (G2/G3) sections, and a flat servo-thread time.
+  A small preallocated Ruckig "planner pool" remains for the legitimate
+  per-segment execution planning (tiny, necessary).
+
+NOTE — a real bug found and intentionally PRESERVED
+  The original findSCurveVSpeed returned HALF the true rest-to-rest peak
+  velocity, making the planner ~2x over-conservative at corners. The analytic
+  replacement is physically correct. To keep behaviour identical by default, the
+  faithful path scales the analytic result back by 0.5 — and the new
+  SCURVE_PEAK_SCALE knob (change #2) lets you dial that 0.5 -> 1.0 to recover the
+  full, physically-correct cornering speed.
+
+KEY FILES
+  src/emc/tp/sp_scurve.c , blendmath.c , blendmath.h , tp.c , tc.c ,
+  ruckig_wrapper.c/.h  (+ offline proof: scurve_analytic_test.c)
+
+--------------------------------------------------------------------------------
+2) SCURVE_PEAK_SCALE  —  runtime cornering-aggressiveness knob
+--------------------------------------------------------------------------------
+WHAT
+  A single float that scales the S-curve rest-to-rest peak velocity — i.e. how
+  aggressively the machine is allowed to corner within its jerk/accel limits.
+       0.5  = "faithful": reproduces the original (halved) behaviour exactly
+       1.0  = "full":     physically-correct ~2x cornering
+  It can be ramped 0.5 -> 1.0 on real cuts while watching following-error
+  (FERROR), surface finish, and vibration.
+
+HOW TO SET
+  INI:  [TRAJ] SCURVE_PEAK_SCALE = <0.1..1.0>   (default 0.5 = no behaviour change)
+  HAL:  halcmd setp ini.traj-scurve-peak-scale <0.1..1.0>   (live)
+  G-code: via the R word on G64 (see change #4)
+
+KEY FILES
+  motion.h , command.c , taskintf.cc , emc.hh , initraj.cc ,
+  inihal.hh/.cc , mot_priv.h , sp_scurve.c
+
+--------------------------------------------------------------------------------
+3) PLANNER-TYPE SWITCH  —  defer-until-idle + GUI notice
+--------------------------------------------------------------------------------
+PROBLEM
+  planner_type (0 trapezoidal / 1 S-curve) is read every servo cycle, so flipping
+  it mid-motion re-routed the segment in flight between the two update paths. The
+  position and velocity stay continuous (no following-error fault), BUT the
+  ACCELERATION jumps — a jerk impulse, exactly what the S-curve planner exists to
+  avoid. The original code applied the switch immediately ("can do it any time").
+
+FIX  —  defer-until-idle, never abort
+  * If the machine is IDLE (TP queue empty): the switch is applied INSTANTLY.
+  * If the machine is MOVING: the request is LATCHED and applied automatically
+    the moment motion next goes idle. Motion is NEVER aborted to force it.
+  * A one-shot operator message appears in the GUI when a switch is deferred:
+        "planner switch deferred until motion stops (requested type N)"
+    and a log line confirms when it is later applied.
+  Implementation is ABI-neutral (no shared-struct changes) and lives entirely in
+  the motion controller.
+
+KEY FILES   (search tag:  PLANNER_SWITCH_DEFER)
+  src/emc/motion/command.c , control.c , mot_priv.h
+
+--------------------------------------------------------------------------------
+4) G64 ... R  —  native G-code planner dial (Fanuc / Siemens style)
+--------------------------------------------------------------------------------
+WHAT
+  An optional R word on G64 selects the planner mode AND cornering aggressiveness
+  in one dial, mirroring how industrial controls expose this (Siemens SOFT/BRISK,
+  Fanuc G05.1 ... Rn). Because it rides on G64, it is modal and reads naturally
+  alongside the existing P (path tolerance) and Q (naive-CAM tolerance) words.
+
+      R omitted     -> planner unchanged
+      R <= 0        -> trapezoidal (planner_type 0)
+      0 < R <= 1.0  -> S-curve (planner_type 1), scurve_peak_scale = R
+      R  > 1.0      -> S-curve, scurve_peak_scale clamped to 1.0
+
+HOW IT WORKS (for maintainers)
+  The planner mode is carried on the EMC_TRAJ_SET_TERM_COND NML message that G64
+  ALREADY emits — two new, sentinel-defaulted fields (planner_type = -1,
+  scurve_peak_scale = -1.0; <0 means "unchanged"). This means:
+    * it is applied in PROGRAM ORDER (not at parse/look-ahead time), and
+    * it lands cleanly through the defer-until-idle guard from change #3.
+  No new NML message type was added. All existing callers of the control-mode
+  canon (G61, G61.1, cutter-comp save/restore) are unaffected by the defaults.
+  Validated: the standalone and installed interpreters emit the correct
+  SET_PLANNER_MODE(...) for R0 / R0.5 / R1.0, and R on a non-G64 line still
+  correctly errors (the legality change is scoped to G64 only).
+
+KEY FILES   (search tag:  G64_R_PLANNER)
+  src/emc/nml_intf/emc_nml.hh  (2 new message fields + ctor)
+  src/emc/nml_intf/emc.cc      (NML serialization update())
+  src/emc/nml_intf/canon.hh    (SET_MOTION_CONTROL_MODE + 2 defaulted args)
+  src/emc/task/emccanon.cc     (real canon -> sets the message fields)
+  src/emc/sai/saicanon.cc      (standalone-interp echo)
+  src/emc/rs274ngc/gcodemodule.cc  (preview module no-op)
+  src/emc/task/emctaskmain.cc  (applies it: calls emcTrajPlannerType /
+                                emcTrajSetScurvePeakScale in program order)
+  src/emc/rs274ngc/rs274ngc_interp.hh , interp_convert.cc  (R -> mode mapping)
+  src/emc/rs274ngc/interp_check.cc     (make R legal on G64)
+
+
+================================================================================
+CONTROL SURFACE  —  cheat sheet
+================================================================================
+
+                         G-code (modal)        INI [TRAJ]            HAL pin (live)
+  Planner type           G64 R0 / R>0          PLANNER_TYPE          ini.traj-planner-type
+  Cornering scale        G64 R0.1..1.0         SCURVE_PEAK_SCALE     ini.traj-scurve-peak-scale
+
+  Rule of thumb: set G64 ... R at the top of the program; use the HAL pins for
+  live experimentation; use the INI for the machine's default.
+
+
+================================================================================
+BUILD & DEPLOY
+================================================================================
+
+RUN-IN-PLACE (fast iteration / testing, no install):
+    cd ~/linuxcnc-grandixximo-6.1/src
+    . ../scripts/rip-environment
+    make -j4
+
+PACKAGE (production; installs to the global system):
+    cd ~/linuxcnc-grandixximo-6.1
+    debian/configure
+    DEB_BUILD_OPTIONS="nodocs nocheck" dpkg-buildpackage -b -uc -us -d
+    sudo dpkg -i ~/linuxcnc-uspace_2.10.0~pre1_amd64.deb
+    # then FULLY restart LinuxCNC (a running instance keeps old modules in RAM)
+
+  ( -d skips the build-dep check that aborts on missing doc tools;
+    nodocs avoids needing asciidoctor-pdf etc. )
+
+
+================================================================================
+ROLLBACK & BACKUPS
+================================================================================
+
+SOURCE rollback point (before the G64 R work):
+    git tag:  pre-rdial-checkpoint   ->  commit 19a748d922
+    e.g.  git checkout fork && git reset --hard pre-rdial-checkpoint
+
+PACKAGE (.deb) backup ladder in ~/, oldest behaviour -> newest:
+    ...deb.PREPATCH-REVERT   original, before any TP work
+    ...deb.KNOB-NODEFER      after solve-fix + SCURVE_PEAK_SCALE knob
+    ...deb.DEFER-LOGMSG      + planner-type defer (message only in log)
+    ...deb.DEFER-GUIMSG      + planner-type defer with GUI message  (= pre-G64-R)
+    ...deb                   CURRENT: + G64 R dial
+  To roll back, install the desired one:
+    sudo dpkg -i ~/linuxcnc-uspace_2.10.0~pre1_amd64.deb.DEFER-GUIMSG
+
+
+================================================================================
+REVERSIBILITY OF THE SOURCE EDITS
+================================================================================
+Two of the changes are tagged in-source so they can be found and removed cleanly:
+    grep -rn "PLANNER_SWITCH_DEFER" src/    # change #3 (defer-until-idle)
+    grep -rn "G64_R_PLANNER"        src/    # change #4 (G64 R dial)
+Where an original line was replaced, the original is preserved in a nearby
+comment so it can be restored by hand.
+
+
+================================================================================
+GLOSSARY
+================================================================================
+  Trapezoidal planner  Acceleration is bounded but can step instantly (infinite
+                        jerk). Fast, but harsher on the machine. (Siemens: BRISK)
+  S-curve planner      Acceleration is ramped at a jerk limit. Smoother, kinder
+                        to the machine, slightly slower. (Siemens: SOFT)
+  Jerk                 Rate of change of acceleration. Limiting it is what makes
+                        S-curve motion smooth.
+  Peak scale           How close to the jerk/accel-feasible maximum the planner
+                        is allowed to corner (our SCURVE_PEAK_SCALE, 0.1..1.0).
+  Look-ahead / blend   The optimizer that plans corner/segment velocities a few
+                        moves ahead so the machine doesn't stop at every corner.
+  G64                  Continuous-path (path-blending) mode. P = blend tolerance,
+                        Q = naive-CAM tolerance, R = (our) planner dial.
+================================================================================
