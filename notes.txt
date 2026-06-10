@@ -1,11 +1,36 @@
 ================================================================================
-  CUSTOM TRAJECTORY PLANNER  —  PATCH NOTES
+  CUSTOM TRAJECTORY PLANNER + RTCP  —  PATCH NOTES
   LinuxCNC (grandixximo fork)
   Source tree:  ~/linuxcnc-grandixximo-6.1
-  Branch:       fork  ==  ruckig-planner-pool
-  Tip commit:   039666ee77
+  Branch:       fork  (== ruckig-planner-pool == rtcp-g434)
+  Published:    github.com/greatEndian/linuxcnc  branch TP_improve
   Last updated: 2026-06-10
 ================================================================================
+
+STATUS — WHAT IS DONE (all built, installed via .deb, and validated)
+--------------------------------------------------------------------
+  [DONE] 1. TP solve-storm eliminated      — flat servo time on dense G-code,
+            closed-form analytic replaces per-cycle Ruckig solves (proven
+            bit-identical offline). Validated on real dense programs.
+  [DONE] 2. SCURVE_PEAK_SCALE knob         — INI + live HAL pin + G64 R word;
+            user runs 1.0 (full cornering) in production.
+  [DONE] 3. Safe planner-type switching    — defer-until-idle, never aborts,
+            GUI notice; validated on the live machine.
+  [DONE] 4. G64 R graded dial              — R0 trapezoid / R0.1..1.0 S-curve
+            + cornering scale in one Fanuc-style word. Runtime-validated.
+  [DONE] 5. RTCP G43.4 / G49 (Type 1)      — native TCP on/off over switchkins;
+            program-order, no jumps, guards (zero tool, cutter comp, non-
+            switchable kins). Sim-validated on xyzab-tdr: tip holds position.
+  [DONE] 5b. RTCP G43.5 vector TCP (Type 2)— I/J/K tool-axis vector -> A/B
+            angles computed by the control (AB topology, formulas derived from
+            the kins module's own math; singularity + unwrap handled).
+            Sim-validated: A30/B30 from vectors, tip holds, guards fire.
+  Also fixed along the way: S-curve no-jerk log storm (warn-once), G64 R
+  refused without [TRAJ]MAX_LINEAR_JERK, COMM_TIMEOUT note for vismach sims.
+
+  NOT DONE / future: AC and BC vector topologies (derive from those kins
+  modules' math first), real-machine RTCP configuration (pivot offsets for
+  the user's physical AB machine), multi-channel LinuxCNC (separate project).
 
 WHAT THIS IS
 ------------
