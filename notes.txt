@@ -208,9 +208,32 @@ WHAT
   TRAORI, Heidenhain M128. This build adds the Fanuc-style codes natively:
 
       G43.4 H<n>   -> tool-length offset from tool table entry n, then switch
-                      the kinematics to TCP mode (switchkins type 1)
+                      the kinematics to TCP mode (switchkins type 1).
+                      Rotary angles are PROGRAMMED (A/B words) - Fanuc "Type 1".
+      G43.5 H<n>   -> same as G43.4, but VECTOR mode - Fanuc "Type 2": on
+                      G0/G1 blocks, I/J/K words give the desired TOOL-AXIS
+                      DIRECTION (unit vector in the work frame) and the control
+                      computes the rotary angles itself. See VECTOR MODE below.
       G49          -> cancel the offset and return to IDENTITY kinematics
-      G43.5        -> reserved (vector TCP), currently errors "not implemented"
+
+VECTOR MODE (G43.5) — details
+  * Requires the machine topology in the INI:  [RS274NGC]TCP_ORIENT_AXES = AB
+    (currently only AB — dual-rotary table, A about X then B about Y — whose
+    formulas are derived from xyzab_tdr_kins' own rotation math:
+    b = asin(i), a = atan2(-j, k)). Other topologies refuse G43.5 cleanly.
+  * Example:  G43.5 H2
+              G1 X10 I0 J-0.5 K0.8660 F600   -> A=30, B=0 (tool tilted 30 deg)
+              G1 X20 I0.5 J0 K0.8660         -> A=0,  B=30
+    Vector and rotary words may NOT be mixed on one line; a zero-length
+    vector is an error; missing I/J/K components default to 0.
+  * The A angle is always brought to the representation NEAREST the current
+    A position (no surprise 360-degree table swings).
+  * SINGULARITY: tool horizontal (cos B = 0, e.g. I1 K0): A is mathematically
+    undefined - the control KEEPS the current A angle and only moves B.
+  * Arcs are untouched: on G2/G3, I/J/K remain arc CENTERS even in vector
+    mode; orientation changes belong on G0/G1 blocks.
+  * G43.4 (angle mode) still rejects I/J/K on linear moves - the vector
+    interpretation exists only while G43.5 is active.
 
 REQUIREMENTS (all enforced or guarded in code)
   * A switchkins-CAPABLE kinematics module loaded with the identity-first
@@ -327,6 +350,7 @@ Three of the changes are tagged in-source so they can be found and removed clean
     grep -rn "PLANNER_SWITCH_DEFER" src/    # change #3 (defer-until-idle)
     grep -rn "G64_R_PLANNER"        src/    # change #4 (G64 R dial)
     grep -rn "G43_4_RTCP"           src/    # change #5 (G43.4/G49 RTCP)
+    grep -rn "G43_5_VECTOR"         src/    # change #5b (G43.5 vector TCP)
 Where an original line was replaced, the original is preserved in a nearby
 comment so it can be restored by hand.
 
