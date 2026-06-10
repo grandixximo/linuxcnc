@@ -11,13 +11,15 @@ WHAT THIS IS
 ------------
 This is a patched LinuxCNC whose trajectory planner (TP) has been rebuilt around
 a jerk-limited S-curve motion profile (originally driven by the Ruckig library).
-On top of that base we made four changes that, together, give a fast, smooth,
+On top of that base we made five changes that, together, give a fast, smooth,
 production-grade planner with a clean operator control surface:
 
   1. Eliminated a servo-time / following-error PEAK on dense G-code.
   2. Added a runtime CORNERING-AGGRESSIVENESS knob  (SCURVE_PEAK_SCALE).
   3. Made the TRAPEZOIDAL <-> S-CURVE switch safe (no jerk shock mid-motion).
   4. Exposed it all from G-code through one Fanuc-style dial:  G64 ... R<value>.
+  5. Added native RTCP / 5-axis tool-center-point activation:  G43.4 / G49
+     (Fanuc-style TCP on/off riding LinuxCNC's switchable-kinematics framework).
 
 The machine runs the global Debian package "linuxcnc-uspace" (installed with
 dpkg). The same patched source builds both that package and the run-in-place
@@ -196,6 +198,76 @@ KEY FILES   (search tag:  G64_R_PLANNER)
   src/emc/rs274ngc/interp_check.cc     (make R legal on G64)
 
 
+--------------------------------------------------------------------------------
+5) G43.4 / G49  —  native RTCP (tool-center-point) on/off, Fanuc style
+--------------------------------------------------------------------------------
+WHAT
+  On a 5-axis (or 4-axis tilting) machine, RTCP/TCP mode keeps the TOOL TIP on
+  the programmed path while the rotary axes tilt/rotate — the linear joints
+  automatically compensate. Industrial controls call this Fanuc G43.4, Siemens
+  TRAORI, Heidenhain M128. This build adds the Fanuc-style codes natively:
+
+      G43.4 H<n>   -> tool-length offset from tool table entry n, then switch
+                      the kinematics to TCP mode (switchkins type 1)
+      G49          -> cancel the offset and return to IDENTITY kinematics
+      G43.5        -> reserved (vector TCP), currently errors "not implemented"
+
+REQUIREMENTS (all enforced or guarded in code)
+  * A switchkins-CAPABLE kinematics module loaded with the identity-first
+    convention: type 0 = identity (startup default), type 1 = TCP. Stock
+    modules: load with  sparm=identityfirst  (e.g. xyzac-trt-kins); the
+    xyzab_tdr_kins sim comp is already built this way. G43.4 on a
+    non-switchable kins (e.g. trivkins) produces a clear GUI error.
+  * A MEASURED tool: G43.4 with an all-zero tool length is REFUSED ("load a
+    measured tool") — a zero length in TCP means the tip math is wrong.
+  * Cutter compensation (G41/G42) must be off.
+  * The machine's rotation-point/pivot offsets must be configured (the kins
+    module HAL pins, e.g. xyzac-trt-kins.x-rot-point / .tool-offset).
+  * To COMBINE TCP with the S-curve planner (G64 R>0): every axis used needs
+    a jerk limit — [TRAJ]MAX_LINEAR_JERK plus per-axis [AXIS_*]MAX_JERK
+    (rotary axes included!). Without it the planner falls back to trapezoidal
+    for those segments and warns once.
+
+BEHAVIOUR / SAFETY (matches the defer/queue discipline of change #3)
+  * The switch is applied IN PROGRAM ORDER, only after previous motions have
+    completed (it rides the same queued message as the tool-length offset,
+    which task gates on motion-done). It never aborts and never jumps — the
+    switch itself commands zero motion.
+  * STATELESS: G43.4 always requests TCP, G49 always requests identity. After
+    an abort the machine keeps its current mode; the next G49/G43.4 forces a
+    known state. A TOOL CHANGE lands back in identity (the internal G49), so
+    G43.4 must be re-issued per tool — exactly like Fanuc.
+  * The old M428/M429-style remap path (HAL pin motion.switchkins-type) keeps
+    working alongside: the pin is now EDGE-triggered, commanded switch wins
+    on a tie.
+  * Observables: the kins comp prints "kinematicsSwitch(): type=N" on every
+    switch; kinstype.is-0/is-1 HAL pins show the active mode (wire to GUI).
+
+VALIDATED (2026-06-10, xyzab-tdr dual-rotary sim)
+  Round-trip switching with no position jump; tool tip holds position during
+  pure A/B rotary moves; combined with G64 R1.0 (S-curve) cleanly; all guards
+  (zero tool, cutter comp, precedence) fire correctly.
+
+KEY FILES   (search tag:  G43_4_RTCP)
+  src/emc/rs274ngc/interp_internal.hh , interp_array.cc , interp_check.cc ,
+  interp_convert.cc                       (parser + guards + canon call)
+  src/emc/nml_intf/canon.hh , emc_nml.hh , emc.cc
+  src/emc/task/emccanon.cc , emctaskmain.cc , taskintf.cc
+  src/emc/sai/saicanon.cc , rs274ngc/gcodemodule.cc
+  src/emc/motion/motion.h , command.c , control.c , mot_priv.h
+                                          (EMCMOT_SET_SWITCHKINS_TYPE path)
+
+RELATED FIXES found during RTCP validation
+  * tp.c: the "maxjerk < 1" S-curve error used to print EVERY SERVO CYCLE
+    (log storm) for segments with no jerk limit; now warns once, naming the
+    likely missing INI items, and falls back to trapezoidal as before.
+  * G64 R>0 (S-curve request) is now REFUSED with a GUI message when
+    [TRAJ]MAX_LINEAR_JERK is unset — parity with the INI/HAL-pin guards.
+  * Sim/diagnostic note: configs that block HAL startup on a slow GUI
+    (loadusr -W <vismach>) can hit "USRMOT: command timeout" at boot with
+    [EMCMOT]COMM_TIMEOUT=1 on software-GL machines; raise it (e.g. 5) —
+    task retries and recovers either way.
+
 ================================================================================
 CONTROL SURFACE  —  cheat sheet
 ================================================================================
@@ -203,6 +275,7 @@ CONTROL SURFACE  —  cheat sheet
                          G-code (modal)        INI [TRAJ]            HAL pin (live)
   Planner type           G64 R0 / R>0          PLANNER_TYPE          ini.traj-planner-type
   Cornering scale        G64 R0.1..1.0         SCURVE_PEAK_SCALE     ini.traj-scurve-peak-scale
+  TCP / RTCP mode        G43.4 Hn / G49        (kins module config)  motion.switchkins-type (legacy path)
 
   Rule of thumb: set G64 ... R at the top of the program; use the HAL pins for
   live experimentation; use the INI for the machine's default.
@@ -241,7 +314,8 @@ PACKAGE (.deb) backup ladder in ~/, oldest behaviour -> newest:
     ...deb.KNOB-NODEFER      after solve-fix + SCURVE_PEAK_SCALE knob
     ...deb.DEFER-LOGMSG      + planner-type defer (message only in log)
     ...deb.DEFER-GUIMSG      + planner-type defer with GUI message  (= pre-G64-R)
-    ...deb                   CURRENT: + G64 R dial
+    ...deb.G64R-PRERTCP      + G64 R dial                           (= pre-RTCP)
+    ...deb                   CURRENT: + G43.4/G49 RTCP + jerk-storm/guard fixes
   To roll back, install the desired one:
     sudo dpkg -i ~/linuxcnc-uspace_2.10.0~pre1_amd64.deb.DEFER-GUIMSG
 
@@ -249,9 +323,10 @@ PACKAGE (.deb) backup ladder in ~/, oldest behaviour -> newest:
 ================================================================================
 REVERSIBILITY OF THE SOURCE EDITS
 ================================================================================
-Two of the changes are tagged in-source so they can be found and removed cleanly:
+Three of the changes are tagged in-source so they can be found and removed cleanly:
     grep -rn "PLANNER_SWITCH_DEFER" src/    # change #3 (defer-until-idle)
     grep -rn "G64_R_PLANNER"        src/    # change #4 (G64 R dial)
+    grep -rn "G43_4_RTCP"           src/    # change #5 (G43.4/G49 RTCP)
 Where an original line was replaced, the original is preserved in a nearby
 comment so it can be restored by hand.
 
