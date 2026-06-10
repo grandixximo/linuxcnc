@@ -97,6 +97,15 @@ Build/test:
  MC16 debugging interleaved channels               -> per-channel log prefixes day 1
  MC17 NML cross-talk                               -> distinct .nml per ch + dup-key guard
 
+TIMING BUDGET (frozen 2026-06-10, user decision)
+------------------------------------------------
+ Development and phase-1..4 validation run at SERVO_PERIOD = 1 ms (1 kHz).
+ Rationale: separates functional correctness from performance tuning; EtherCAT
+ CSP drives close their own loops internally, 1 kHz interpolation is sufficient
+ for the reference lathe. After MC1 measurements prove headroom, the period is
+ tightened stepwise toward 250 us. Never tune performance and debug
+ functionality in the same step.
+
 PHASING (no code until explicitly started)
 ------------------------------------------
  0. THIS DOCUMENT + 2-channel sim config skeleton                     [frozen]
