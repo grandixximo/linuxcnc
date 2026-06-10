@@ -1,0 +1,128 @@
+================================================================================
+  MULTICHANNEL LINUXCNC  —  DESIGN FREEZE (Phase 0)
+  "one motion, N channels"  —  Fanuc multi-path style
+  Status:   DESIGN FROZEN 2026-06-10 — NO CODE WRITTEN YET (by decision)
+  Decided:  after research of Siemens 840D (channels/BAG/WAITM/GET-RELEASE),
+            Fanuc 2-path (paths/waiting-M/balance cut/composite control),
+            LinuxCNC internals, and a 4-solution trade study (see notes below).
+================================================================================
+
+GOAL
+----
+Run N independent G-code programs ("channels") simultaneously in ONE LinuxCNC
+session: independent start/stop/feed per channel, cycle-accurate synchronization
+between channels, Fanuc-style coordination codes, all axes on ONE EtherCAT bus.
+Primary reference machine: 2-path lathe (most common industrial case), but the
+design is GENERIC — nothing machine-type-specific in the core.
+
+THE ARCHITECTURE
+----------------
+  CHANNEL 1 stack (stock binaries):        CHANNEL 2 stack (stock binaries):
+    GUI - halui - milltask - io              GUI - halui - milltask - io
+     |  NML buffer set #1 (.nml #1)           |  NML buffer set #2 (.nml #2)
+     |  own INI, own TOOL_TABLE               |  own INI, own TOOL_TABLE
+     v                                        v
+    cmd/status shmem area ch0                cmd/status shmem area ch1
+     +--------------------+--------------------+
+                          v
+        ONE motmod in ONE servo thread (e.g. 250us/1kHz)
+          coord_tp[0..N-1]            <- one TP per channel, ticked every cycle
+          joint-ownership table       <- global joint -> owning channel (DYNAMIC-capable)
+          per-channel letter->joint   <- each channel has its OWN full XYZABCUVW space
+          waiting-M rendezvous engine <- TRANSPORT-AGNOSTIC (see scaling rule)
+          ONE HAL - ONE lcec - ONE EtherCAT bus
+
+KEY PRINCIPLE (decided): synchronization quality = how much clock you share.
+All channels share ONE servo thread = ONE interpolation clock = inter-channel
+sync is exact by construction. This is how Fanuc runs 2-path inside one CNC.
+
+FROZEN DECISIONS
+----------------
+D1. Channels are GENERIC, count N (target 2, design allows more; joints<=16).
+D2. Each channel = native LinuxCNC axis architecture: its own complete
+    XYZABCUVW letter space. INI maps channel axes to global joints:
+        [CHANNEL_1] COORDINATES=XZCY  JOINTS=0,1,2,3   SPINDLES=0
+        [CHANNEL_2] COORDINATES=XZ    JOINTS=4,5       SPINDLES=1
+    (illustrative syntax — finalized in phase 1)
+D3. Userspace stacks (milltask/io/halui/GUI) are UNCHANGED stock binaries,
+    one set per channel, isolated by per-channel .nml + SHMEM_KEY (both already
+    INI-configurable). GUI choice belongs to the integrator.
+D4. Waiting-M sync codes: M200-M229, Fanuc convention - the SAME M-number in
+    two (or more) programs is a rendezvous point; both queues drain (M-codes
+    are queue busters), both channels block until all arrive, then continue
+    in the same servo cycle. Optional P-word = channel mask for N>2.
+    Deadlock guard: INI timeout + GUI error naming who waits for whom.
+D5. Stop semantics: hardware E-STOP and hard limits = ALWAYS machine-global
+    (safety floor, not configurable). Software stop/abort/feed-hold = exported
+    per channel as HAL pins (motion.N.*) PLUS global pins; the integrator
+    selects propagation policy in HAL.
+D6. Joint-ownership table is runtime-DYNAMIC from day 1 (axis sharing /
+    Fanuc composite-style exchange is a config choice, not a redesign);
+    the exchange COMMANDS themselves are phase 5.
+D7. Backward compatibility golden rule: channel count defaults to 1 and the
+    result must be BIT-IDENTICAL to today's behavior. Existing configs are
+    the regression suite. motmod HAL pins become motion.N.* with legacy
+    aliases for channel 0.
+D8. SCALING RULE (the A+D merge): this design is one "timing domain".
+    Machines needing radically different cycle times get N timing domains,
+    each a full multichannel motion process on its own bus/NIC, bridged by
+    the SAME waiting-M codes over a bridge transport (handshake-grade sync).
+    Cost deferred (+2-4 wk when ever needed). Today's only obligations:
+    rendezvous engine transport-agnostic; launcher must not assume exactly
+    one motion process. NEVER promise cycle-accurate sync ACROSS domains.
+
+PROBLEM REGISTER (MC1-MC17) — build guards for these, validate against them
+----------------------------------------------------------------------------
+RT/motion core:
+ MC1  two TPs in one servo cycle (CPU budget)      -> 2-TP no-op prototype FIRST; gate
+ MC2  task<->motion handshake is single mailbox    -> per-channel cmd/status areas
+ MC3  per-channel free/coord/teleop state machines -> hairiest piece; explicit per-ch
+      (jog ch2 while ch1 runs a program)              state struct; sim-gated early
+ MC4  homing module is global                      -> phase 1: home only when ALL idle
+ MC5  estop vs abort semantics                     -> D5 (global floor + HAL policy)
+ MC6  per-channel kins mapping                     -> INI joint map, identity subsets
+ MC7  motion.* HAL pin collisions                  -> motion.N.* + ch0 legacy aliases
+ MC8  per-channel spindle / threading (G33/G76)    -> spindle idx already per-command;
+                                                      per-channel threading sim test
+ MC9  command touching un-owned joint              -> ownership check -> clean GUI error
+Sync:
+ MC10 waiting-M deadlock                           -> timeout + GUI "ch1 waiting for ch2 @M205"
+ MC11 waiting-M ordering                           -> M-codes are queue busters (free)
+ MC12 axis exchange mid-motion                     -> defer-until-idle + zero-motion
+                                                      handoff (pattern proven twice)
+Build/test:
+ MC13 breaking single-channel                      -> D7 golden rule, full config regression
+ MC14 launcher starts one stack                    -> extend scripts/linuxcnc.in for N
+ MC15 hardware risk during dev                     -> SIM-FIRST: 2-channel lathe sim bench
+ MC16 debugging interleaved channels               -> per-channel log prefixes day 1
+ MC17 NML cross-talk                               -> distinct .nml per ch + dup-key guard
+
+PHASING (no code until explicitly started)
+------------------------------------------
+ 0. THIS DOCUMENT + 2-channel sim config skeleton                     [frozen]
+ 1. Motion core: coord_tp[N], per-channel cmd/status, static owners   <- MC1/MC2 gate
+ 2. N-stack launcher + 2-channel SIM, two independent programs        <- "it exists"
+ 3. Per-channel jog/modes + homing/estop rules                        <- MC3/4/5
+ 4. Waiting-M rendezvous M200-M229 (transport-agnostic)               <- Fanuc semantics
+ 5. Axis exchange / composite control (ownership handoff commands)
+ [deferred] A-layer: instance-key patch + cross-domain bridge (D8)
+
+EFFORT ESTIMATE (honest)
+------------------------
+ D core (phases 1-5): ~2-3 months of working sessions. The A-layer: +2-4 weeks,
+ deferred until a machine actually needs a second timing domain.
+
+TRADE STUDY (why this architecture; summary)
+--------------------------------------------
+ A. N full LinuxCNC instances : independence king, but two interpolation clocks
+    -> drift/jitter, sync via bridges only, HAL keys hardcoded (patch needed),
+    one IgH master per process -> 2nd NIC. WRONG tool when sync is the goal.
+    Survives as the deferred cross-domain layer (D8).
+ B. Full native re-architecture incl. UI: the real 840D, person-months,
+    UI rewrite — UI is integrator's domain here, so B's edge is moot.
+ C. 9-axis merge (one TP, ch2=UVW): perfect sync but NO independent start/stop,
+    no per-channel letter space, no arcs for ch2. Rejected by requirements.
+ D. SELECTED: one motion process with N TPs + N stock userspace stacks.
+    Cycle-accurate sync, independent channels, one EtherCAT bus, Fanuc
+    ergonomics (each path programs its own X/Z...), ~1/3 the cost of B.
+================================================================================
