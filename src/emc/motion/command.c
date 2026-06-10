@@ -1261,8 +1261,9 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 				planner_type_pending_value = req;
 				if (!planner_type_switch_pending) {
 					planner_type_switch_pending = 1;
-					rtapi_print_msg(RTAPI_MSG_WARN,
-						"planner switch deferred until motion stops (requested type %d)", req);
+					/* operator-facing: reportError() surfaces in the GUI (unlike
+					 * rtapi_print_msg, which only hits the RTAPI log/terminal). */
+					reportError(_("planner switch deferred until motion stops (requested type %d)"), req);
 				}
 			} else {
 				/* request already equals current type: cancel any pending switch */
