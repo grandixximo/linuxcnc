@@ -6252,7 +6252,7 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
        (_("Cannot change tool offset with cutter radius compensation on")));
   if (g_code == G_49) {
     idx = 0;
-  } else if (g_code == G_43) {
+  } else if (g_code == G_43 || g_code == G_43_4) {  /* G43_4_RTCP: G43.4 uses same tool-length offset as G43 */
       logDebug("convert_tool_length_offset h_flag=%d h_number=%d toolchange_flag=%d current_pocket=%d\n",
 	      block->h_flag,block->h_number,settings->toolchange_flag,settings->current_pocket);
     if(block->h_flag) {
@@ -6331,8 +6331,10 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
         if(block->v_flag) tool_offset.v += block->v_number;
         if(block->w_flag) tool_offset.w += block->w_number;
     }
+  } else if (g_code == G_43_5) {
+    ERS(_("G43.5 (vector tool-center-point) is not yet implemented"));  /* G43_4_RTCP phase 2 */
   } else {
-    ERS("BUG: Code not G43, G43.1, G43.2, or G49");
+    ERS("BUG: Code not G43, G43.1, G43.2, G43.4, G43.5, or G49");
   }
   USE_TOOL_LENGTH_OFFSET(tool_offset);
 

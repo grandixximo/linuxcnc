@@ -237,6 +237,8 @@ enum GCodes
     G_43 = 430,
     G_43_1 = 431,
     G_43_2 = 432,
+    G_43_4 = 434,  /* G43_4_RTCP: TCP (tool-center-point) on, switchkins->TCP */
+    G_43_5 = 435,  /* G43_4_RTCP: TCP vector mode (phase 2, not yet implemented) */
     G_49 = 490,
     G_50 = 500,
     G_51 = 510,

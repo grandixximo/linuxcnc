@@ -280,7 +280,7 @@ int Interp::check_other_codes(block_pointer block)       //!< pointer to a block
   }
 
   if (block->h_flag) {
-    CHKS((block->g_modes[GM_TOOL_LENGTH_OFFSET] != G_43 && motion != G_76 && block->g_modes[GM_TOOL_LENGTH_OFFSET] != G_43_2),
+    CHKS((block->g_modes[GM_TOOL_LENGTH_OFFSET] != G_43 && motion != G_76 && block->g_modes[GM_TOOL_LENGTH_OFFSET] != G_43_2 && block->g_modes[GM_TOOL_LENGTH_OFFSET] != G_43_4 && block->g_modes[GM_TOOL_LENGTH_OFFSET] != G_43_5 /* G43_4_RTCP */),
       _("H word with no G43 or G76 to use it"));
   }
 
