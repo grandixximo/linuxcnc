@@ -5359,6 +5359,15 @@ the new longer or shorter straight move are taken at this feed.
 
 */
 
+/* G43_5_VECTOR: bring an absolute angle (deg) to the representation nearest a
+ * reference angle, so a vector solution never commands a needless 360° swing. */
+static double tcp_unwrap_near(double angle_deg, double ref_deg)
+{
+    while (angle_deg - ref_deg >  180.0) angle_deg -= 360.0;
+    while (angle_deg - ref_deg < -180.0) angle_deg += 360.0;
+    return angle_deg;
+}
+
 int Interp::convert_straight(int move,   //!< either G_0 or G_1
                             block_pointer block,        //!< pointer to a block of RS274 instructions
                             setup_pointer settings)     //!< pointer to machine settings
@@ -5373,6 +5382,55 @@ int Interp::convert_straight(int move,   //!< either G_0 or G_1
   int status;
 
   settings->arc_not_allowed = false;
+
+  /* ===== G43_5_VECTOR ================================================
+   * In G43.5 vector-TCP mode, I/J/K on a G0/G1 block are the desired tool-axis
+   * direction in the WORK frame; convert them to rotary-axis words here so the
+   * rest of the pipeline (and the TCP kinematics) sees ordinary angles.
+   * Formulas are derived from the kins module's own rotation math.        */
+  if (settings->tcp_vector_mode &&
+      (block->i_flag || block->j_flag || block->k_flag)) {
+      CHKS((block->a_flag || block->b_flag || block->c_flag),
+           (_("G43.5: cannot mix rotary words (A/B/C) with a tool vector (I/J/K) on one line")));
+      double vi = block->i_flag ? block->i_number : 0.0;
+      double vj = block->j_flag ? block->j_number : 0.0;
+      double vk = block->k_flag ? block->k_number : 0.0;
+      double vnorm = sqrt(vi*vi + vj*vj + vk*vk);
+      CHKS((vnorm < 1e-9), (_("G43.5: tool vector I/J/K is zero-length")));
+      vi /= vnorm; vj /= vnorm; vk /= vnorm;
+
+      switch (settings->tcp_orient_axes) {
+      case 1: {
+          /* AB dual-rotary table (xyzab_tdr_kins): from that module's matrix
+           * R = Ry(-b)*Rx(-a), the machine tool axis (+Z) seen in the work
+           * frame is  v = ( sin(b), -sin(a)cos(b), cos(a)cos(b) ).
+           * Inverse:  b = asin(i);  a = atan2(-j, k)  (undefined at cos b = 0). */
+          double bi = vi;
+          if (bi >  1.0) bi =  1.0;
+          if (bi < -1.0) bi = -1.0;
+          double b_deg = asin(bi) * 180.0 / M_PI;
+          block->b_number = b_deg;
+          block->b_flag = true;
+          if (fabs(vj) < 1e-9 && fabs(vk) < 1e-9) {
+              /* singularity: tool horizontal (cos b = 0) - A is undefined;
+               * keep the current A angle (do not emit an A word). */
+          } else {
+              double a_deg = atan2(-vj, vk) * 180.0 / M_PI;
+              block->a_number = tcp_unwrap_near(a_deg, settings->AA_current);
+              block->a_flag = true;
+          }
+          break;
+      }
+      default:
+          ERS(_("G43.5: unsupported TCP_ORIENT_AXES topology"));
+      }
+      /* consume the vector words so downstream checks treat this as a plain
+       * linear move with rotary targets */
+      block->i_flag = false;
+      block->j_flag = false;
+      block->k_flag = false;
+  }
+  /* ===== END G43_5_VECTOR ============================================ */
 
   if (move == G_1) {
     if (settings->feed_mode == FEED_MODE::UNITS_PER_MINUTE) {
@@ -6257,10 +6315,13 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
 
   CHKS((settings->cutter_comp_side != CUTTER_COMP::OFF),
        (_("Cannot change tool offset with cutter radius compensation on")));
+  /* G43_5_VECTOR: any tool-length-mode change other than G43.5 leaves vector
+   * mode; G43.5 re-enables it below once its guards pass. */
+  settings->tcp_vector_mode = 0;
   if (g_code == G_49) {
     idx = 0;
     kins_switch = 0;  /* G43_4_RTCP: G49 always lands in identity kinematics */
-  } else if (g_code == G_43 || g_code == G_43_4) {  /* G43_4_RTCP: G43.4 uses same tool-length offset as G43 */
+  } else if (g_code == G_43 || g_code == G_43_4 || g_code == G_43_5) {  /* G43_4_RTCP: same TLO path as G43 */
       logDebug("convert_tool_length_offset h_flag=%d h_number=%d toolchange_flag=%d current_pocket=%d\n",
 	      block->h_flag,block->h_number,settings->toolchange_flag,settings->current_pocket);
     if(block->h_flag) {
@@ -6297,12 +6358,17 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
       !(tool_offset.tran.x || tool_offset.tran.y || tool_offset.tran.z ||
         tool_offset.a || tool_offset.b || tool_offset.c ||
         tool_offset.u || tool_offset.v || tool_offset.w);
-    if (g_code == G_43_4) {  /* G43_4_RTCP */
+    if (g_code == G_43_4 || g_code == G_43_5) {  /* G43_4_RTCP */
       /* R8 guard: TCP with a zero tool length means the tip math is wrong by
        * construction (forgotten tool / unmeasured tool table entry). */
       CHKS(settings->g43_with_zero_offset,
-           (_("G43.4: tool length offset is all zero - load a measured tool (Tn M6 or H word) before enabling TCP")));
+           (_("G43.4/G43.5: tool length offset is all zero - load a measured tool (Tn M6 or H word) before enabling TCP")));
       kins_switch = 1;  /* request TCP kinematics */
+      if (g_code == G_43_5) {  /* G43_5_VECTOR */
+        CHKS((settings->tcp_orient_axes == 0),
+             (_("G43.5: [RS274NGC]TCP_ORIENT_AXES is not configured (or not a supported topology)")));
+        settings->tcp_vector_mode = 1;
+      }
     }
   } else if (g_code == G_43_1) {
     tool_offset = settings->tool_offset;
@@ -6346,8 +6412,6 @@ int Interp::convert_tool_length_offset(int g_code,       //!< g_code being execu
         if(block->v_flag) tool_offset.v += block->v_number;
         if(block->w_flag) tool_offset.w += block->w_number;
     }
-  } else if (g_code == G_43_5) {
-    ERS(_("G43.5 (vector tool-center-point) is not yet implemented"));  /* G43_4_RTCP phase 2 */
   } else {
     ERS("BUG: Code not G43, G43.1, G43.2, G43.4, G43.5, or G49");
   }

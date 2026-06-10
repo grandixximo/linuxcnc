@@ -775,6 +775,11 @@ struct setup
   double traverse_rate;         // rate for traverse motions
   double orient_offset;         // added to M19 R word, from [RS274NGC]ORIENT_OFFSET
   bool g43_with_zero_offset;    // added to allow active G43 with tool offset values all zero
+  /* G43_5_VECTOR: Fanuc-style vector TCP (G43.5). While active, I/J/K words on
+   * G0/G1 blocks are a tool-axis direction vector (in the work frame) that the
+   * interp converts to rotary-axis words per the machine topology. */
+  int tcp_vector_mode;          // 1 while G43.5 is the active tool-length mode
+  int tcp_orient_axes;          // [RS274NGC]TCP_ORIENT_AXES: 0=unset, 1=AB (xyzab_tdr_kins)
 
   /* stuff for subroutines and control structures */
   int defining_sub;                  // true if in a subroutine defn

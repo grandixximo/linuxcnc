@@ -284,7 +284,12 @@ int Interp::check_other_codes(block_pointer block)       //!< pointer to a block
       _("H word with no G43 or G76 to use it"));
   }
 
-  if (block->i_flag) {    /* could still be useless if yz_plane arc */
+  /* G43_5_VECTOR: in G43.5 vector-TCP mode, I/J/K words on a G0/G1 block are
+   * the tool-axis direction vector (consumed by convert_straight), so they are
+   * legal there. Arcs (G2/G3) keep I/J/K as centers, unchanged. */
+  int tcp_vec_ok = (_setup.tcp_vector_mode && (motion == G_0 || motion == G_1));
+
+  if (block->i_flag && !tcp_vec_ok) {    /* could still be useless if yz_plane arc */
     CHKS(((motion != G_2) && (motion != G_3) && (motion != G_5) && (motion != G_5_1) &&
 					(motion != G_6) && (motion != G_6_1) &&
           (motion != G_71) && (motion != G_71_1) && (motion != G_71_2) &&
@@ -293,14 +298,14 @@ int Interp::check_other_codes(block_pointer block)       //!< pointer to a block
         _("I word with no G2, G3, G5, G5.1, G6, G6.1, G10, G33.1, G76, or G87 to use it"));
   }
 
-  if (block->j_flag) {    /* could still be useless if xz_plane arc */
+  if (block->j_flag && !tcp_vec_ok) {    /* could still be useless if xz_plane arc */
     CHKS(((motion != G_2) && (motion != G_3) && (motion != G_5) && (motion != G_5_1) &&
 					(motion != G_6) && (motion != G_6_1) &&
           (motion != G_76) && (motion != G_87) && (block->g_modes[GM_MODAL_0] != G_10)),
         _("J word with no G2, G3, G5, G5.1, G6, G6.1, G10, G76 or G87 to use it"));
   }
 
-  if (block->k_flag) {    /* could still be useless if xy_plane arc */
+  if (block->k_flag && !tcp_vec_ok) {    /* could still be useless if xy_plane arc */
     CHKS(((motion != G_2) && (motion != G_3) && (motion != G_6_2) && (motion != G_33) && (motion != G_33_1) && (motion != G_76) && (motion != G_87)),
         _("K word with no G2, G3, G6.2, G33, G33.1, G76, or G87 to use it"));
   }
