@@ -255,6 +255,35 @@ VECTOR MODE (G43.5) — details
     A position (no surprise 360-degree table swings).
   * SINGULARITY: tool horizontal (cos B = 0, e.g. I1 K0): A is mathematically
     undefined - the control KEEPS the current A angle and only moves B.
+
+  FRAME & DISTANCE-MODE SEMANTICS (fix 2026-06-11, after grandixximo report)
+  * The vector is interpreted in the PART frame - the industrial default
+    (Fanuc G43.5 forces this via parameter WKP=0 / alarm PS5459; Siemens
+    ORIWKS is the equivalent and their default). Rotary G5x/G92 offsets on
+    A/B define the table pose at program zero, so the interp rotates the
+    vector through that pose (Rx(off_a)*Ry(off_b), the kins' own chain) BEFORE
+    solving the angles. With zero offsets this is bit-identical to the old
+    behaviour. NOTE: a rotary offset is a JOINT shift; for the inner (B)
+    joint it is NOT a fixed frame rotation, which is exactly why the naive
+    "subtract the offset" and the old "write the raw angle" were both wrong.
+  * G53 on a vector line = MACHINE-frame one-shot (the Siemens ORIMKS
+    equivalent): the vector is taken raw, the solved MACHINE angles are
+    written, and find_ends' native G53 branch maps them back to program
+    coordinates. Use for "tool vertical in the machine"-style service moves.
+  * G91 (incremental): the vector is a DIRECTION - it always means the same
+    absolute orientation. The interp writes the solved target as a DELTA from
+    the current angles so the result is identical in G90 and G91. (Pre-fix
+    the absolute angle was added per block: three identical vectors under G91
+    racked A up 30/60/90 deg. Reported by grandixximo, reproduced, fixed.)
+  * Guards added with the fix: rotary TOOL offsets (tool table A/B/C columns)
+    and XY coordinate rotation (G10 R) are refused with a tool vector -
+    their frame semantics are undefined/underived; error out rather than tilt
+    silently wrong.
+  * Numeric proof: ~/rtcp-dev/g435_offset_frame_test.c - 2M randomized
+    cases per path (work-frame abs, G53, G91) verified against the kins'
+    own forward matrix, max error 1.7e-13; zero-offset path bit-identical.
+    rs274 matrix: ~/rtcp-dev/g435fix-tests/ (G91 hold, B-offset frame,
+    G53 one-shot, both guards, G91 singularity).
   * Arcs are untouched: on G2/G3, I/J/K remain arc CENTERS even in vector
     mode; orientation changes belong on G0/G1 blocks.
   * G43.4 (angle mode) still rejects I/J/K on linear moves - the vector

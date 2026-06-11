@@ -5385,13 +5385,31 @@ int Interp::convert_straight(int move,   //!< either G_0 or G_1
 
   /* ===== G43_5_VECTOR ================================================
    * In G43.5 vector-TCP mode, I/J/K on a G0/G1 block are the desired tool-axis
-   * direction in the WORK frame; convert them to rotary-axis words here so the
-   * rest of the pipeline (and the TCP kinematics) sees ordinary angles.
-   * Formulas are derived from the kins module's own rotation math.        */
+   * direction; convert them to rotary-axis words here so the rest of the
+   * pipeline (and the TCP kinematics) sees ordinary angles.
+   *
+   * Frame of the vector (matches Fanuc WKP=0 / Siemens ORIWKS):
+   *  - normal blocks: the PART frame.  Rotary G5x/G92 offsets define the
+   *    table pose at program zero, so part->table is the kins rotation chain
+   *    evaluated at the offset angles, and the vector must be rotated through
+   *    it before the inverse is solved.
+   *  - G53 on the block: machine/table frame one-shot (ORIMKS equivalent).
+   *    The vector is used raw and the solved MACHINE angles are written
+   *    unchanged; find_ends' G53 branch maps them back to program words.
+   *
+   * The angles are a direction, not a coordinate: in G91 the solved target
+   * is written as a delta from the current position so find_ends
+   * reconstructs the same absolute orientation in either distance mode.   */
   if (settings->tcp_vector_mode &&
       (block->i_flag || block->j_flag || block->k_flag)) {
       CHKS((block->a_flag || block->b_flag || block->c_flag),
            (_("G43.5: cannot mix rotary words (A/B/C) with a tool vector (I/J/K) on one line")));
+      CHKS((fabs(settings->tool_offset.a) > 1e-9 ||
+            fabs(settings->tool_offset.b) > 1e-9 ||
+            fabs(settings->tool_offset.c) > 1e-9),
+           (_("G43.5: rotary tool offsets are not supported with a tool vector")));
+      CHKS((settings->rotation_xy != 0.0),
+           (_("G43.5: XY coordinate rotation (G10 R) is not supported with a tool vector")));
       double vi = block->i_flag ? block->i_number : 0.0;
       double vj = block->j_flag ? block->j_number : 0.0;
       double vk = block->k_flag ? block->k_number : 0.0;
@@ -5399,25 +5417,61 @@ int Interp::convert_straight(int move,   //!< either G_0 or G_1
       CHKS((vnorm < 1e-9), (_("G43.5: tool vector I/J/K is zero-length")));
       vi /= vnorm; vj /= vnorm; vk /= vnorm;
 
+      bool vec_machine_frame = (block->g_modes[GM_MODAL_0] == G_53);
+      bool vec_incremental = (settings->distance_mode == DISTANCE_MODE::INCREMENTAL);
+      double off_a = settings->AA_origin_offset + settings->AA_axis_offset;
+      double off_b = settings->BB_origin_offset + settings->BB_axis_offset;
+
       switch (settings->tcp_orient_axes) {
       case 1: {
-          /* AB dual-rotary table (xyzab_tdr_kins): from that module's matrix
-           * R = Ry(-b)*Rx(-a), the machine tool axis (+Z) seen in the work
-           * frame is  v = ( sin(b), -sin(a)cos(b), cos(a)cos(b) ).
+          /* AB dual-rotary table (xyzab_tdr_kins): that module's forward TCP
+           * matrix is M(a,b) = Rx(a)*Ry(b) (machine -> table coords), so the
+           * machine tool axis (+Z) seen from the table is
+           *   v = M(a,b)*z = ( sin(b), -sin(a)cos(b), cos(a)cos(b) ).
            * Inverse:  b = asin(i);  a = atan2(-j, k)  (undefined at cos b = 0). */
+          if (!vec_machine_frame) {
+              /* part frame -> table frame: v_table = Rx(off_a)*Ry(off_b)*v.
+               * Exact identity when both offsets are zero. */
+              double soa = sin(off_a * M_PI / 180.0), coa = cos(off_a * M_PI / 180.0);
+              double sob = sin(off_b * M_PI / 180.0), cob = cos(off_b * M_PI / 180.0);
+              double rx = cob * vi + sob * vk;
+              double ry = vj;
+              double rz = -sob * vi + cob * vk;
+              vi = rx;
+              vj = coa * ry - soa * rz;
+              vk = soa * ry + coa * rz;
+          }
           double bi = vi;
           if (bi >  1.0) bi =  1.0;
           if (bi < -1.0) bi = -1.0;
-          double b_deg = asin(bi) * 180.0 / M_PI;
-          block->b_number = b_deg;
-          block->b_flag = true;
-          if (fabs(vj) < 1e-9 && fabs(vk) < 1e-9) {
-              /* singularity: tool horizontal (cos b = 0) - A is undefined;
-               * keep the current A angle (do not emit an A word). */
+          /* solved MACHINE angles, unwrapped near the current machine pose */
+          double b_mach = tcp_unwrap_near(asin(bi) * 180.0 / M_PI,
+                                          settings->BB_current + off_b);
+          bool a_defined = !(fabs(vj) < 1e-9 && fabs(vk) < 1e-9);
+          /* at the singularity (tool horizontal, cos b = 0) A is undefined;
+           * keep the current A angle (do not emit an A word). */
+          double a_mach = a_defined ? tcp_unwrap_near(atan2(-vj, vk) * 180.0 / M_PI,
+                                                      settings->AA_current + off_a)
+                                    : 0.0;
+          if (vec_machine_frame) {
+              /* G53 one-shot: machine words, absolute by G53's own nature */
+              block->b_number = b_mach;
+              block->b_flag = true;
+              if (a_defined) {
+                  block->a_number = a_mach;
+                  block->a_flag = true;
+              }
           } else {
-              double a_deg = atan2(-vj, vk) * 180.0 / M_PI;
-              block->a_number = tcp_unwrap_near(a_deg, settings->AA_current);
-              block->a_flag = true;
+              double b_prog = b_mach - off_b;
+              block->b_number = vec_incremental ? b_prog - settings->BB_current
+                                                : b_prog;
+              block->b_flag = true;
+              if (a_defined) {
+                  double a_prog = a_mach - off_a;
+                  block->a_number = vec_incremental ? a_prog - settings->AA_current
+                                                    : a_prog;
+                  block->a_flag = true;
+              }
           }
           break;
       }
