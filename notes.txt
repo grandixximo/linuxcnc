@@ -381,6 +381,8 @@ PACKAGE (production; installs to the global system):
     debian/configure
     DEB_BUILD_OPTIONS="nodocs nocheck" dpkg-buildpackage -b -uc -us -d
     sudo dpkg -i ~/linuxcnc-uspace_2.10.0~pre1_amd64.deb
+    # (build output lands in ~; after installing, move the artifacts into
+    #  ~/cnc-dev/debs/ - the rollback-ladder home since 2026-06-11)
     # then FULLY restart LinuxCNC (a running instance keeps old modules in RAM)
 
   ( -d skips the build-dep check that aborts on missing doc tools;
@@ -395,15 +397,17 @@ SOURCE rollback point (before the G64 R work):
     git tag:  pre-rdial-checkpoint   ->  commit 19a748d922
     e.g.  git checkout fork && git reset --hard pre-rdial-checkpoint
 
-PACKAGE (.deb) backup ladder in ~/, oldest behaviour -> newest:
+PACKAGE (.deb) backup ladder in ~/cnc-dev/debs/ (moved from ~ on 2026-06-11),
+oldest behaviour -> newest:
     ...deb.PREPATCH-REVERT   original, before any TP work
     ...deb.KNOB-NODEFER      after solve-fix + SCURVE_PEAK_SCALE knob
     ...deb.DEFER-LOGMSG      + planner-type defer (message only in log)
     ...deb.DEFER-GUIMSG      + planner-type defer with GUI message  (= pre-G64-R)
     ...deb.G64R-PRERTCP      + G64 R dial                           (= pre-RTCP)
-    ...deb                   CURRENT: + G43.4/G49 RTCP + jerk-storm/guard fixes
+    ...deb.PRE-G435FIX       + G43.4/G49 RTCP + G43.5 vector        (= pre-G91/offset fix)
+    ...deb                   CURRENT: + G43.5 frame/G91 fixes (G53 one-shot, guards)
   To roll back, install the desired one:
-    sudo dpkg -i ~/linuxcnc-uspace_2.10.0~pre1_amd64.deb.DEFER-GUIMSG
+    sudo dpkg -i ~/cnc-dev/debs/linuxcnc-uspace_2.10.0~pre1_amd64.deb.DEFER-GUIMSG
 
 
 ================================================================================
