@@ -4,7 +4,7 @@
   Source tree:  ~/linuxcnc-grandixximo-6.1
   Branch:       fork  (== ruckig-planner-pool == rtcp-g434)
   Published:    github.com/greatEndian/linuxcnc  branch TP_improve
-  Last updated: 2026-06-10
+  Last updated: 2026-06-11
 ================================================================================
 
 STATUS — WHAT IS DONE (all built, installed via .deb, and validated)
@@ -25,6 +25,15 @@ STATUS — WHAT IS DONE (all built, installed via .deb, and validated)
             angles computed by the control (AB topology, formulas derived from
             the kins module's own math; singularity + unwrap handled).
             Sim-validated: A30/B30 from vectors, tip holds, guards fire.
+  [DONE] 5c. G43.5 frame + G91 fixes      — (2026-06-11, after grandixximo's
+            bug report) vector now correct in G91 (delta-write; was racking
+            angles up per block) and with rotary G5x/G92 work offsets (part-
+            frame transform, Fanuc WKP=0 / Siemens ORIWKS semantics). NEW:
+            G53 on a vector line = machine-frame one-shot (ORIMKS equivalent).
+            New guards: rotary TOOL offsets and XY rotation (G10 R) refused
+            with a vector. Proven against the kins' own matrix (2M random
+            cases, err <= 2e-13, zero-offset bit-identical) + 6-case rs274
+            matrix. See "FRAME & DISTANCE-MODE SEMANTICS" below.
   Also fixed along the way: S-curve no-jerk log storm (warn-once), G64 R
   refused without [TRAJ]MAX_LINEAR_JERK, COMM_TIMEOUT note for vismach sims.
 
