@@ -118,7 +118,7 @@
 */
 
 #define HAL_KEY   0x48414C32	/* key used to open HAL shared memory */
-#define HAL_VER   0x00000014	/* version code */
+#define HAL_VER   0x00000015	/* version code (0x14 upstream, +1 for the struct namespace) */
 #define HAL_SIZE  (2*256*4096)
 
 /* These pointers are set by hal_init() to point to the shmem block
@@ -242,6 +242,7 @@ typedef struct hal_comp_t hal_comp_t;
 typedef struct hal_pin_t hal_pin_t;
 typedef struct hal_sig_t hal_sig_t;
 typedef struct hal_param_t hal_param_t;
+typedef struct hal_struct_entry_t hal_struct_entry_t;
 typedef struct hal_funct_t hal_funct_t;
 typedef struct hal_funct_entry_t hal_funct_entry_t;
 typedef struct hal_thread_t hal_thread_t;
@@ -280,6 +281,7 @@ typedef struct hal_data_t {
     SHMFIELD(hal_pin_t) pin_list_ptr;		/* root of linked list of pins */
     SHMFIELD(hal_sig_t) sig_list_ptr;		/* root of linked list of signals */
     SHMFIELD(hal_param_t) param_list_ptr;		/* root of linked list of parameters */
+    SHMFIELD(hal_struct_entry_t) struct_list_ptr;	/* root of linked list of struct entries */
     SHMFIELD(hal_funct_t) funct_list_ptr;		/* root of linked list of functions */
     SHMFIELD(hal_thread_t) thread_list_ptr;	/* root of linked list of threads */
     long base_period;		/* timer period for realtime tasks */
@@ -289,6 +291,7 @@ typedef struct hal_data_t {
     SHMFIELD(hal_pin_t) pin_free_ptr;		/* list of free pin structs */
     SHMFIELD(hal_sig_t) sig_free_ptr;		/* list of free signal structs */
     SHMFIELD(hal_param_t) param_free_ptr;		/* list of free parameter structs */
+    SHMFIELD(hal_struct_entry_t) struct_free_ptr;	/* list of free struct entry structs */
     SHMFIELD(hal_funct_t) funct_free_ptr;		/* list of free function structs */
     hal_list_t funct_entry_free;	/* list of free funct entry structs */
     SHMFIELD(hal_thread_t) thread_free_ptr;	/* list of free thread structs */
@@ -370,6 +373,17 @@ struct hal_param_t {
     hal_type_t type;		/* data type */
     hal_param_dir_t dir;	/* data direction */
     char name[HAL_NAME_LEN + 1];	/* parameter name */
+};
+
+/** HAL 'struct entry' — a named, ref-counted opaque blob in HAL shmem.
+    Lives in its own namespace, separate from pins, signals, and parameters.
+*/
+struct hal_struct_entry_t {
+    SHMFIELD(hal_struct_entry_t) next_ptr;  /* next entry in list */
+    SHMFIELD(hal_comp_t) owner_ptr;         /* component that created this entry */
+    SHMFIELD(void*) data_ptr;               /* offset of data in shmem */
+    int attach_count;                       /* number of active attachments */
+    char name[HAL_NAME_LEN + 1];            /* entry name */
 };
 
 /** the HAL uses functions and threads to handle synchronization of
@@ -484,6 +498,7 @@ extern hal_comp_t *halpr_find_comp_by_name(const char *name);
 extern hal_pin_t *halpr_find_pin_by_name(const char *name);
 extern hal_sig_t *halpr_find_sig_by_name(const char *name);
 extern hal_param_t *halpr_find_param_by_name(const char *name);
+extern hal_struct_entry_t *halpr_find_struct_by_name(const char *name);
 extern hal_thread_t *halpr_find_thread_by_name(const char *name);
 extern hal_funct_t *halpr_find_funct_by_name(const char *name);
 
