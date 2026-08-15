@@ -5228,6 +5228,7 @@ EXPORT_SYMBOL(hal_param_s32_set);
 EXPORT_SYMBOL(hal_param_u64_set);
 EXPORT_SYMBOL(hal_param_s64_set);
 EXPORT_SYMBOL(hal_param_set);
+EXPORT_SYMBOL(hal_get_pin_value_by_name);
 
 EXPORT_SYMBOL(hal_set_constructor);
 EXPORT_SYMBOL(hal_comp_invoke_make);
