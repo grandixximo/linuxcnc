@@ -1,0 +1,6 @@
+INCLUDES += emc/kinematics_userspace
+
+KINEMATICS_USER_H := emc/kinematics_userspace/kinematics_user.h
+$(patsubst emc/kinematics_userspace/%,../include/%,$(KINEMATICS_USER_H)): ../include/%.h: emc/kinematics_userspace/%.h
+	cp $^ $@
+HEADERS += $(patsubst emc/kinematics_userspace/%,../include/%,$(KINEMATICS_USER_H))
