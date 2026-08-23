@@ -43,6 +43,9 @@ int switchkinsSetup(kparms* kp,
                                  &TOOL_FRAME_SPINDLE);
         switchkinsDeclare(0, KINSTYPE_IDENTITY);
         switchkinsDeclare(1, KINSTYPE_PRIMARY);
+        switchkinsRegisterFrames(1, xyzbcKinematicsWorkFrame,
+                                 xyzbcKinematicsToolFrame,
+                                 &TOOL_FRAME_SPINDLE);
     } else {
         rtapi_print("\n!!! switchkins-type 0 is %s\n",kp->kinsname);
         *kset0 = trtKinematicsSetup; // trt: xyzac,xyzbc
