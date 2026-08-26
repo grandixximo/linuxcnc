@@ -16,6 +16,7 @@ EXHAUSTIVE=$(cppcheck --check-level=exhaustive --version > /dev/null 2>&1 && ech
 CPPCHKOPT=( -j "$nproc" --force "$EXHAUSTIVE" --inline-suppr )
 CPPCHKOPT+=( "--enable=warning,performance,portability" )
 CPPCHKOPT+=( "-I$(realpath "$(dirname "$0")/../include")" )
+CPPCHKOPT+=( "-I$(realpath "$(dirname "$0")/../src/rtapi")" ) #Needed for KERNEL_VERSION and MODULE_VERBOSE macros
 CPPCHKOPT+=( --error-exitcode=1 )
 
 if [ -n "$CPPCHECK_OPTS" ]; then
