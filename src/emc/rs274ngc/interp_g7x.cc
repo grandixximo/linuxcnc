@@ -851,6 +851,8 @@ void g7x::add_distance(double distance) {
     pop_front();
     double current_distance=0;
     while(current_distance!=distance) {
+        std::cout << "add_distance " << distance << " current_distance " << current_distance << std::endl;
+
 	double max_distance=1e9;
 	for(auto &p : *this)
 	    max_distance=std::min(max_distance,p->radius()/2);

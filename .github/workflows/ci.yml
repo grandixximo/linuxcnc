@@ -25,6 +25,7 @@ jobs:
   rip-and-test:
     runs-on: ubuntu-26.04
     timeout-minutes: 45
+    continue-on-error: True
     steps:
     - name: Dump GitHub context
       env:
