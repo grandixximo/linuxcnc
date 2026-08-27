@@ -854,16 +854,20 @@ void g7x::add_distance(double distance) {
         std::cout << "add_distance " << distance << " current_distance " << current_distance << std::endl;
 
 	double max_distance=1e9;
-	for(auto &p : *this)
+	for(auto &p : *this){
 	    max_distance=std::min(max_distance,p->radius()/2);
+        }
 	max_distance=std::min(max_distance,std::abs(distance-current_distance));
-	if(distance<0)
+	if(distance<0){
 	    max_distance=-max_distance;
+        }
 
 	for(auto p=begin(); p!=end(); ++p) {
 	    (*p)->offset(max_distance);
-	    if((*p)->radius()<1e-3)
+	    if((*p)->radius()<1e-3){
+                std::cout << "erase" << std::endl;
 		erase(p--);
+            }
 	}
 
 	for(auto p=begin(); p!=--end(); ++p) {
@@ -890,7 +894,9 @@ void g7x::add_distance(double distance) {
 		else
 		    erase(pp);
 		p=begin();
-	    }
+            }else{
+                std::cout << "NOops " << (*p)->sp()-(*p)->ep() << std::endl;
+            }
 	    auto n=p; ++n;
 	    if((*p)->radius()<1e-3) {
 		erase(p);

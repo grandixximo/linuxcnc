@@ -41,6 +41,8 @@ jobs:
     - name: Install dependencies
       run: |
         set -x
+        sudo apt update
+        sudo apt upgrade
         .github/scripts/install-deps.sh
     - name: Build RIP GCC
       run: |
