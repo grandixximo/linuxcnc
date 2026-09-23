@@ -1086,7 +1086,8 @@ static void stepState(double j, double dt, tpn_next *n)
     n->a1 = cur_a + j * dt;
 }
 
-enum { CHK_HARD = 1, CHK_SOFT = 2 };
+/* CHK_SPEED: the speed part of a hard constraint alone */
+enum { CHK_HARD = 1, CHK_SOFT = 2, CHK_SPEED = 4 };
 
 static unsigned char failmask[TPN_MAXCON];
 
@@ -1095,7 +1096,7 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
 {
     if (k < 0) {
         double A = st->A * TPN_BRAKE_SCALE, J = st->J * TPN_BRAKE_SCALE;
-        if (what == CHK_HARD) {
+        if (what == CHK_HARD || what == CHK_SPEED) {
             return conOk(n->v1, n->a1, 0.0, st->V, A, J);
         }
         return st->Vs < 0.0 || conOk(n->v1, n->a1, 0.0, st->Vs, A, J);
@@ -1104,10 +1105,13 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
     double d = c->S - n->s1;
     double J = fmin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
     double A = fmin(c->Arun, st->A) * TPN_BRAKE_SCALE;
-    if (what == CHK_HARD) {
+    if (what == CHK_HARD || what == CHK_SPEED) {
         if (c->Vh <= 0.0) {
             /* leave the deadbeat finish a little room to land on a cycle */
             d -= 4.0 * J * g_dt * g_dt * g_dt;
+        }
+        if (what == CHK_SPEED) {
+            return conOk(n->v1, n->a1, d, c->Vh, A, J);
         }
         return conOk(n->v1, n->a1, d, c->Vh, A, J) && accEntryOk(n->v1, n->a1, d, c->Aentry, J);
     }
@@ -1235,6 +1239,34 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     }
     double j;
     if (!ok_lo) {
+        /* No jerk meets every hard constraint: the step went a hair past
+         * the point where a speed cap and the acceleration cap of the
+         * piece after it turn tight together. Keep the speeds and release
+         * the acceleration as fast as they allow; braking harder would
+         * only push the acceleration further past the cap. */
+        lo = jlo;
+        hi = jhi;
+        for (k = 0; k < 30; k++) {
+            double mid = k ? 0.5 * (lo + hi) : hi;
+            int ok = 1;
+            stepState(mid, dt, &n);
+            if ((curmask & CHK_HARD) && !checkOne(-1, CHK_SPEED, &n, st)) {
+                ok = 0;
+            }
+            for (i = 0; i < ncon && ok; i++) {
+                if ((failmask[i] & CHK_HARD) && !checkOne(i, CHK_SPEED, &n, st)) {
+                    ok = 0;
+                }
+            }
+            if (ok) {
+                lo = mid;
+                if (!k) {
+                    break;
+                }
+            } else {
+                hi = mid;
+            }
+        }
         j = lo;
     } else {
         for (k = 0; k < 30; k++) {
