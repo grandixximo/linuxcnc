@@ -34,6 +34,7 @@ typedef struct {
     int kb_ajog_active;             /* non-zero during a keyboard jog */
     int wheel_ajog_active;          /* non-zero during a wheel jog */
     int locking_joint;              /* locking_joint number, -1 ==> notused */
+    int angular;                    /* non-zero for an angular axis */
 
     double ext_offset_vel_limit;    /* upper limit of axis speed for ext offset */
     double ext_offset_acc_limit;    /* upper limit of axis accel for ext offset */
@@ -118,6 +119,8 @@ void axis_init_all(void)
     for (n = 0; n < EMCMOT_MAX_AXIS; n++) {
         emcmot_axis_t *axis = &axis_array[n];
         axis->locking_joint = -1;
+        /* ABC are angular unless [AXIS_n]TYPE says otherwise */
+        axis->angular = n >= 3 && n < 6;
     }
     for (n = 0; n < 3; n++) {
         frame.rot_now[n][n] = 1.0;
@@ -252,6 +255,11 @@ void axis_set_jerk_limit(int axis_num, double jerk)
     axis_array[axis_num].jerk_limit = jerk;
 }
 
+void axis_set_angular(int axis_num, int angular)
+{
+    axis_array[axis_num].angular = angular;
+}
+
 void axis_set_ext_offset_vel_limit(int axis_num, double vel)
 {
     axis_array[axis_num].ext_offset_vel_limit = vel;
@@ -291,6 +299,11 @@ double axis_get_acc_limit(int axis_num)
 double axis_get_jerk_limit(int axis_num)
 {
     return axis_array[axis_num].jerk_limit;
+}
+
+int axis_is_angular(int axis_num)
+{
+    return axis_array[axis_num].angular;
 }
 
 double axis_get_teleop_vel_cmd(int axis_num)

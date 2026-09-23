@@ -289,6 +289,7 @@ static int module_intfc() {
                   ,axis_get_vel_limit
                   ,axis_get_acc_limit
                   ,axis_get_jerk_limit
+                  ,axis_is_angular
                   );
 
     tpMotData(emcmotStatus
