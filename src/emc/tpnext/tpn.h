@@ -15,7 +15,7 @@
 #define TPN_H
 
 #include <posemath.h>
-#include "../tp/tc_types.h"
+#include "../tp/tp_types.h"
 
 #define TPN_NAX 9
 
@@ -105,5 +105,69 @@ void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
 
 /* one dimensional jerk limited profile helpers */
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
+
+/* planner state, shared by tpnext.c (module API), tpn_plan.c (queue
+ * build) and tpn_run.c (per cycle controller) */
+
+#define TPN_QSIZE DEFAULT_TC_QUEUE_SIZE
+#define TPN_BIG 1e30
+/* braking is planned with this fraction of the tangential limits so the
+ * cycle by cycle controller has headroom to follow the curve */
+#define TPN_BRAKE_SCALE 0.97
+
+struct emcmot_status_t;
+struct emcmot_config_t;
+
+typedef struct {
+    struct emcmot_status_t *emcmotStatus;
+    struct emcmot_config_t *emcmotConfig;
+    double (*axis_get_vel_limit)(int);
+    double (*axis_get_acc_limit)(int);
+    double (*axis_get_jerk_limit)(int);
+    int (*axis_is_angular)(int);
+
+    tpn_seg queue[TPN_QSIZE];
+    int q_start, q_len;
+    /* G64 E for the moves queued next */
+    double ang_tolerance;
+    /* axes of each type, bit n = axis n, from [AXIS_n]TYPE */
+    unsigned lin_mask, ang_mask;
+    /* controller state along the path parameter */
+    double cur_s, cur_v, cur_a, cur_j;
+} tpn_state;
+
+extern tpn_state tpn;
+
+static inline tpn_seg *seg(int i)
+{
+    return &tpn.queue[(tpn.q_start + i) % TPN_QSIZE];
+}
+
+static inline double segEnd(tpn_seg const *sg)
+{
+    return sg->S0 + sg->geom.L;
+}
+
+/* the part of the path a move owns: from the start of its blend with the
+ * previous move to the start of its blend with the next one */
+static inline double ownedStart(tpn_seg const *sg)
+{
+    return sg->S0 - sg->h_in;
+}
+
+static inline double ownedEnd(tpn_seg const *sg)
+{
+    return sg->S0 + sg->geom.L - sg->h_out;
+}
+
+/* queue build, tpn_plan.c */
+int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
+        double ini_maxvel, unsigned char enables, char atspeed, int indexer_jnum,
+        struct state_tag_t tag);
+
+/* per cycle controller, tpn_run.c */
+void tpnRunReset(void);
+/* advance cur_s, cur_v, cur_a and cur_j by one cycle */
+void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping);
 
 #endif
