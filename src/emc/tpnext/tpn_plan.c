@@ -19,6 +19,7 @@
 /* fraction of the blend tolerance the blend may use */
 #define TPN_TOL_SCALE 0.98
 #define TPN_DEV_SAMPLES 32
+#define TPN_DEV_REFINE 14
 
 static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
 {
@@ -134,19 +135,28 @@ static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend c
             kmax = k;
         }
     }
+    /* golden section, one new point per step */
+    double const g = 0.6180339887498949;
     double lo = h * (kmax - 1), hi = h * (kmax + 1);
-    for (k = 0; k < 20; k++) {
-        double m1 = hi - 0.618034 * (hi - lo), m2 = lo + 0.618034 * (hi - lo);
-        double d1 = blendDevAt(prev, sg, b, m1, w);
-        double d2 = blendDevAt(prev, sg, b, m2, w);
-        dev = fmax(dev, fmax(d1, d2));
+    double m1 = hi - g * (hi - lo), m2 = lo + g * (hi - lo);
+    double d1 = blendDevAt(prev, sg, b, m1, w);
+    double d2 = blendDevAt(prev, sg, b, m2, w);
+    for (k = 0; k < TPN_DEV_REFINE; k++) {
         if (d1 > d2) {
             hi = m2;
+            m2 = m1;
+            d2 = d1;
+            m1 = hi - g * (hi - lo);
+            d1 = blendDevAt(prev, sg, b, m1, w);
         } else {
             lo = m1;
+            m1 = m2;
+            d1 = d2;
+            m2 = lo + g * (hi - lo);
+            d2 = blendDevAt(prev, sg, b, m2, w);
         }
     }
-    return dev;
+    return fmax(dev, fmax(d1, d2));
 }
 
 static void blendLimits(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
@@ -260,12 +270,21 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
             double t = (tpn.ang_mask & (1u << k)) ? atol : tol;
             w.v[k] = t > 0.0 ? 1.0 / t : 0.0;
         }
+        /* between two lines the blend only scales about the corner, and
+         * its deviation with it */
+        int lines = prev->geom.type == TPN_LINE && sg->geom.type == TPN_LINE;
         for (k = 0; k < 40; k++) {
             double r = blendDeviation(prev, sg, &b, &w);
             if (r <= 1.0) {
                 break;
             }
-            h *= fmax(0.1, fmin(0.95, 1.0 / r));
+            if (lines) {
+                h /= r;
+                blendBuild(prev, sg, h, &b);
+                break;
+            }
+            /* aim a little inside so a nearly linear corner ends here */
+            h *= fmax(0.1, 0.99 / r);
             blendBuild(prev, sg, h, &b);
         }
         if (k == 40) {
