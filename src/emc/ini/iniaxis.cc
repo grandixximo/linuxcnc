@@ -20,6 +20,7 @@
 #include "nml_intf/emccfg.h"
 #include "libnml/rcs/rcs_print.hh"
 #include <inifile.hh>
+#include <axis_kinds.hh>
 
 #include "inihal.hh"
 #include "iniaxis.hh"
@@ -51,6 +52,7 @@ static void inline print_dbg_config(const std::string &s)
 // [AXIS_n]MAX_ACCELERATION <real>      Maximum acceleration for axis
 // [AXIS_n]LOCKING_INDEXER_JOINT <int>
 // [AXIS_n]MAX_JERK <real>
+// [AXIS_n]TYPE <LINEAR,ANGULAR>        Axis type, default ANGULAR for ABC
 //
 static int loadAxis(int axis, const IniFile &ini)
 {
@@ -120,6 +122,17 @@ static int loadAxis(int axis, const IniFile &ini)
         return -1;
     }
     old_inihal_data.axis_jerk[axis] = maxJerk;
+
+    AxisKinds kinds;
+    std::string kinds_err;
+    if (axisKindsRead(ini, &kinds, &kinds_err)) {
+        rcs_print_error("%s\n", kinds_err.c_str());
+        return -1;
+    }
+    if (0 != emcAxisSetAngular(axis, axisKindsAngular(kinds, axis))) {
+        print_dbg_config("emcAxisSetAngular");
+        return -1;
+    }
 
     return 0;
 }

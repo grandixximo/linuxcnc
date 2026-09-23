@@ -1832,7 +1832,8 @@ void STRAIGHT_PROBE(int line_number,
 /* Machining Attributes */
 
 void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
-                             int planner_type, double scurve_peak_scale)
+                             int planner_type, double scurve_peak_scale,
+                             double angular_tolerance)
 {
     auto setTermCondMsg = std::make_unique<EMC_TRAJ_SET_TERM_COND>();
 
@@ -1840,6 +1841,9 @@ void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
 
     canon.motionMode = mode;
     canon.motionTolerance =  FROM_PROG_LEN(tolerance);
+    if (angular_tolerance >= 0.0) {
+        canon.motionAngularTolerance = FROM_PROG_ANG(angular_tolerance);
+    }
 
     /* G64_R_PLANNER: carry the optional planner mode (from a G64 R word) on the
      * same queued message so it is applied at this exact point in program order.
@@ -1851,6 +1855,7 @@ void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
     case CANON_CONTINUOUS:
         setTermCondMsg->cond = EMC_TRAJ_TERM_COND_BLEND;
         setTermCondMsg->tolerance = TO_EXT_LEN(canon.motionTolerance);
+        setTermCondMsg->angular_tolerance = TO_EXT_ANG(canon.motionAngularTolerance);
         break;
     case CANON_EXACT_PATH:
         setTermCondMsg->cond = EMC_TRAJ_TERM_COND_EXACT;

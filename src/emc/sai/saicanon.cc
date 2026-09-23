@@ -309,7 +309,8 @@ void SET_FEED_REFERENCE(CANON_FEED_REFERENCE reference)
 }
 
 extern void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
-                                    int planner_type, double scurve_peak_scale)
+                                    int planner_type, double scurve_peak_scale,
+                                    double angular_tolerance)
 {
   /* G64_R_PLANNER: standalone-interp echo of the optional planner mode */
   if (planner_type >= 0 || scurve_peak_scale >= 0.0)
@@ -328,7 +329,10 @@ extern void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
   else if (mode == CANON_CONTINUOUS)
     {
       _sai.motion_tolerance = tolerance;
-      PRINT("SET_MOTION_CONTROL_MODE(CANON_CONTINUOUS, %f)\n", tolerance);
+      if (angular_tolerance > 0.0)
+        PRINT("SET_MOTION_CONTROL_MODE(CANON_CONTINUOUS, %f, %f)\n", tolerance, angular_tolerance);
+      else
+        PRINT("SET_MOTION_CONTROL_MODE(CANON_CONTINUOUS, %f)\n", tolerance);
       _sai._motion_mode = CANON_CONTINUOUS;
     }
   else
