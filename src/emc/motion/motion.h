@@ -176,6 +176,7 @@ extern "C" {
         EMCMOT_SET_AXIS_ACC_LIMIT,      /* set the max axis acc */
         EMCMOT_SET_AXIS_LOCKING_JOINT,  /* set the axis locking joint */
 	EMCMOT_SET_AXIS_JERK_LIMIT,     /* set the max axis jerk */
+	EMCMOT_SET_AXIS_TYPE,           /* set the axis type, flags != 0 = angular */
 
 	EMCMOT_SELECT_KINS_TYPE,        /* select the switchkins type (G12.1) */
         EMCMOT_SET_SPINDLE_PARAMS, /* One command to set all spindle params */
@@ -231,6 +232,7 @@ extern "C" {
 	int id;			/* id for motion */
 	int termCond;		/* termination condition */
 	double tolerance;	/* tolerance for path deviation in CONTINUOUS mode */
+	double angular_tolerance; /* same for the angular axes, 0 = none */
 	int joint;		/* which joint index to use for below */
 	int axis;		/* which axis index to use for below */
 	int spindle; 	/* which spindle to use */

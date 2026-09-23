@@ -164,6 +164,7 @@ typedef struct CanonConfig_t {
           toolOffset{},
           motionMode(CANON_EXACT_STOP),
           motionTolerance(0.0),
+          motionAngularTolerance(0.0),
           naivecamTolerance(0.0),
           feed_mode(0),
           spindle_num(0),
@@ -208,6 +209,7 @@ typedef struct CanonConfig_t {
    If this param is 0, then it will behave as emc always did, allowing
    almost any deviation trying to keep speed up. */
    double motionTolerance;
+   double motionAngularTolerance;
    double naivecamTolerance;
    int feed_mode;
    int spindle_num; //current spindle for spindle-synch motion
@@ -441,8 +443,11 @@ extern void SET_FEED_MODE(int spindle, int mode);
 /* G64_R_PLANNER: two optional trailing args fold the planner mode (G64 R word)
  * into the existing control-mode call. Defaults -1/-1.0 = "leave unchanged",
  * so existing callers (G61, G61.1, cutter-comp save/restore) are unaffected. */
+/* angular_tolerance is the G64 E blend tolerance of the angular axes in
+ * degrees, 0 = unconstrained, < 0 = unchanged */
 extern void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
-                                    int planner_type = -1, double scurve_peak_scale = -1.0);
+                                    int planner_type = -1, double scurve_peak_scale = -1.0,
+                                    double angular_tolerance = -1.0);
 
 extern void SET_NAIVECAM_TOLERANCE(double tolerance);
 
