@@ -143,6 +143,12 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 st->J = fmin(st->J, lim->J);
                 st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
             } else {
+                /* a step that ends inside the piece runs part of the
+                 * cycle there at the jerk it picks */
+                if (st->J < TPN_BIG && Pa < tpn.cur_s + tpn.cur_v * dt
+                        + 0.5 * tpn.cur_a * dt * dt + st->J * dt * dt * dt / 6.0) {
+                    st->J = fmin(st->J, lim->J);
+                }
                 addCon(Pa, E, soft, lim->A, Arun, Jrun);
             }
             Arun = fmin(Arun, lim->A);
