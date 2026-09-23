@@ -93,6 +93,7 @@ void tpMotFunctions(void(*pDioWrite)(int,char)
                    ,int( *pGetRotaryUnlock)(int)
                    ,double(*paxis_get_vel_limit)(int)
                    ,double(*paxis_get_acc_limit)(int)
+                   ,double(*paxis_get_jerk_limit)(int)
                    );
 
 // These are here so we don't need to include "motion/motion.h"
