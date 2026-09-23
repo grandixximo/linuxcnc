@@ -134,6 +134,9 @@ typedef struct {
     unsigned lin_mask, ang_mask;
     /* controller state along the path parameter */
     double cur_s, cur_v, cur_a, cur_j;
+    /* lower bounds of the smallest acceleration and jerk limits of the
+     * queued pieces, see reachable() */
+    double A_lo, J_lo;
 } tpn_state;
 
 extern tpn_state tpn;

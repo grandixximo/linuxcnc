@@ -190,12 +190,27 @@ static int reachable(double S, double V)
     if (tpn.q_len == 0) {
         return 1;
     }
+    /* one cycle of margin for the step that is about to be taken */
+    double d = S - tpn.cur_s - 2.0 * tpn.cur_v * 0.001 - 1e-9;
+    /* The limits of every queued piece bound those between the controller
+     * and S from below, and a smaller limit only brakes longer: when the
+     * bounds suffice the scan of the queue would agree. */
+    if (tpn.A_lo < TPN_BIG && tpnBrakeDist(tpn.cur_v, tpn.cur_a, V, tpn.A_lo * TPN_BRAKE_SCALE,
+                tpn.J_lo * TPN_BRAKE_SCALE) <= d) {
+        return 1;
+    }
     runLimits(S, &A, &J);
     if (A >= TPN_BIG) {
         return 1;
     }
-    /* one cycle of margin for the step that is about to be taken */
-    double d = S - tpn.cur_s - 2.0 * tpn.cur_v * 0.001 - 1e-9;
+    /* the scan may stop short of the last move, later ones will not */
+    tpn_seg const *last = seg(tpn.q_len - 1);
+    tpn.A_lo = fmin(A, last->lim_int.A);
+    tpn.J_lo = fmin(J, last->lim_int.J);
+    if (last->h_in > 0.0) {
+        tpn.A_lo = fmin(tpn.A_lo, last->lim_bin.A);
+        tpn.J_lo = fmin(tpn.J_lo, last->lim_bin.J);
+    }
     return tpnBrakeDist(tpn.cur_v, tpn.cur_a, V, A * TPN_BRAKE_SCALE, J * TPN_BRAKE_SCALE) <= d;
 }
 
@@ -350,7 +365,14 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     } else {
         sg->S0 = tpn.cur_s;
         sg->stop_in = 1;
+        tpn.A_lo = tpn.J_lo = TPN_BIG;
     }
+    if (sg->h_in > 0.0) {
+        tpn.A_lo = fmin(tpn.A_lo, sg->lim_bin.A);
+        tpn.J_lo = fmin(tpn.J_lo, sg->lim_bin.J);
+    }
+    tpn.A_lo = fmin(tpn.A_lo, sg->lim_int.A);
+    tpn.J_lo = fmin(tpn.J_lo, sg->lim_int.J);
 
     tpn.q_len++;
     tp->queue._len = tpn.q_len;
