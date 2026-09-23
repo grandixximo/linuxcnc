@@ -1360,6 +1360,13 @@ tpmod-objs += emc/tp/cruckig/velocity_third_step1.o
 tpmod-objs += emc/tp/cruckig/velocity_third_step2.o
 tpmod-objs += $(MATHSTUB)
 
+obj-m += tpnextmod.o
+tpnextmod-objs := emc/tpnext/tpnext.o
+tpnextmod-objs += emc/tpnext/tpn_geom.o
+tpnextmod-objs += libposemath/emcpose.o
+tpnextmod-objs += libposemath/_posemath.o
+tpnextmod-objs += $(MATHSTUB)
+
 TORTOBJS = $(foreach file,$($(patsubst %.o,%,$(1))-objs), objects/rt$(file))
 ifeq ($(BUILD_SYS),uspace)
 EXTRA_CFLAGS += -fPIC -O2 $(filter -Wextra,$(CFLAGS)) $(filter -Werror,$(CFLAGS))
@@ -1451,6 +1458,7 @@ endif
 ../rtlib/hal_lib$(MODULE_EXT): $(addprefix objects/rt,$(hal_lib-objs))
 ../rtlib/motmod$(MODULE_EXT): $(addprefix objects/rt,$(motmod-objs))
 ../rtlib/tpmod$(MODULE_EXT): $(addprefix objects/rt,$(tpmod-objs))
+../rtlib/tpnextmod$(MODULE_EXT): $(addprefix objects/rt,$(tpnextmod-objs))
 ../rtlib/homemod$(MODULE_EXT): $(addprefix objects/rt,$(homemod-objs))
 ../rtlib/trivkins$(MODULE_EXT): $(addprefix objects/rt,$(trivkins-objs))
 ../rtlib/5axiskins$(MODULE_EXT): $(addprefix objects/rt,$(5axiskins-objs))
