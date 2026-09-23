@@ -3,8 +3,8 @@
 *   Internal types of the tpnext trajectory planner.
 *
 *   tpnext plans one path parameter s along the programmed nine axis
-*   path. Corners are replaced by quintic blends inside the G64 P
-*   tolerance, every piece of the path gets tangential limits projected
+*   path. Corners are replaced by quintic blends inside the G64 P and E
+*   tolerances, every piece of the path gets tangential limits projected
 *   from the per axis velocity, acceleration and jerk limits, and a jerk
 *   limited controller advances s every servo cycle.
 *
@@ -65,7 +65,8 @@ typedef struct {
     char atspeed;
     int indexer_jnum;
     int term_cond;
-    double tolerance;
+    double tolerance;       /* G64 P, linear axes, 0 = none */
+    double ang_tolerance;   /* G64 E, angular axes, 0 = none */
     int sync;               /* TC_SYNC_* */
     double uu_per_rev;
     double vreq;            /* requested feed, path units */
@@ -90,7 +91,8 @@ int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
         PmCartesian const *center, PmCartesian const *normal, int turn);
 void tpnGeomEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2);
 void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2);
-double tpnGeomDistXYZ(tpn_geom const *g, PmCartesian const *q);
+/* distance from q to the move, each axis scaled by its weight in w */
+double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w);
 
 void tpnBlendInit(tpn_blend *b, double H, tpn_vec const *p0, tpn_vec const *d0,
         tpn_vec const *dd0, tpn_vec const *p1, tpn_vec const *d1, tpn_vec const *dd1);
