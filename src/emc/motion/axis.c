@@ -235,6 +235,11 @@ double axis_get_acc_limit(int axis_num)
     return axis_array[axis_num].acc_limit;
 }
 
+double axis_get_jerk_limit(int axis_num)
+{
+    return axis_array[axis_num].jerk_limit;
+}
+
 double axis_get_teleop_vel_cmd(int axis_num)
 {
     return axis_array[axis_num].teleop_vel_cmd;
