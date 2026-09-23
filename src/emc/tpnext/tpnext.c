@@ -4,7 +4,7 @@
 *
 *   The queued moves form one path parameterised by s, the RS274NGC feed
 *   length. Where two moves blend, the corner is replaced by a quintic
-*   inside the G64 P tolerance. Every piece of the path (a blend or the
+*   inside the G64 P and E tolerances. Every piece of the path (a blend or the
 *   unblended interior of a move) gets a velocity cap and tangential
 *   acceleration and jerk limits projected from the per axis limits, so
 *   no axis can exceed its own limits whatever the path direction.
@@ -88,6 +88,8 @@ void tpMotData(emcmot_status_t *pstatus, emcmot_config_t *pconfig)
 static tpn_seg queue[TPN_QSIZE];
 /* G64 E for the moves queued next */
 static double ang_tolerance;
+/* axes of each type, bit n = axis n, from [AXIS_n]TYPE */
+static unsigned lin_mask = 0707, ang_mask = 0070;
 static int q_start, q_len;
 /* controller state along the path parameter */
 static double cur_s, cur_v, cur_a, cur_j;
@@ -139,12 +141,30 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
         }
         ax->jerk[i] = j;
     }
+    if (_axis_is_angular) {
+        lin_mask = ang_mask = 0;
+        for (i = 0; i < TPN_NAX; i++) {
+            if (_axis_is_angular(i)) {
+                ang_mask |= 1u << i;
+            } else {
+                lin_mask |= 1u << i;
+            }
+        }
+    }
 }
 
-/* velocity cap from [TRAJ]MAX_LINEAR_VELOCITY on the XYZ speed */
-static double xyzCap(TP_STRUCT const *tp, tpn_vec const *G)
+/* velocity cap from [TRAJ]MAX_LINEAR_VELOCITY on the speed of the linear
+ * axes among XYZ, else among UVW, the way the feed is measured */
+static double linearCap(TP_STRUCT const *tp, tpn_vec const *G)
 {
-    double gx = sqrt(G->v[0] * G->v[0] + G->v[1] * G->v[1] + G->v[2] * G->v[2]);
+    double g2[2] = {0.0, 0.0};
+    int i;
+    for (i = 0; i < TPN_NAX; i++) {
+        if ((lin_mask & (1u << i)) && (i < 3 || i >= 6)) {
+            g2[i >= 6] += G->v[i] * G->v[i];
+        }
+    }
+    double gx = sqrt(g2[0] > 1e-18 ? g2[0] : g2[1]);
     if (tp->vLimit <= 0.0 || gx < 1e-9) {
         return TPN_BIG;
     }
@@ -620,19 +640,41 @@ static void blendBuild(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_ble
     tpnBlendInit(b, 2.0 * h, &p0, &d0, &dd0, &p1, &d1, &dd1);
 }
 
-static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend const *b)
+static double blendDevAt(tpn_seg const *prev, tpn_seg const *sg, tpn_blend const *b,
+        double sigma, tpn_vec const *w)
 {
-    double dev = 0.0;
-    int k;
+    tpn_vec p;
+    tpnBlendEval(b, sigma, &p, 0);
+    return fmin(tpnGeomDist(&prev->geom, &p, w), tpnGeomDist(&sg->geom, &p, w));
+}
+
+/* Largest distance of the blend from the programmed path, the linear
+ * axes in units of G64 P and the angular ones in units of G64 E, so a
+ * value up to 1 keeps every blend point within P and E of one point of
+ * the path. Sampled, then refined around the worst sample. */
+static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend const *b,
+        tpn_vec const *w)
+{
+    double dev = 0.0, h = b->H / TPN_DEV_SAMPLES;
+    int k, kmax = 1;
     for (k = 1; k < TPN_DEV_SAMPLES; k++) {
-        tpn_vec p;
-        PmCartesian q;
-        tpnBlendEval(b, b->H * k / TPN_DEV_SAMPLES, &p, 0);
-        q.x = p.v[0];
-        q.y = p.v[1];
-        q.z = p.v[2];
-        double d = fmin(tpnGeomDistXYZ(&prev->geom, &q), tpnGeomDistXYZ(&sg->geom, &q));
-        dev = fmax(dev, d);
+        double d = blendDevAt(prev, sg, b, h * k, w);
+        if (d > dev) {
+            dev = d;
+            kmax = k;
+        }
+    }
+    double lo = h * (kmax - 1), hi = h * (kmax + 1);
+    for (k = 0; k < 20; k++) {
+        double m1 = hi - 0.618034 * (hi - lo), m2 = lo + 0.618034 * (hi - lo);
+        double d1 = blendDevAt(prev, sg, b, m1, w);
+        double d2 = blendDevAt(prev, sg, b, m2, w);
+        dev = fmax(dev, fmax(d1, d2));
+        if (d1 > d2) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
     }
     return dev;
 }
@@ -643,7 +685,7 @@ static void blendLimits(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const 
     tpn_vec G, G1, G2;
     tpnBlendBounds(b, &G, &G1, &G2);
     tpnLimits(ax, &G, &G1, &G2, lim);
-    lim->V = fmin(lim->V, xyzCap(tp, &G));
+    lim->V = fmin(lim->V, linearCap(tp, &G));
     lim->V = fmin(lim->V, fmin(prev->vreq, sg->vreq) * speedFactor(tp));
 }
 
@@ -721,18 +763,24 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     }
 
     double tol = prev->tolerance * TPN_TOL_SCALE;
+    double atol = prev->ang_tolerance * TPN_TOL_SCALE;
     double h = hmax;
     tpn_blend b;
     tpn_lim lim;
     int k;
     blendBuild(prev, sg, h, &b);
-    if (tol > 0.0) {
+    if (tol > 0.0 || atol > 0.0) {
+        tpn_vec w;
+        for (k = 0; k < TPN_NAX; k++) {
+            double t = (ang_mask & (1u << k)) ? atol : tol;
+            w.v[k] = t > 0.0 ? 1.0 / t : 0.0;
+        }
         for (k = 0; k < 40; k++) {
-            double dev = blendDeviation(prev, sg, &b);
-            if (dev <= tol) {
+            double r = blendDeviation(prev, sg, &b, &w);
+            if (r <= 1.0) {
                 break;
             }
-            h *= fmax(0.1, fmin(0.95, tol / dev));
+            h *= fmax(0.1, fmin(0.95, 1.0 / r));
             blendBuild(prev, sg, h, &b);
         }
         if (k == 40) {
@@ -801,6 +849,7 @@ static int addSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double 
     sg->indexer_jnum = indexer_jnum;
     sg->term_cond = tp->termCond;
     sg->tolerance = tp->tolerance;
+    sg->ang_tolerance = ang_tolerance;
     sg->sync = tp->synchronized;
     sg->uu_per_rev = tp->uu_per_rev;
     sg->vreq = fmin(vel, ini_maxvel > 0.0 ? ini_maxvel : vel);
@@ -819,7 +868,7 @@ static int addSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double 
 
     tpnGeomBounds(&sg->geom, &G, &G1, &G2);
     tpnLimits(&ax, &G, &G1, &G2, &sg->lim_int);
-    sg->lim_int.V = fmin(sg->lim_int.V, xyzCap(tp, &G));
+    sg->lim_int.V = fmin(sg->lim_int.V, linearCap(tp, &G));
     double vmax = sg->vreq * speedFactor(tp);
     if (ini_maxvel > 0.0) {
         vmax = fmin(vmax, ini_maxvel);
@@ -1040,7 +1089,8 @@ static void stepState(double j, double dt, tpn_next *n)
     n->a1 = cur_a + j * dt;
 }
 
-enum { CHK_HARD = 1, CHK_SOFT = 2 };
+/* CHK_SPEED: the speed part of a hard constraint alone */
+enum { CHK_HARD = 1, CHK_SOFT = 2, CHK_SPEED = 4 };
 
 static unsigned char failmask[TPN_MAXCON];
 
@@ -1049,7 +1099,7 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
 {
     if (k < 0) {
         double A = st->A * TPN_BRAKE_SCALE, J = st->J * TPN_BRAKE_SCALE;
-        if (what == CHK_HARD) {
+        if (what == CHK_HARD || what == CHK_SPEED) {
             return conOk(n->v1, n->a1, 0.0, st->V, A, J);
         }
         return st->Vs < 0.0 || conOk(n->v1, n->a1, 0.0, st->Vs, A, J);
@@ -1058,10 +1108,13 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
     double d = c->S - n->s1;
     double J = fmin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
     double A = fmin(c->Arun, st->A) * TPN_BRAKE_SCALE;
-    if (what == CHK_HARD) {
+    if (what == CHK_HARD || what == CHK_SPEED) {
         if (c->Vh <= 0.0) {
             /* leave the deadbeat finish a little room to land on a cycle */
             d -= 4.0 * J * g_dt * g_dt * g_dt;
+        }
+        if (what == CHK_SPEED) {
+            return conOk(n->v1, n->a1, d, c->Vh, A, J);
         }
         return conOk(n->v1, n->a1, d, c->Vh, A, J) && accEntryOk(n->v1, n->a1, d, c->Aentry, J);
     }
@@ -1189,6 +1242,34 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     }
     double j;
     if (!ok_lo) {
+        /* No jerk meets every hard constraint: the step went a hair past
+         * the point where a speed cap and the acceleration cap of the
+         * piece after it turn tight together. Keep the speeds and release
+         * the acceleration as fast as they allow; braking harder would
+         * only push the acceleration further past the cap. */
+        lo = jlo;
+        hi = jhi;
+        for (k = 0; k < 30; k++) {
+            double mid = k ? 0.5 * (lo + hi) : hi;
+            int ok = 1;
+            stepState(mid, dt, &n);
+            if ((curmask & CHK_HARD) && !checkOne(-1, CHK_SPEED, &n, st)) {
+                ok = 0;
+            }
+            for (i = 0; i < ncon && ok; i++) {
+                if ((failmask[i] & CHK_HARD) && !checkOne(i, CHK_SPEED, &n, st)) {
+                    ok = 0;
+                }
+            }
+            if (ok) {
+                lo = mid;
+                if (!k) {
+                    break;
+                }
+            } else {
+                hi = mid;
+            }
+        }
         j = lo;
     } else {
         for (k = 0; k < 30; k++) {
