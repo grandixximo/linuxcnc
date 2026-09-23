@@ -39,6 +39,7 @@ double axis_get_min_pos_limit(int axis_num);
 double axis_get_max_pos_limit(int axis_num);
 double axis_get_vel_limit(int axis_num);
 double axis_get_acc_limit(int axis_num);
+double axis_get_jerk_limit(int axis_num);
 int axis_get_locking_joint(int axis_num);
 double axis_get_compound_velocity(void);
 double axis_get_ext_offset_curr_pos(int axis_num);
