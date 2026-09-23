@@ -63,8 +63,10 @@ setup::setup() :
     control_mode(CANON_EXACT_STOP),
     tolerance(0.0),
     naivecam_tolerance(0.0),
+    angular_tolerance(0.0),
     tolerance_default(0.0),
     naivecam_tolerance_default(0.0),
+    angular_tolerance_default(0.0),
     current_pocket(0),
 
     current_x (0.0),

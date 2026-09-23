@@ -322,8 +322,17 @@ int Interp::check_other_codes(block_pointer block)       //!< pointer to a block
   if (block->e_flag) {
     CHKS(((motion != G_76) && (motion != G_33) && (motion != G_33_1) &&
       (motion != G_70) && (block->m_modes[5] != 66) &&
-      (block->m_modes[5] != 67) && (block->m_modes[5] != 68)),
-       _("E word with no G70, G76, M66, M67 or M68 to use it"));
+      (block->m_modes[5] != 67) && (block->m_modes[5] != 68) &&
+      (block->g_modes[GM_CONTROL_MODE] != G_64)),
+       _("E word with no G64, G70, G76, M66, M67 or M68 to use it"));
+    /* a block has one E word; G64 and another user would share it */
+    CHKS((block->g_modes[GM_CONTROL_MODE] == G_64) &&
+         ((motion == G_76) || (motion == G_33) || (motion == G_33_1) ||
+          (motion == G_70) || (block->m_modes[5] == 66) ||
+          (block->m_modes[5] == 67) || (block->m_modes[5] == 68)),
+        _("E word is ambiguous on a line with G64 and another code that uses E - use separate lines"));
+    CHKS((block->g_modes[GM_CONTROL_MODE] == G_64) && (block->e_number < 0.0),
+        _("G64 E angular tolerance must not be negative"));
   }
 
   if (block->h_flag) {

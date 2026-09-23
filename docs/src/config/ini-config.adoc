@@ -598,6 +598,8 @@ if __name__ == "__main__":
   Default P value for G64 if P is not called out.
 * `G64_DEFAULT_NAIVETOLERANCE =` _n_ (Default: 0)
   Default Q value for G64 if Q is not called out.
+* `G64_DEFAULT_ANGULAR_TOLERANCE =` _n_ (Default: 0)
+  Default E value for G64 if E is not called out, in degrees.
 * `CENTER_ARC_RADIUS_TOLERANCE_INCH =` _n_ (Default: 0.00005)
 * `CENTER_ARC_RADIUS_TOLERANCE_MM =` _n_ (Default: 0.00127)
 * `USER_M_PATH = myfuncs:/tmp/mcodes:experimentalmcodes` - (((USER M PATH)))
@@ -1036,6 +1038,7 @@ The _<letter>_ specifies one of: X Y Z A B C U V W
   An `ANGULAR` axis is an angle in degrees whatever G20 or G21 says, in `[TRAJ]ANGULAR_UNITS` for the machine, and may be a `WRAPPED_ROTARY` or have a `LOCKING_INDEXER_JOINT`.
   The feed of a move depends on the type too, see `FEED_AXES` in the <<sub:ini:sec:traj,[TRAJ] section>>.
   The AXIS GUI shows the axis in the units of its type; other GUIs may not.
+  The `tpnextmod` trajectory planner applies the `G64 P` blend tolerance to the linear axes and `G64 E` to the angular ones.
 * `MAX_VELOCITY = 1.2` - (real) Maximum velocity for this axis in <<sub:ini:sec:traj,machine units>> per second.
 * `MAX_ACCELERATION = 20.0` - (real) Maximum acceleration for this axis in machine units per second squared.
 +

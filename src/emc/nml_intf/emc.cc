@@ -1124,6 +1124,7 @@ void EMC_TRAJ_SET_TERM_COND::update(CMS * cms)
     cms->update(tolerance);
     cms->update(planner_type);       /* G64_R_PLANNER: append at end of serialization */
     cms->update(scurve_peak_scale);  /* G64_R_PLANNER */
+    cms->update(angular_tolerance);
 }
 
 // cppcheck-suppress duplInheritedMember

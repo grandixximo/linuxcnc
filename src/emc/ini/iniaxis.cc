@@ -51,6 +51,7 @@ static void inline print_dbg_config(const std::string &s)
 // [AXIS_n]MAX_ACCELERATION <real>      Maximum acceleration for axis
 // [AXIS_n]LOCKING_INDEXER_JOINT <int>
 // [AXIS_n]MAX_JERK <real>
+// [AXIS_n]TYPE <LINEAR,ANGULAR>        Axis type, default ANGULAR for ABC
 //
 static int loadAxis(int axis, const IniFile &ini)
 {
@@ -120,6 +121,13 @@ static int loadAxis(int axis, const IniFile &ini)
         return -1;
     }
     old_inihal_data.axis_jerk[axis] = maxJerk;
+
+    EmcJointType type = ini.findJointType("TYPE", axisSection,
+                                          (axis >= 3 && axis < 6) ? EMC_ANGULAR : EMC_LINEAR);
+    if (0 != emcAxisSetAngular(axis, type == EMC_ANGULAR)) {
+        print_dbg_config("emcAxisSetAngular");
+        return -1;
+    }
 
     return 0;
 }

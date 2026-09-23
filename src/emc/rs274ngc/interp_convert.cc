@@ -2230,6 +2230,8 @@ int Interp::convert_control_mode(
     double naivecam_tolerance_in, // tolerance for the naivecam
     double r_word,                // G64_R_PLANNER: R value (planner/aggressiveness)
     bool r_present,               // G64_R_PLANNER: true if R was given on the block
+    double e_word,                // angular blend tolerance, degrees
+    bool e_present,               // true if E was given on the block
     setup_pointer settings)       // pointer to machine settings
 {
     double tolerance, naivecam_tolerance;
@@ -2250,6 +2252,9 @@ int Interp::convert_control_mode(
       }
       settings->control_mode = CANON_CONTINUOUS;
       settings->tolerance = tolerance;
+      /* E bounds the angular axes the way P bounds the linear ones;
+       * 0 leaves them unconstrained */
+      settings->angular_tolerance = e_present ? e_word : _setup.angular_tolerance_default;
       /* G64_R_PLANNER: optional R word carries planner INTENT plus cornering
        * aggressiveness (Fanuc G05.1-style level). The program never names a
        * planner implementation; "smooth" is resolved by task against
@@ -2270,7 +2275,8 @@ int Interp::convert_control_mode(
               peak_scale = (r_word > 1.0) ? 1.0 : ((r_word < 0.1) ? 0.1 : r_word);
           }
       }
-      SET_MOTION_CONTROL_MODE(CANON_CONTINUOUS, tolerance, planner_type, peak_scale);
+      SET_MOTION_CONTROL_MODE(CANON_CONTINUOUS, tolerance, planner_type, peak_scale,
+                              settings->angular_tolerance);
 
       if (naivecam_tolerance_in >= 0){
 	      naivecam_tolerance = naivecam_tolerance_in;
@@ -3017,6 +3023,7 @@ int Interp::convert_g(block_pointer block,       //!< pointer to a block of RS27
 	status = convert_control_mode(block->g_modes[GM_CONTROL_MODE],
 				      block->p_number, block->q_number,
 				      block->r_number, block->r_flag, /* G64_R_PLANNER */
+				      block->e_number, block->e_flag,
 				      settings);
 	CHP(status);
     }
@@ -3624,6 +3631,7 @@ int Interp::gen_settings(
 		break;
 	    case GM_FIELD_FLOAT_PATH_TOLERANCE:
 	    case GM_FIELD_FLOAT_NAIVE_CAM_TOLERANCE:
+	    case ACTIVE_SETTING_ANGULAR_TOLERANCE:
 		// G64 special case; see below
 		g64_changed = 1;
 		break;
@@ -3716,6 +3724,11 @@ int Interp::gen_settings(
 		float_saved[GM_FIELD_FLOAT_PATH_TOLERANCE],
 		float_saved[GM_FIELD_FLOAT_NAIVE_CAM_TOLERANCE]);
 	cmd += buf;
+	if (float_saved[GM_FIELD_FLOAT_PATH_TOLERANCE] >= 0) {
+	    snprintf(buf,sizeof(buf)," E%f",
+		     float_saved[ACTIVE_SETTING_ANGULAR_TOLERANCE]);
+	    cmd += buf;
+	}
     }
     return INTERP_OK;
 }

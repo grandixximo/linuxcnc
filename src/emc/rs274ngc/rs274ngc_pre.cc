@@ -869,6 +869,7 @@ int Interp::init()
 
   _setup.tolerance_default = 0;
   _setup.naivecam_tolerance_default = 0;
+  _setup.angular_tolerance_default = 0;
 
   // default arc radius tolerances
   // we'll try to override these from the INI file below
@@ -921,6 +922,7 @@ int Interp::init()
 
           _setup.tolerance_default = inifile.findRealV("G64_DEFAULT_TOLERANCE", "RS274NGC", 0.0);
           _setup.naivecam_tolerance_default = inifile.findRealV("G64_DEFAULT_NAIVETOLERANCE", "RS274NGC", 0.0);
+          _setup.angular_tolerance_default = inifile.findRealV("G64_DEFAULT_ANGULAR_TOLERANCE", "RS274NGC", 0.0);
 
           // First the features that default to ON
           if (inifile.findBoolV("INI_VARS", "RS274NGC", true))
@@ -2305,10 +2307,13 @@ int Interp::active_modes(int *g_codes,
     // GM_FIELD_FLOAT_MAX_FIELDS may be larger when extra tag fields are
     // appended for HAL pin output. Cap at the smaller of the two to avoid
     // overrunning the caller's stack array.
-    int n = GM_FIELD_FLOAT_MAX_FIELDS < ACTIVE_SETTINGS
-        ? GM_FIELD_FLOAT_MAX_FIELDS : ACTIVE_SETTINGS;
+    // The first slots share their index with the tag; the angular
+    // tolerance lives at the end of the tag.
+    int n = GM_FIELD_FLOAT_ARC_RADIUS;
     for (i=0; i<n; i++)
         settings[i] = tag.fields_float[i];
+    settings[ACTIVE_SETTING_ANGULAR_TOLERANCE] =
+        tag.fields_float[GM_FIELD_FLOAT_ANGULAR_TOLERANCE];
     // Line number stored in double; this demonstrates why the current
     // system of unpacking state tags into arrays of fixed type and
     // purpose should be refactored into something more elegant

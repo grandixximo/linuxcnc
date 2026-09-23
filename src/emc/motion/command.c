@@ -1130,7 +1130,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 	case EMCMOT_SET_TERM_COND:
 	    /* sets termination condition for motion emcmotInternal->coord_tp */
 	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_TERM_COND");
-	    tpSetTermCond(&emcmotInternal->coord_tp, emcmotCommand->termCond, emcmotCommand->tolerance);
+	    tpSetTermCond(&emcmotInternal->coord_tp, emcmotCommand->termCond, emcmotCommand->tolerance,
+	                  emcmotCommand->angular_tolerance);
 	    break;
 
 	case EMCMOT_SET_SPINDLESYNC:
@@ -2325,6 +2326,17 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 			}
 			axis_set_jerk_limit(emcmotCommand->axis, emcmotCommand->jerk);
 			break;
+
+        case EMCMOT_SET_AXIS_TYPE:
+            /* set from [AXIS_n]TYPE at startup */
+            rtapi_print_msg(RTAPI_MSG_DBG, "SET_AXIS_TYPE");
+            rtapi_print_msg(RTAPI_MSG_DBG, " %d angular(%d)", emcmotCommand->axis, emcmotCommand->flags);
+            emcmot_config_change();
+            if ((emcmotCommand->axis < 0) || (emcmotCommand->axis >= EMCMOT_MAX_AXIS)) {
+                break;
+            }
+            axis_set_angular(emcmotCommand->axis, emcmotCommand->flags != 0);
+            break;
 
         case EMCMOT_SET_AXIS_LOCKING_JOINT:
 	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_AXIS_ACC_LOCKING_JOINT");

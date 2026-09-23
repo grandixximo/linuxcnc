@@ -220,6 +220,8 @@ int Interp::write_settings(setup_pointer settings)       //!< pointer to machine
   settings->active_settings[2] = settings->speed[0];           /* 2 spindle speed   */
   settings->active_settings[3] = settings->tolerance;          /* 3 blend tolerance */
   settings->active_settings[4] = settings->naivecam_tolerance; /* 4 naive CAM tolerance */
+  settings->active_settings[ACTIVE_SETTING_ANGULAR_TOLERANCE] =
+      settings->angular_tolerance;                             /* 5 angular tolerance */
 
   return INTERP_OK;
 }
@@ -314,6 +316,8 @@ int Interp::write_state_tag(block_pointer block,
 	settings->tolerance;
     state.fields_float[GM_FIELD_FLOAT_NAIVE_CAM_TOLERANCE] =
 	settings->naivecam_tolerance;
+    state.fields_float[GM_FIELD_FLOAT_ANGULAR_TOLERANCE] =
+	settings->angular_tolerance;
 
     state.flags[GM_FLAG_CSS_MODE] =
 	(settings->spindle_mode[0] == SPINDLE_MODE::CONSTANT_RPM);

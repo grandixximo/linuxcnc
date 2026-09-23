@@ -1965,7 +1965,8 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 
     case EMC_TRAJ_SET_TERM_COND_TYPE:
 	emcTrajSetTermCondMsg = reinterpret_cast<EMC_TRAJ_SET_TERM_COND *>(cmd);
-	retval = emcTrajSetTermCond(emcTrajSetTermCondMsg->cond, emcTrajSetTermCondMsg->tolerance);
+	retval = emcTrajSetTermCond(emcTrajSetTermCondMsg->cond, emcTrajSetTermCondMsg->tolerance,
+	                            emcTrajSetTermCondMsg->angular_tolerance);
 	/* G64_R_PLANNER: a G64 R word piggybacks the planner request here so it
 	 * is applied in program order. Sentinels (<0) mean "leave unchanged".
 	 * The message carries INTENT only: 0 = trapezoidal, >=1 = "the smooth

@@ -2291,11 +2291,12 @@ overview of coordinate systems.
 
 [source,ngc]
 ----
-G64 <P- <Q-> <R->>
+G64 <P- <Q-> <R->> <E->
 ----
 
 * 'P' - motion blending tolerance
 * 'Q' - naive cam tolerance
+* 'E' - angular blending tolerance, in degrees
 * 'R' - trajectory planner selection and cornering aggressiveness (this fork only)
 * 'G64' - best possible speed. Without P (Or a default value in <<sub:ini:sec:rs274ngc,RS274NGC>>) means to keep the best speed
   possible, no matter how far away from the programmed point you end up.
@@ -2323,6 +2324,17 @@ G64 <P- <Q-> <R->>
   If Q is not specified then it will have the same behavior as before
   and use the value of P-.
   Set Q to zero to disable the 'Naive CAM Detector'.
+* 'G64 P- E-' - blending with a tolerance for the angular axes too.
+  P- bounds the linear axes (X, Y, Z, U, V, W, or whichever axes
+  `[AXIS_<letter>]TYPE` makes linear) and E- bounds the angular axes (A, B, C
+  by default), in degrees: every point of a blend stays within P- of the
+  linear position and within E- of the angular position of one point of
+  the programmed path. This bounds how far the tool orientation of a
+  4 or 5 axis program may stray from the programmed one at a corner. E0
+  or no E leaves the angular axes unbounded, like P0 does for the linear
+  ones. Without E the default is `G64_DEFAULT_ANGULAR_TOLERANCE` in
+  <<sub:ini:sec:rs274ngc,RS274NGC>>. Only the `tpnextmod` trajectory
+  planner honors E; the default planner ignores it.
 
 === G64 R: planner selection (((G64 R Planner)))
 
@@ -2371,6 +2383,9 @@ It is an error if:
 
 * The path control mode is changed (G61, G61.1 or G64) while cutter
   radius compensation is active.
+* The E word is negative.
+* The E word is on a line with G64 and another code that uses E (G33,
+  G33.1, G70, G76, M66, M67, M68).
 
 .G64 P- Q- Example Line
 [source,ngc]

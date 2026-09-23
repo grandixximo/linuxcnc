@@ -18,6 +18,8 @@
    the status message carries. */
 #define ACTIVE_G_CODES 17
 #define ACTIVE_M_CODES 10
-#define ACTIVE_SETTINGS 5
+#define ACTIVE_SETTINGS 6
+/* index of the G64 E angular blend tolerance in the active settings */
+#define ACTIVE_SETTING_ANGULAR_TOLERANCE 5
 
 #endif

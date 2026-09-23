@@ -269,6 +269,7 @@ public:
     int convert_comment(char *comment, bool enqueue = true);
  int convert_control_mode(int g_code, double tolerance, double naivecam_tolerance,
                           double r_word, bool r_present, /* G64_R_PLANNER */
+                          double e_word, bool e_present,
                           setup_pointer settings);
  int convert_adaptive_mode(int g_code, setup_pointer settings);
 

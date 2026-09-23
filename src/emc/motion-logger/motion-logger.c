@@ -524,6 +524,10 @@ int main(int argc, char* argv[]) {
                 log_print("SET_AXIS_JERK_LIMIT axis=%d, jerk=%.6g\n", c->axis, c->jerk);
                 break;
 
+            case EMCMOT_SET_AXIS_TYPE:
+                log_print("SET_AXIS_TYPE axis=%d, angular=%d\n", c->axis, c->flags != 0);
+                break;
+
             case EMCMOT_SET_JOINT_BACKLASH:
                 log_print("SET_JOINT_BACKLASH joint=%d, backlash=%.6g\n", c->joint, c->backlash);
                 break;

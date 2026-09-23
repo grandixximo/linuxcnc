@@ -563,6 +563,24 @@ int emcAxisSetMaxJerk(int axis, double jerk)
     return 0;
 }
 
+int emcAxisSetAngular(int axis, int angular)
+{
+
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+	return 0;
+    }
+
+    emcmotCommand.command = EMCMOT_SET_AXIS_TYPE;
+    emcmotCommand.axis    = axis;
+    emcmotCommand.flags   = angular != 0;
+    int retval = usrmotWriteEmcmotCommand(&emcmotCommand);
+
+    if (emc_debug & EMC_DEBUG_CONFIG) {
+        rcs_print("%s(%d, %d) returned %d\n", __FUNCTION__, axis, angular, retval);
+    }
+    return retval;
+}
+
 int emcAxisSetLockingJoint(int axis, int joint)
 {
 
@@ -1592,12 +1610,13 @@ int emcTrajSetSpindleSync(int spindle, double fpr, bool wait_for_index)
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
-int emcTrajSetTermCond(int cond, double tolerance)
+int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance)
 {
     emcmotCommand.command = EMCMOT_SET_TERM_COND;
     // Direct passthrough since TP can handle the distinction now
     emcmotCommand.termCond = cond;
     emcmotCommand.tolerance = tolerance;
+    emcmotCommand.angular_tolerance = angular_tolerance;
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
