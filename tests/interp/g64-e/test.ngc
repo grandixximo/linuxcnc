@@ -1,0 +1,14 @@
+(G64 E: angular blend tolerance; without E the INI default applies)
+G21
+G64 P0.01 E0.5
+G64 P0.02
+G64 E0
+o100 sub
+  M73
+  G64 P0.3 E2
+o100 endsub
+G64 P0.01 E0.7
+o100 call
+G61
+G64 P0.01 E0.4
+M2

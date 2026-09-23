@@ -288,6 +288,7 @@ extern int emcAxisSetMaxAcceleration(int axis, double acc, double ext_offset_acc
 extern double emcAxisGetMaxVelocity(int axis);
 extern double emcAxisGetMaxAcceleration(int axis);
 extern int emcAxisSetLockingJoint(int axis,int joint);
+extern int emcAxisSetAngular(int axis, int angular);
 
 extern int emcAxisUpdate(EMC_AXIS_STAT stat[], int numAxes);
 
@@ -378,7 +379,7 @@ extern int emcTrajLinearMove(const EmcPose& end, int type, double vel,
 extern int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center, const PM_CARTESIAN&
         normal, int turn, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
         double vlimit_scale);
-extern int emcTrajSetTermCond(int cond, double tolerance);
+extern int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance);
 extern int emcTrajSetSpindleSync(int spindle, double feed_per_revolution, bool wait_for_index, double angular_offset_degrees = 0.0);
 extern int emcTrajSetOffset(const EmcPose& tool_offset);
 extern int emcTrajSetHome(const EmcPose& home);
