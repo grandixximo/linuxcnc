@@ -198,62 +198,82 @@ void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
     }
 }
 
-static double distPointSeg3(double const *q, double const *a, double const *b)
+static double weightedDist2(tpn_vec const *p, tpn_vec const *q, tpn_vec const *w)
 {
-    double d[3], w[3], L2 = 0.0, t = 0.0, e[3];
+    double s = 0.0;
     int i;
-    for (i = 0; i < 3; i++) {
-        d[i] = b[i] - a[i];
-        w[i] = q[i] - a[i];
-        L2 += d[i] * d[i];
-        t += w[i] * d[i];
+    for (i = 0; i < TPN_NAX; i++) {
+        double e = (q->v[i] - p->v[i]) * w->v[i];
+        s += e * e;
     }
-    t = L2 > TPN_TINY ? t / L2 : 0.0;
-    t = fmin(1.0, fmax(0.0, t));
-    for (i = 0; i < 3; i++) {
-        e[i] = q[i] - (a[i] + t * d[i]);
-    }
-    return norm3(e);
+    return s;
 }
 
-double tpnGeomDistXYZ(tpn_geom const *g, PmCartesian const *q)
+/* Newton steps on the squared distance from u, kept inside [0, L] */
+static double refineDist2(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w, double u)
 {
-    double const *qq = &q->x;
-    if (g->type == TPN_LINE) {
-        return distPointSeg3(qq, g->p0.v, g->p1.v);
+    tpn_vec p, d1, d2;
+    int k, i;
+    for (k = 0; k < 6; k++) {
+        double f1 = 0.0, f2 = 0.0;
+        tpnGeomEval(g, u, &p, &d1, &d2);
+        for (i = 0; i < TPN_NAX; i++) {
+            double w2 = w->v[i] * w->v[i];
+            double e = p.v[i] - q->v[i];
+            f1 += w2 * e * d1.v[i];
+            f2 += w2 * (d1.v[i] * d1.v[i] + e * d2.v[i]);
+        }
+        if (f2 <= TPN_TINY) {
+            break;
+        }
+        double un = fmin(g->L, fmax(0.0, u - f1 / f2));
+        if (fabs(un - u) < 1e-12 * g->L) {
+            u = un;
+            break;
+        }
+        u = un;
     }
-    double e[3];
-    double best;
+    tpnGeomEval(g, u, &p, 0, 0);
+    return weightedDist2(&p, q, w);
+}
+
+double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
+{
+    double best = fmin(weightedDist2(&g->p0, q, w), weightedDist2(&g->p1, q, w));
     int i;
-    for (i = 0; i < 3; i++) {
-        e[i] = qq[i] - g->p0.v[i];
+    if (g->type == TPN_LINE) {
+        /* the line is linear in every axis, so is its weighted projection */
+        double t = 0.0, L2 = 0.0;
+        for (i = 0; i < TPN_NAX; i++) {
+            double w2 = w->v[i] * w->v[i];
+            t += w2 * (q->v[i] - g->p0.v[i]) * g->g.v[i];
+            L2 += w2 * g->g.v[i] * g->g.v[i];
+        }
+        if (L2 > TPN_TINY) {
+            tpn_vec p;
+            tpnGeomEval(g, fmin(g->L, fmax(0.0, t / L2)), &p, 0, 0);
+            best = fmin(best, weightedDist2(&p, q, w));
+        }
+        return sqrt(best);
     }
-    best = norm3(e);
-    for (i = 0; i < 3; i++) {
-        e[i] = qq[i] - g->p1.v[i];
-    }
-    best = fmin(best, norm3(e));
+    /* start from the angle of q around the arc axis on every turn, then
+     * refine on the weighted distance */
     double const *rt = &g->rTan.x;
     double const *rq = &g->rPerp.x;
     double x = 0.0, y = 0.0;
     for (i = 0; i < 3; i++) {
-        double w = qq[i] - (&g->center.x)[i];
-        x += w * rt[i];
-        y += w * rq[i];
+        double d = q->v[i] - (&g->center.x)[i];
+        x += d * rt[i];
+        y += d * rq[i];
     }
     double phi = atan2(y, x);
     if (phi < 0.0) {
         phi += 2.0 * M_PI;
     }
-    for (; phi <= g->angle; phi += 2.0 * M_PI) {
-        tpn_vec p;
-        tpnGeomEval(g, phi * g->L / g->angle, &p, 0, 0);
-        for (i = 0; i < 3; i++) {
-            e[i] = qq[i] - p.v[i];
-        }
-        best = fmin(best, norm3(e));
+    for (; phi <= g->angle + M_PI; phi += 2.0 * M_PI) {
+        best = fmin(best, refineDist2(g, q, w, fmin(g->L, phi * g->L / g->angle)));
     }
-    return best;
+    return sqrt(best);
 }
 
 /* Quintic Hermite from (p0, d0, dd0) to (p1, d1, dd1), derivatives taken
