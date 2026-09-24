@@ -86,6 +86,8 @@ typedef struct {
     tpn_lim lim_sub[TPN_NSUB];  /* limits of each part of the blend */
     double vreq_bin;
     tpn_lim lim_int;        /* limits of the unblended interior */
+    int tap;                /* a rigid tap (G33.1) still following the spindle */
+    double tap_scale;       /* spindle speed factor of its way out */
     double E_sub[TPN_NSUB], E_int;  /* backward envelope at the entry of each piece */
     int active;
 } tpn_seg;
@@ -200,6 +202,9 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
  * following it */
 #define TPN_SYNC_AMARGIN 0.9
 #define TPN_SYNC_JMARGIN 0.8
+/* bandwidth of the spindle estimate and of the tracking during a rigid
+ * tap, rad/s: the reversals are acceleration steps it has to follow */
+#define TPN_TAP_W 250.0
 void tpnSyncReset(void);
 int tpnSyncOn(void);
 void tpnSpindleEstimate(TP_STRUCT const *tp);
@@ -207,10 +212,19 @@ void tpnSpindleEstimate(TP_STRUCT const *tp);
 int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg);
 void tpnSyncReference(TP_STRUCT const *tp);
 void tpnSyncOverrun(TP_STRUCT * const tp);
+/* rigid tap: one cycle of the move sg once it has started; returns one
+ * of TPN_TAP_*, and the tap's position u from its start, speed and
+ * acceleration */
+enum { TPN_TAP_RUN, TPN_TAP_PLACE, TPN_TAP_STOPPED };
+int tpnTapCycle(TP_STRUCT * const tp, tpn_seg *sg, double *u, double *v, double *a);
+int tpnTapMoving(void);
 
 /* per cycle controller, tpn_run.c */
 void tpnRunReset(void);
 /* advance cur_s, cur_v, cur_a and cur_j by one cycle */
 void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping);
+/* advance the signed state (s, v, a) of a rigid tap by one cycle,
+ * following the spindle reference within the limits lim */
+void tpnTapAdvance(TP_STRUCT const *tp, double *s, double *v, double *a, tpn_lim const *lim);
 
 #endif
