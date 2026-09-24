@@ -20,6 +20,7 @@
 #include "nml_intf/emccfg.h"
 #include "libnml/rcs/rcs_print.hh"
 #include <inifile.hh>
+#include <axis_kinds.hh>
 
 #include "inihal.hh"
 #include "iniaxis.hh"
@@ -122,9 +123,13 @@ static int loadAxis(int axis, const IniFile &ini)
     }
     old_inihal_data.axis_jerk[axis] = maxJerk;
 
-    EmcJointType type = ini.findJointType("TYPE", axisSection,
-                                          (axis >= 3 && axis < 6) ? EMC_ANGULAR : EMC_LINEAR);
-    if (0 != emcAxisSetAngular(axis, type == EMC_ANGULAR)) {
+    AxisKinds kinds;
+    std::string kinds_err;
+    if (axisKindsRead(ini, &kinds, &kinds_err)) {
+        rcs_print_error("%s\n", kinds_err.c_str());
+        return -1;
+    }
+    if (0 != emcAxisSetAngular(axis, axisKindsAngular(kinds, axis))) {
         print_dbg_config("emcAxisSetAngular");
         return -1;
     }
