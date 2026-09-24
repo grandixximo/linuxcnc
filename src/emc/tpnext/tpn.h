@@ -194,8 +194,8 @@ static inline double ownedEnd(tpn_seg const *sg)
 
 /* queue build, tpn_plan.c */
 int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
-        double ini_maxvel, unsigned char enables, char atspeed, int indexer_jnum,
-        struct state_tag_t tag);
+        double ini_maxvel, double vlimit_scale, unsigned char enables, char atspeed,
+        int indexer_jnum, struct state_tag_t tag);
 
 /* spindle synchronization, tpn_sync.c; a catch up to the spindle uses
  * this much of the acceleration and jerk limits, the rest is left for

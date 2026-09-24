@@ -588,8 +588,8 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
 }
 
 int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
-        double ini_maxvel, unsigned char enables, char atspeed, int indexer_jnum,
-        struct state_tag_t tag)
+        double ini_maxvel, double vlimit_scale, unsigned char enables, char atspeed,
+        int indexer_jnum, struct state_tag_t tag)
 {
     tpn_axlim ax;
     tpn_vec G, G1, G2;
@@ -645,9 +645,13 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         for (i = 0; i < TPN_NAX; i++) {
             axs.vel[i] /= TPN_LIMIT_SCALE;
         }
-        tpnLimits(&axs, &G, &G1, &G2, fmin(vmax, linearCap(tp, &G)), &sg->lim_int);
+        tpnLimits(&axs, &G, &G1, &G2, vmax, &sg->lim_int);
     } else {
-        tpnLimits(&ax, &G, &G1, &G2, fmin(vmax, linearCap(tp, &G)), &sg->lim_int);
+        /* the max velocity slider caps the length canon measures, which
+         * is vlimit_scale times ours; 0 for a move canon measures in
+         * degrees */
+        double vcap = tp->vLimit > 0.0 && vlimit_scale > 0.0 ? tp->vLimit * vlimit_scale : TPN_BIG;
+        tpnLimits(&ax, &G, &G1, &G2, fmin(vmax, vcap), &sg->lim_int);
     }
 
     if (tpn.q_len > 0) {

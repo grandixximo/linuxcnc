@@ -453,7 +453,8 @@ static void toggleDIOs(syncdio_t *io)
 
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
         double vel, double ini_maxvel, double acc, double ini_maxjerk,
-        unsigned char enables, char atspeed, int indexer_jnum, struct state_tag_t tag)
+        double vlimit_scale, unsigned char enables, char atspeed, int indexer_jnum,
+        struct state_tag_t tag)
 {
     (void)acc;
     (void)ini_maxjerk;
@@ -467,8 +468,8 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     if (tpnLineInit(&sg->geom, &tp->goalPos, &end)) {
         return TP_ERR_ZERO_LENGTH;
     }
-    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, enables,
-            atspeed, indexer_jnum, tag);
+    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
+            enables, atspeed, indexer_jnum, tag);
     if (res == TP_ERR_OK) {
         tp->goalPos = end;
     }
@@ -477,8 +478,8 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
 
 int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
         PmCartesian normal, int turn, int canon_motion_type, double vel,
-        double ini_maxvel, double acc, double ini_maxjerk, unsigned char enables,
-        char atspeed, struct state_tag_t tag)
+        double ini_maxvel, double acc, double ini_maxjerk, double vlimit_scale,
+        unsigned char enables, char atspeed, struct state_tag_t tag)
 {
     (void)acc;
     (void)ini_maxjerk;
@@ -492,8 +493,8 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
     if (tpnArcInit(&sg->geom, &tp->goalPos, &end, &center, &normal, turn)) {
         return TP_ERR_ZERO_LENGTH;
     }
-    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, enables,
-            atspeed, -1, tag);
+    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
+            enables, atspeed, -1, tag);
     if (res == TP_ERR_OK) {
         tp->goalPos = end;
     }
@@ -524,7 +525,7 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
         return TP_ERR_ZERO_LENGTH;
     }
     /* the spindle always has to be at speed */
-    int res = tpnAddSegment(tp, sg, 0, vel, ini_maxvel, enables, 1, -1, tag);
+    int res = tpnAddSegment(tp, sg, 0, vel, ini_maxvel, 0.0, enables, 1, -1, tag);
     if (res == TP_ERR_OK) {
         sg->tap = 1;
         sg->tap_scale = scale > 0.0 ? scale : 1.0;
