@@ -25,10 +25,14 @@
 #define TPN_SIZE_TRIES 6
 #define TPN_BLEND_CYCLES 4.0
 
+/* A position synchronized move takes the trapezoid jerk whatever the
+ * planner: it must follow the spindle, and a lower jerk only delays the
+ * catch-up and the turns of a thread chain. */
 static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
 {
     int i;
-    int trapezoid = tpn.emcmotStatus->planner_type != 1;
+    int trapezoid = tpn.emcmotStatus->planner_type != 1
+            || tp->synchronized == TC_SYNC_POSITION;
     for (i = 0; i < TPN_NAX; i++) {
         double v = tpn.axis_get_vel_limit ? tpn.axis_get_vel_limit(i) : 0.0;
         double a = tpn.axis_get_acc_limit ? tpn.axis_get_acc_limit(i) : 0.0;
@@ -503,7 +507,9 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     double h0 = h;
     blendParts(tp, ax, prev, sg, &b, &pt);
     partLimits(ax, &pt, 1.0, &lim, sub);
-    if (vr > 1e-6) {
+    /* the spindle sets the speed along a thread, and a stop there would
+     * lose it: take the blend the tolerance allows */
+    if (vr > 1e-6 && sg->sync != TC_SYNC_POSITION) {
         double best = TPN_BIG, hc = h;
         int found = 0, worse = 0;
         for (k = 0; k <= TPN_SIZE_TRIES; k++, hc *= 0.5) {
@@ -599,10 +605,6 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         rtapi_print_msg(RTAPI_MSG_ERR, "tpnext: queue full\n");
         return TP_ERR_FAIL;
     }
-    if (tp->synchronized == TC_SYNC_POSITION) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "tpnext: spindle synchronized motion is not supported yet\n");
-        return TP_ERR_FAIL;
-    }
     readAxisLimits(tp, &ax);
 
     sg->id = tp->nextId;
@@ -615,9 +617,11 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     sg->tolerance = tp->tolerance;
     sg->ang_tolerance = tpn.ang_tolerance;
     sg->sync = tp->synchronized;
+    sg->spindle = tp->spindle.spindle_num;
     sg->uu_per_rev = tp->uu_per_rev;
     sg->vreq = fmin(vel, ini_maxvel > 0.0 ? ini_maxvel : vel);
-    if (sg->vreq <= 0.0) {
+    if (sg->vreq <= 0.0 || (sg->sync == TC_SYNC_POSITION && ini_maxvel > 0.0)) {
+        /* the spindle sets the speed of a position synchronized move */
         sg->vreq = ini_maxvel;
     }
     sg->h_in = sg->h_out = 0.0;
@@ -635,7 +639,18 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     if (ini_maxvel > 0.0) {
         vmax = fmin(vmax, ini_maxvel);
     }
-    tpnLimits(&ax, &G, &G1, &G2, fmin(vmax, linearCap(tp, &G)), &sg->lim_int);
+    if (sg->sync == TC_SYNC_POSITION) {
+        /* a thread may run up to the axes' own speed, which the
+         * interpreter allows; the controller never passes a speed cap */
+        tpn_axlim axs = ax;
+        int i;
+        for (i = 0; i < TPN_NAX; i++) {
+            axs.vel[i] /= TPN_LIMIT_SCALE;
+        }
+        tpnLimits(&axs, &G, &G1, &G2, fmin(vmax, linearCap(tp, &G)), &sg->lim_int);
+    } else {
+        tpnLimits(&ax, &G, &G1, &G2, fmin(vmax, linearCap(tp, &G)), &sg->lim_int);
+    }
 
     if (tpn.q_len > 0) {
         joinMoves(tp, &ax, seg(tpn.q_len - 1), sg);
