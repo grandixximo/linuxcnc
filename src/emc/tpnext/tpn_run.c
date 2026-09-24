@@ -120,27 +120,29 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             addCon(sg->S0, 0.0, -1.0, TPN_BIG, Arun, Jrun);
             st->Sstop = fmin(st->Sstop, sg->S0);
         }
-        for (piece = 0; piece < 2; piece++) {
+        /* the parts of the blend, then the interior */
+        for (piece = 0; piece <= TPN_NSUB; piece++) {
             double Pa, Pb, E, soft;
             tpn_lim const *lim;
-            if (piece == 0) {
+            if (piece < TPN_NSUB) {
                 if (sg->h_in <= 0.0) {
                     continue;
                 }
-                Pa = ownedStart(sg);
-                Pb = sg->S0 + sg->h_in;
-                lim = &sg->lim_bin;
-                E = sg->E_bin;
+                Pa = ownedStart(sg) + 2.0 * sg->h_in * piece / TPN_NSUB;
+                Pb = piece == TPN_NSUB - 1 ? sg->S0 + sg->h_in
+                    : ownedStart(sg) + 2.0 * sg->h_in * (piece + 1) / TPN_NSUB;
+                lim = &sg->lim_sub[piece];
+                E = sg->E_sub[piece];
             } else {
                 Pa = sg->S0 + sg->h_in;
                 Pb = ownedEnd(sg);
                 lim = &sg->lim_int;
                 E = sg->E_int;
             }
-            if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == 1)) {
+            if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == TPN_NSUB)) {
                 continue;
             }
-            soft = pieceSoft(sg, piece == 0, scale);
+            soft = pieceSoft(sg, piece < TPN_NSUB, scale);
             if (Pa <= tpn.cur_s) {
                 st->V = fmin(st->V, lim->V);
                 st->A = fmin(st->A, lim->A);
