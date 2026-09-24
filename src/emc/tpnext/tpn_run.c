@@ -15,6 +15,10 @@
 #include "tpn.h"
 
 #define TPN_MAXCON 512
+/* poles of the spindle tracking, rad/s; beyond TPN_SYNC_LAND of error
+ * it also keeps the reference reachable */
+#define TPN_SYNC_W 80.0
+#define TPN_SYNC_LAND 0.02
 
 /* deadbeat stop sequence in progress */
 #define TPN_DB_MAX 40
@@ -65,11 +69,16 @@ static int accEntryOk(double v1, double a1, double d, double Aentry, double J)
     return dist <= d;
 }
 
+/* requested speed of a piece, < 0 for none: a move synchronized to the
+ * spindle position follows the spindle instead, unless an abort stops it */
 static double pieceSoft(tpn_seg const *sg, int blend, double scale)
 {
     double v = blend ? sg->vreq_bin : sg->vreq;
+    if (sg->sync == TC_SYNC_POSITION && tpn.track) {
+        return -1.0;
+    }
     if (sg->sync == TC_SYNC_VELOCITY) {
-        double speed = fabs(tpn.emcmotStatus->spindle_status[0].spindleSpeedIn);
+        double speed = fabs(tpn.emcmotStatus->spindle_status[sg->spindle].spindleSpeedIn);
         v = speed * sg->uu_per_rev;
     }
     return v * scale;
@@ -147,7 +156,9 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 st->V = fmin(st->V, lim->V);
                 st->A = fmin(st->A, lim->A);
                 st->J = fmin(st->J, lim->J);
-                st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
+                if (soft >= 0.0) {
+                    st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
+                }
             } else {
                 /* a step that ends inside the piece runs part of the
                  * cycle there at the jerk it picks; jstar ends it on Pa */
@@ -408,6 +419,57 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
 }
 
 /*
+ * Jerk that follows the spindle reference s_ref, v_ref, a_ref, j_ref:
+ * the feedforward jerk plus state feedback on the errors it would leave
+ * at the end of the step, with all three poles at -TPN_SYNC_W. It never
+ * leaves the hard jerk range [jerkNoReverse, jhard] of this step.
+ */
+static double syncJerk(TP_STRUCT const *tp, tpn_step const *st, double jhard)
+{
+    double dt = tp->cycleTime, w = TPN_SYNC_W, jf = tpn.j_ref;
+    /* the errors where the step ends with the feedforward jerk */
+    double es = tpn.s_ref - (tpn.cur_s + tpn.cur_v * dt + 0.5 * tpn.cur_a * dt * dt
+            + jf * dt * dt * dt / 6.0);
+    double ev = tpn.v_ref - (tpn.cur_v + tpn.cur_a * dt + 0.5 * jf * dt * dt);
+    double ea = tpn.a_ref - (tpn.cur_a + jf * dt);
+    double j = jf + w * w * w * es + 3.0 * w * w * ev + 3.0 * w * ea;
+    double jlo = fmax(-st->J, (-st->A - tpn.cur_a) / dt);
+    double jhi = fmin(st->J, (st->A - tpn.cur_a) / dt);
+    j = fmax(jlo, fmin(jhi, j));
+    if (fabs(es) > TPN_SYNC_LAND && jlo < jhi) {
+        /* Far from the reference the linear law saturates and would
+         * overshoot. In the frame moving with the reference the axis is
+         * again a triple integrator: keep the jerk where it can still
+         * land on the reference, the way a stop is kept reachable. */
+        double side = es > 0.0 ? 1.0 : -1.0;
+        double Al = fmax(TPN_SYNC_AMARGIN * st->A - fabs(tpn.a_ref), 0.1 * st->A);
+        double Jl = TPN_SYNC_JMARGIN * st->J;
+        double lo = jlo, hi = jhi;
+        tpn_next n;
+        int k;
+        for (k = 0; k < 40; k++) {
+            double mid = 0.5 * (lo + hi);
+            stepState(mid, dt, &n);
+            double gap = side * (tpn.s_ref - n.s1);
+            double u = side * (n.v1 - tpn.v_ref), ar = side * (n.a1 - tpn.a_ref);
+            int ok = tpnBrakeDist(u, ar, 0.0, Al, Jl) <= gap;
+            /* from behind more jerk is worse, from ahead less */
+            if (ok == (side > 0.0)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        j = side > 0.0 ? fmin(j, lo) : fmax(j, hi);
+    }
+    if (jlo > jhard) {
+        return jhard;
+    }
+    jlo = jerkNoReverse(jlo, jhard, st->J, dt);
+    return fmax(jlo, fmin(j, jhard));
+}
+
+/*
  * Continuous brake profile from (v, a) to rest as up to three constant
  * jerk phases; returns the number of phases.
  */
@@ -599,6 +661,10 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     gather(tp, scale, stepping, &st);
     double j = chooseJerk(tp, &st);
     double jf;
+    if (tpn.track) {
+        j = syncJerk(tp, &st, j);
+    }
+    tpn.step_V = st.V;
     if (scale > 0.0 && finishStop(tp, &st, &jf)) {
         j = jf;
     }
