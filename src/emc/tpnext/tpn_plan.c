@@ -437,7 +437,7 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     if (sg->atspeed || sg->indexer_jnum != -1 || prev->indexer_jnum != -1) {
         stop = 1;
     }
-    if (prev->sync != sg->sync) {
+    if (prev->sync != sg->sync || prev->tap) {
         stop = 1;
     }
     double hmax = fmin(prev->geom.L - prev->h_in, 0.5 * sg->geom.L);
@@ -624,6 +624,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     sg->h_in = sg->h_out = 0.0;
     sg->stop_in = 0;
     sg->active = 0;
+    sg->tap = 0;
     if (tp->syncdio.anychanged) {
         sg->syncdio = tp->syncdio;
         tpClearDIOs(tp);
