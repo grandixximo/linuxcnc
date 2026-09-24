@@ -21,8 +21,9 @@
 #include "../tp/tp.h"
 #include "tpn.h"
 
-/* bandwidth of the spindle position filter, rad/s */
-#define TPN_SPINDLE_WN 40.0
+/* bandwidth of the spindle position filter, rad/s: a load dip costs
+ * about 3 da / wn^2 of thread, a coarse encoder jitter growing with it */
+#define TPN_SPINDLE_WN 80.0
 /* the catch up peaks at most this close to the speed cap */
 #define TPN_SYNC_VCAP 0.995
 /* motion's cubic interpolator puts a trajectory point on the joints this
