@@ -58,24 +58,6 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
     }
 }
 
-/* velocity cap from [TRAJ]MAX_LINEAR_VELOCITY on the speed of the linear
- * axes among XYZ, else among UVW, the way the feed is measured */
-static double linearCap(TP_STRUCT const *tp, tpn_vec const *G)
-{
-    double g2[2] = {0.0, 0.0};
-    int i;
-    for (i = 0; i < TPN_NAX; i++) {
-        if ((tpn.lin_mask & (1u << i)) && (i < 3 || i >= 6)) {
-            g2[i >= 6] += G->v[i] * G->v[i];
-        }
-    }
-    double gx = sqrt(g2[0] > 1e-18 ? g2[0] : g2[1]);
-    if (tp->vLimit <= 0.0 || gx < 1e-9) {
-        return TPN_BIG;
-    }
-    return tp->vLimit / gx;
-}
-
 static double speedFactor(TP_STRUCT const *tp)
 {
     (void)tp;
@@ -194,7 +176,7 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
         tpnBlendPart(b, (double)k / TPN_NSUB, (double)(k + 1) / TPN_NSUB, &part);
         tpnBlendBounds(&part, &pt->G[k], &pt->G1[k], &pt->G2[k]);
         tpnLimitCaps(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], &pt->caps[k]);
-        pt->vcap[k] = fmin(fmin(vcap, linearCap(tp, &pt->G[k])), pt->caps[k].Vg);
+        pt->vcap[k] = fmin(vcap, pt->caps[k].Vg);
     }
 }
 
@@ -585,6 +567,10 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
         sg->lim_sub[k] = sub[k];
     }
     sg->vreq_bin = fmin(prev->vreq, sg->vreq);
+    /* the lower of the two caps, where 0 is none */
+    sg->vlimit_bin = prev->vlimit_scale <= 0.0 ? sg->vlimit_scale
+        : sg->vlimit_scale <= 0.0 ? prev->vlimit_scale
+        : fmin(prev->vlimit_scale, sg->vlimit_scale);
 }
 
 int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
@@ -621,6 +607,11 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         /* the spindle sets the speed of a position synchronized move */
         sg->vreq = ini_maxvel;
     }
+    /* the max velocity slider caps the length canon measures, which is
+     * vlimit_scale times ours, 0 for a move canon measures in degrees; a
+     * position synchronized move follows the spindle instead */
+    sg->vlimit_scale = sg->sync == TC_SYNC_POSITION ? 0.0 : vlimit_scale;
+    sg->vlimit_bin = 0.0;
     sg->h_in = sg->h_out = 0.0;
     sg->stop_in = 0;
     sg->active = 0;
@@ -647,11 +638,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         }
         tpnLimits(&axs, &G, &G1, &G2, vmax, &sg->lim_int);
     } else {
-        /* the max velocity slider caps the length canon measures, which
-         * is vlimit_scale times ours; 0 for a move canon measures in
-         * degrees */
-        double vcap = tp->vLimit > 0.0 && vlimit_scale > 0.0 ? tp->vLimit * vlimit_scale : TPN_BIG;
-        tpnLimits(&ax, &G, &G1, &G2, fmin(vmax, vcap), &sg->lim_int);
+        tpnLimits(&ax, &G, &G1, &G2, vmax, &sg->lim_int);
     }
 
     if (tpn.q_len > 0) {

@@ -70,10 +70,12 @@ static int accEntryOk(double v1, double a1, double d, double Aentry, double J)
 }
 
 /* requested speed of a piece, < 0 for none: a move synchronized to the
- * spindle position follows the spindle instead, unless an abort stops it */
-static double pieceSoft(tpn_seg const *sg, int blend, double scale)
+ * spindle position follows the spindle instead, unless an abort stops it.
+ * Feed override and the max velocity slider apply here, every cycle. */
+static double pieceSoft(TP_STRUCT const *tp, tpn_seg const *sg, int blend, double scale)
 {
     double v = blend ? sg->vreq_bin : sg->vreq;
+    double vls = blend ? sg->vlimit_bin : sg->vlimit_scale;
     if (sg->sync == TC_SYNC_POSITION && tpn.track) {
         return -1.0;
     }
@@ -81,7 +83,11 @@ static double pieceSoft(tpn_seg const *sg, int blend, double scale)
         double speed = fabs(tpn.emcmotStatus->spindle_status[sg->spindle].spindleSpeedIn);
         v = speed * sg->uu_per_rev;
     }
-    return v * scale;
+    v *= scale;
+    if (tp->vLimit > 0.0 && vls > 0.0) {
+        v = fmin(v, tp->vLimit * vls);
+    }
+    return v;
 }
 
 typedef struct {
@@ -151,7 +157,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == TPN_NSUB)) {
                 continue;
             }
-            soft = pieceSoft(sg, piece < TPN_NSUB, scale);
+            soft = pieceSoft(tp, sg, piece < TPN_NSUB, scale);
             if (Pa <= tpn.cur_s) {
                 st->V = fmin(st->V, lim->V);
                 st->A = fmin(st->A, lim->A);

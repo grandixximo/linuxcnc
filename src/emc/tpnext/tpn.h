@@ -76,6 +76,7 @@ typedef struct {
     int spindle;            /* the spindle it follows */
     double uu_per_rev;
     double vreq;            /* requested feed, path units */
+    double vlimit_scale;    /* max velocity slider scale canon sends, 0 = none */
     syncdio_t syncdio;
 
     double h_in;            /* blend half length at the start, 0 = none */
@@ -85,6 +86,7 @@ typedef struct {
     tpn_lim lim_bin;        /* smallest limits over the blend */
     tpn_lim lim_sub[TPN_NSUB];  /* limits of each part of the blend */
     double vreq_bin;
+    double vlimit_bin;      /* slider scale of the blend, 0 = none */
     tpn_lim lim_int;        /* limits of the unblended interior */
     int tap;                /* a rigid tap (G33.1) still following the spindle */
     double tap_scale;       /* spindle speed factor of its way out */
