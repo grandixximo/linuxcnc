@@ -200,11 +200,16 @@ typedef struct {
     double s1, v1, a1;
 } tpn_next;
 
+static void stepFrom(double s, double v, double a, double j, double dt, tpn_next *n)
+{
+    n->s1 = s + v * dt + 0.5 * a * dt * dt + j * dt * dt * dt / 6.0;
+    n->v1 = v + a * dt + 0.5 * j * dt * dt;
+    n->a1 = a + j * dt;
+}
+
 static void stepState(double j, double dt, tpn_next *n)
 {
-    n->s1 = tpn.cur_s + tpn.cur_v * dt + 0.5 * tpn.cur_a * dt * dt + j * dt * dt * dt / 6.0;
-    n->v1 = tpn.cur_v + tpn.cur_a * dt + 0.5 * j * dt * dt;
-    n->a1 = tpn.cur_a + j * dt;
+    stepFrom(tpn.cur_s, tpn.cur_v, tpn.cur_a, j, dt, n);
 }
 
 /* CHK_SPEED: the speed part of a hard constraint alone */
@@ -419,22 +424,21 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
 }
 
 /*
- * Jerk that follows the spindle reference s_ref, v_ref, a_ref, j_ref:
- * the feedforward jerk plus state feedback on the errors it would leave
- * at the end of the step, with all three poles at -TPN_SYNC_W. It never
- * leaves the hard jerk range [jerkNoReverse, jhard] of this step.
+ * Jerk that follows the spindle reference s_ref, v_ref, a_ref, j_ref from
+ * the state (s, v, a): the feedforward jerk plus state feedback on the
+ * errors it would leave at the end of the step, with all three poles at
+ * -w, within the jerk limit J and the acceleration limit A.
  */
-static double syncJerk(TP_STRUCT const *tp, tpn_step const *st, double jhard)
+static double followJerk(double dt, double s, double v, double a, double A, double J, double w)
 {
-    double dt = tp->cycleTime, w = TPN_SYNC_W, jf = tpn.j_ref;
+    double jf = tpn.j_ref;
     /* the errors where the step ends with the feedforward jerk */
-    double es = tpn.s_ref - (tpn.cur_s + tpn.cur_v * dt + 0.5 * tpn.cur_a * dt * dt
-            + jf * dt * dt * dt / 6.0);
-    double ev = tpn.v_ref - (tpn.cur_v + tpn.cur_a * dt + 0.5 * jf * dt * dt);
-    double ea = tpn.a_ref - (tpn.cur_a + jf * dt);
+    double es = tpn.s_ref - (s + v * dt + 0.5 * a * dt * dt + jf * dt * dt * dt / 6.0);
+    double ev = tpn.v_ref - (v + a * dt + 0.5 * jf * dt * dt);
+    double ea = tpn.a_ref - (a + jf * dt);
     double j = jf + w * w * w * es + 3.0 * w * w * ev + 3.0 * w * ea;
-    double jlo = fmax(-st->J, (-st->A - tpn.cur_a) / dt);
-    double jhi = fmin(st->J, (st->A - tpn.cur_a) / dt);
+    double jlo = fmax(-J, (-A - a) / dt);
+    double jhi = fmin(J, (A - a) / dt);
     j = fmax(jlo, fmin(jhi, j));
     if (fabs(es) > TPN_SYNC_LAND && jlo < jhi) {
         /* Far from the reference the linear law saturates and would
@@ -442,14 +446,14 @@ static double syncJerk(TP_STRUCT const *tp, tpn_step const *st, double jhard)
          * again a triple integrator: keep the jerk where it can still
          * land on the reference, the way a stop is kept reachable. */
         double side = es > 0.0 ? 1.0 : -1.0;
-        double Al = fmax(TPN_SYNC_AMARGIN * st->A - fabs(tpn.a_ref), 0.1 * st->A);
-        double Jl = TPN_SYNC_JMARGIN * st->J;
+        double Al = fmax(TPN_SYNC_AMARGIN * A - fabs(tpn.a_ref), 0.1 * A);
+        double Jl = TPN_SYNC_JMARGIN * J;
         double lo = jlo, hi = jhi;
         tpn_next n;
         int k;
         for (k = 0; k < 40; k++) {
             double mid = 0.5 * (lo + hi);
-            stepState(mid, dt, &n);
+            stepFrom(s, v, a, mid, dt, &n);
             double gap = side * (tpn.s_ref - n.s1);
             double u = side * (n.v1 - tpn.v_ref), ar = side * (n.a1 - tpn.a_ref);
             int ok = tpnBrakeDist(u, ar, 0.0, Al, Jl) <= gap;
@@ -462,11 +466,62 @@ static double syncJerk(TP_STRUCT const *tp, tpn_step const *st, double jhard)
         }
         j = side > 0.0 ? fmin(j, lo) : fmax(j, hi);
     }
+    return j;
+}
+
+/* the spindle following jerk of the path, within the hard jerk range
+ * [jerkNoReverse, jhard] of this step */
+static double syncJerk(TP_STRUCT const *tp, tpn_step const *st, double jhard)
+{
+    double dt = tp->cycleTime;
+    double j = followJerk(dt, tpn.cur_s, tpn.cur_v, tpn.cur_a, st->A, st->J, TPN_SYNC_W);
+    double jlo = fmax(-st->J, (-st->A - tpn.cur_a) / dt);
     if (jlo > jhard) {
         return jhard;
     }
     jlo = jerkNoReverse(jlo, jhard, st->J, dt);
     return fmax(jlo, fmin(j, jhard));
+}
+
+/* where the speed ends once the acceleration is ramped out at J */
+static double speedAhead(tpn_next const *n, double J)
+{
+    return n->v1 + 0.5 * n->a1 * fabs(n->a1) / J;
+}
+
+void tpnTapAdvance(TP_STRUCT const *tp, double *s, double *v, double *a, tpn_lim const *lim)
+{
+    double dt = tp->cycleTime, V = lim->V, A = lim->A, J = lim->J;
+    double j = followJerk(dt, *s, *v, *a, A, J, TPN_TAP_W);
+    tpn_next n;
+    int k;
+    stepFrom(*s, *v, *a, j, dt, &n);
+    /* keep the speed where it can still be held within V either way */
+    double side = speedAhead(&n, J) > V ? 1.0 : speedAhead(&n, J) < -V ? -1.0 : 0.0;
+    if (side != 0.0) {
+        double lo = side > 0.0 ? fmax(-J, (-A - *a) / dt) : j;
+        double hi = side > 0.0 ? j : fmin(J, (A - *a) / dt);
+        for (k = 0; k < 40; k++) {
+            double mid = 0.5 * (lo + hi);
+            stepFrom(*s, *v, *a, mid, dt, &n);
+            if (side * speedAhead(&n, J) > V) {
+                if (side > 0.0) {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                }
+            } else if (side > 0.0) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        j = side > 0.0 ? lo : hi;
+        stepFrom(*s, *v, *a, j, dt, &n);
+    }
+    *s = n.s1;
+    *v = n.v1;
+    *a = n.a1;
 }
 
 /*
