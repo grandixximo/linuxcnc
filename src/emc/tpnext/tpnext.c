@@ -458,7 +458,6 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
 {
     (void)acc;
     (void)ini_maxjerk;
-    (void)vlimit_scale;
     if (!tp) {
         return TP_ERR_FAIL;
     }
@@ -469,8 +468,8 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     if (tpnLineInit(&sg->geom, &tp->goalPos, &end)) {
         return TP_ERR_ZERO_LENGTH;
     }
-    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, enables,
-            atspeed, indexer_jnum, tag);
+    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
+            enables, atspeed, indexer_jnum, tag);
     if (res == TP_ERR_OK) {
         tp->goalPos = end;
     }
@@ -484,7 +483,6 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
 {
     (void)acc;
     (void)ini_maxjerk;
-    (void)vlimit_scale;
     if (!tp) {
         return TP_ERR_FAIL;
     }
@@ -495,8 +493,8 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
     if (tpnArcInit(&sg->geom, &tp->goalPos, &end, &center, &normal, turn)) {
         return TP_ERR_ZERO_LENGTH;
     }
-    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, enables,
-            atspeed, -1, tag);
+    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
+            enables, atspeed, -1, tag);
     if (res == TP_ERR_OK) {
         tp->goalPos = end;
     }
@@ -527,7 +525,7 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
         return TP_ERR_ZERO_LENGTH;
     }
     /* the spindle always has to be at speed */
-    int res = tpnAddSegment(tp, sg, 0, vel, ini_maxvel, enables, 1, -1, tag);
+    int res = tpnAddSegment(tp, sg, 0, vel, ini_maxvel, 0.0, enables, 1, -1, tag);
     if (res == TP_ERR_OK) {
         sg->tap = 1;
         sg->tap_scale = scale > 0.0 ? scale : 1.0;
