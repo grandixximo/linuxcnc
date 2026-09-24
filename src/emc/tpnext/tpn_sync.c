@@ -1,7 +1,7 @@
 /********************************************************************
 * Description: tpn_sync.c
-*   Spindle position synchronization (G33) for the tpnext trajectory
-*   planner.
+*   Spindle position synchronization (G33, G33.1) for the tpnext
+*   trajectory planner.
 *
 *   Every spindle's encoder position is smoothed by a tracking filter.
 *   A synchronized move starts on the spindle index; from then on the
@@ -10,6 +10,12 @@
 *   index, gains it back, so the thread lies at the same place whatever
 *   the spindle speed. The per cycle controller follows the reference and
 *   corrects what the plan does not know about.
+*
+*   A rigid tap (G33.1) follows the spindle both ways along its line:
+*   the planner reverses the spindle at the bottom and again at the top,
+*   and the tap retraces the thread it cut. Once the spindle turns
+*   forward again the tap leaves it and returns to its start as a plain
+*   move.
 *
 * License: GPL Version 2
 * System: Linux
@@ -38,9 +44,18 @@
 
 static struct {
     double pos, vel, acc;
+    double jerk;        /* of the last update */
     int init;
     int steady;         /* cycles it has changed speed slowly */
 } spest[EMCMOT_MAX_SPINDLES];
+
+enum { TAP_OFF, TAP_IN, TAP_OUT, TAP_TOP, TAP_ABORT };
+
+static struct {
+    int state;
+    double u, v, a;     /* along the tap from its start, + into the hole */
+    double stop;        /* where an abort stops it */
+} tap;
 
 /* jerk phases of the catch up, from rest at the start of the move */
 #define TPN_PLAN_MAX 8
@@ -68,6 +83,7 @@ static struct {
 void tpnSyncReset(void)
 {
     sy.on = 0;
+    tap.state = TAP_OFF;
     sy.np = 0;
     sy.cycles = 0;
     tpn.track = 0;
@@ -86,6 +102,12 @@ static double spindleAhead(int k, double dt)
     return spest[k].pos + spest[k].vel * t + 0.5 * spest[k].acc * t * t;
 }
 
+/* and its speed then */
+static double spindleSpeedAhead(int k, double dt)
+{
+    return spest[k].vel + spest[k].acc * TPN_SYNC_LEAD * dt;
+}
+
 static double signedRevs(int k)
 {
     spindle_status_t const *sp = &tpn.emcmotStatus->spindle_status[k];
@@ -99,7 +121,7 @@ static double signedRevs(int k)
 void tpnSpindleEstimate(TP_STRUCT const *tp)
 {
     double dt = tp->cycleTime;
-    double lam = exp(-TPN_SPINDLE_WN * dt);
+    double lam = exp(-(tap.state != TAP_OFF ? TPN_TAP_W : TPN_SPINDLE_WN) * dt);
     double ka = 1.0 - lam * lam * lam;
     double kv = 1.5 * (1.0 - lam) * (1.0 - lam) * (1.0 + lam) / dt;
     double kc = 2.0 * (1.0 - lam) * (1.0 - lam) * (1.0 - lam) / (dt * dt);
@@ -108,7 +130,7 @@ void tpnSpindleEstimate(TP_STRUCT const *tp)
         double raw = signedRevs(k);
         if (!spest[k].init) {
             spest[k].pos = raw;
-            spest[k].vel = spest[k].acc = 0.0;
+            spest[k].vel = spest[k].acc = spest[k].jerk = 0.0;
             spest[k].init = 1;
             spest[k].steady = 0;
             continue;
@@ -118,11 +140,13 @@ void tpnSpindleEstimate(TP_STRUCT const *tp)
         if (fabs(r) > 0.25) {
             spest[k].pos = raw;
             spest[k].vel += spest[k].acc * dt;
+            spest[k].jerk = 0.0;
             continue;
         }
         spest[k].pos = pp + ka * r;
         spest[k].vel += spest[k].acc * dt + kv * r;
         spest[k].acc += kc * r;
+        spest[k].jerk = kc * r / dt;
         if (fabs(spest[k].acc) < TPN_SYNC_STEADY * fabs(spest[k].vel)) {
             spest[k].steady++;
         } else {
@@ -256,6 +280,32 @@ static double leadInShort(tpn_seg const *sg)
     return fmax(0.0, sy.S0 + x - end);
 }
 
+/* A tap goes into the hole once, so where its thread lies against the
+ * index does not matter: ramp up to the spindle's speed and keep the lag,
+ * in the frame of the tap, u = 0 at its start. */
+static void tapStart(TP_STRUCT const *tp, tpn_seg const *sg, int k)
+{
+    double dt = tp->cycleTime, x, v, a;
+    sy.on = 1;
+    sy.spindle = k;
+    sy.S = 0.0;
+    sy.R = 0.0;
+    sy.L = TPN_BIG;
+    sy.p = sg->uu_per_rev;
+    sy.cycles = 0;
+    sy.S0 = 0.0;
+    sy.r0 = sy.p * spindleAhead(k, dt);
+    sy.v0 = sy.p * spindleSpeedAhead(k, dt);
+    sy.tau = 0.0;
+    sy.np = speedChange(0.0, sy.v0, sg->lim_int.A * TPN_SYNC_AMARGIN,
+            sg->lim_int.J * TPN_SYNC_JMARGIN, sy.pj, sy.pt);
+    sy.T = phaseTime(sy.np, sy.pt);
+    planEval(sy.T, &x, &v, &a);
+    sy.shift = (sy.r0 + sy.v0 * (sy.T - dt) - x) / sy.p;
+    tap.state = TAP_IN;
+    tap.u = tap.v = tap.a = 0.0;
+}
+
 /* Start following the spindle: wait until every spindle is at speed,
  * then for the index of this one; the move starts on the index. Returns
  * nonzero while waiting. */
@@ -289,6 +339,10 @@ int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg)
     /* the encoder counts from the index now */
     tp->spindle.waiting_for_index = MOTION_INVALID_ID;
     spest[k].pos = signedRevs(k);
+    if (sg->tap) {
+        tapStart(tp, sg, k);
+        return 0;
+    }
     sy.on = 1;
     sy.spindle = k;
     sy.S = sg->S0;
@@ -300,7 +354,7 @@ int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg)
      * one cycle before it */
     sy.S0 = tpn.cur_s;
     sy.r0 = sy.S + sy.p * spindleAhead(k, dt);
-    sy.v0 = sy.p * spest[k].vel;
+    sy.v0 = sy.p * spindleSpeedAhead(k, dt);
     sy.tau = 0.0;
     sy.shift = 0.0;
     planCatchUp(sy.r0 - sy.v0 * dt - sy.S0, sy.v0, &sg->lim_int);
@@ -357,9 +411,10 @@ void tpnSyncReference(TP_STRUCT const *tp)
         sy.p = seg(i)->uu_per_rev;
     }
     tpn.s_ref = sy.S + sy.p * (th - sy.R);
-    tpn.v_ref = sy.p * spest[sy.spindle].vel;
+    tpn.v_ref = sy.p * spindleSpeedAhead(sy.spindle, dt);
     tpn.a_ref = sy.p * spest[sy.spindle].acc;
-    tpn.j_ref = 0.0;
+    /* a tap follows the estimate itself through the spindle's reversals */
+    tpn.j_ref = tap.state != TAP_OFF ? sy.p * spest[sy.spindle].jerk : 0.0;
     if (sy.np > 0) {
         double x, v, a, xb, vb, ab;
         sy.tau += dt;
@@ -401,4 +456,66 @@ void tpnSyncOverrun(TP_STRUCT * const tp)
     tpn.emcmotStatus->syncOverrunSpindle = sy.spindle + 1;
     tpn.emcmotStatus->syncOverrunError = demand - tpn.step_V;
     tp->spindle.overrun_reported = 1;
+}
+
+int tpnTapMoving(void)
+{
+    return tap.state != TAP_OFF;
+}
+
+/* The tap is locked to the spindle: down to the programmed depth, where
+ * the spindle is reversed, back out past the start, where it is turned
+ * forward again, and up until the spindle stops, which leaves the tap at
+ * rest. From there it returns to its start as a plain move: TPN_TAP_PLACE
+ * hands it over. */
+int tpnTapCycle(TP_STRUCT * const tp, tpn_seg *sg, double *u, double *v, double *a)
+{
+    spindle_status_t *sp = &tpn.emcmotStatus->spindle_status[sy.spindle];
+    double dt = tp->cycleTime, J = sg->lim_int.J;
+    int ret = TPN_TAP_RUN;
+    if (tp->aborting && tap.state != TAP_ABORT) {
+        /* stop where a brake from here ends */
+        double side = tap.v >= 0.0 ? 1.0 : -1.0;
+        tap.stop = tap.u + side * tpnBrakeDist(side * tap.v, side * tap.a, 0.0,
+                sg->lim_int.A * TPN_BRAKE_SCALE, J * TPN_BRAKE_SCALE);
+        tap.state = TAP_ABORT;
+    }
+    if (tap.state == TAP_ABORT) {
+        tpn.s_ref = tap.stop;
+        tpn.v_ref = tpn.a_ref = tpn.j_ref = 0.0;
+    } else {
+        tpnSyncReference(tp);
+    }
+    tpnTapAdvance(tp, &tap.u, &tap.v, &tap.a, &sg->lim_int);
+    tpn.step_V = sg->lim_int.V;
+    switch (tap.state) {
+    case TAP_IN:
+        tpnSyncOverrun(tp);
+        if (tap.u >= sg->geom.L) {
+            sp->speed *= -sg->tap_scale;
+            tap.state = TAP_OUT;
+        }
+        break;
+    case TAP_OUT:
+        if (tap.u <= 0.0 && tap.v < 0.0) {
+            sp->speed *= -1.0 / sg->tap_scale;
+            tap.state = TAP_TOP;
+        }
+        break;
+    case TAP_TOP:
+        if (tap.v >= 0.0) {
+            ret = TPN_TAP_PLACE;
+        }
+        break;
+    case TAP_ABORT:
+        if (fabs(tap.v) < 0.01 * J * dt * dt && fabs(tap.a) < 0.01 * J * dt) {
+            tap.v = tap.a = 0.0;
+            ret = TPN_TAP_STOPPED;
+        }
+        break;
+    }
+    *u = tap.u;
+    *v = tap.v;
+    *a = tap.a;
+    return ret;
 }

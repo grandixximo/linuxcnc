@@ -17,8 +17,8 @@
 *
 *   This file holds the module interface and the queue bookkeeping;
 *   tpn_plan.c builds the queue, tpn_run.c is the per cycle controller,
-*   tpn_sync.c follows the spindle for G33 and tpn_geom.c holds the
-*   geometry.
+*   tpn_sync.c follows the spindle for G33 and G33.1 and tpn_geom.c
+*   holds the geometry.
 *
 * License: GPL Version 2
 * System: Linux
@@ -403,7 +403,7 @@ int tpSetDout(TP_STRUCT * const tp, int index, unsigned char start, unsigned cha
 int tpIsMoving(TP_STRUCT const * const tp)
 {
     (void)tp;
-    return tpn.cur_v > 1e-9 || fabs(tpn.cur_a) > 1e-9;
+    return tpn.cur_v > 1e-9 || fabs(tpn.cur_a) > 1e-9 || tpnTapMoving();
 }
 
 int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir)
@@ -504,17 +504,33 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
         double acc, double ini_maxjerk, unsigned char enables, double scale,
         struct state_tag_t tag)
 {
-    (void)tp;
-    (void)end;
-    (void)vel;
-    (void)ini_maxvel;
     (void)acc;
     (void)ini_maxjerk;
-    (void)enables;
-    (void)scale;
-    (void)tag;
-    rtapi_print_msg(RTAPI_MSG_ERR, "tpnext: rigid tapping is not supported yet\n");
-    return TP_ERR_FAIL;
+    if (!tp) {
+        return TP_ERR_FAIL;
+    }
+    if (!tp->synchronized) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "Cannot add unsynchronized rigid tap move.\n");
+        return TP_ERR_FAIL;
+    }
+    if (tpn.q_len >= TPN_QSIZE) {
+        return TP_ERR_FAIL;
+    }
+    tpn_seg *sg = seg(tpn.q_len);
+    /* only XYZ move */
+    EmcPose bottom = tp->goalPos;
+    bottom.tran = end.tran;
+    if (tpnLineInit(&sg->geom, &tp->goalPos, &bottom)) {
+        return TP_ERR_ZERO_LENGTH;
+    }
+    /* the spindle always has to be at speed */
+    int res = tpnAddSegment(tp, sg, 0, vel, ini_maxvel, enables, 1, -1, tag);
+    if (res == TP_ERR_OK) {
+        sg->tap = 1;
+        sg->tap_scale = scale > 0.0 ? scale : 1.0;
+    }
+    /* the tap ends where it started, goalPos stays */
+    return res;
 }
 
 /* ------------------------------------------------------------ runtime */
@@ -612,6 +628,74 @@ static int activate(TP_STRUCT * const tp, tpn_seg *sg)
     return 0;
 }
 
+/* The tap has come to rest above its start: the rest of the move is a
+ * plain line back down to the start, ending where the tap's length
+ * ended so the moves after it keep their place along the path. */
+static void tapToPath(tpn_seg *sg, double u, double v, double a)
+{
+    EmcPose from, to;
+    tpn_vec q;
+    int i;
+    double end = segEnd(sg);
+    for (i = 0; i < TPN_NAX; i++) {
+        q.v[i] = sg->geom.p0.v[i] + sg->geom.g.v[i] * u;
+    }
+    tpnPoseFromVec(&from, &q);
+    tpnPoseFromVec(&to, &sg->geom.p0);
+    if (tpnLineInit(&sg->geom, &from, &to)) {
+        /* already there */
+        sg->geom.p1 = sg->geom.p0;
+        sg->geom.L = 0.0;
+        for (i = 0; i < TPN_NAX; i++) {
+            sg->geom.g.v[i] = 0.0;
+        }
+        v = a = 0.0;
+    }
+    sg->S0 = end - sg->geom.L;
+    sg->tap = 0;
+    sg->sync = TC_SYNC_NONE;
+    sg->vreq = sg->lim_int.V;
+    sg->E_int = fmin(sg->lim_int.V, sqrt(sg->lim_int.A * sg->geom.L));
+    tpnSyncReset();
+    tpnRunReset();
+    tpn.cur_s = sg->S0;
+    tpn.cur_v = fmax(v, 0.0);
+    tpn.cur_a = a;
+    tpn.cur_j = 0.0;
+}
+
+/* One cycle of a rigid tap that follows the spindle. On the cycle it
+ * comes to rest above its start it hands over to the path controller,
+ * which takes the next cycle. */
+static int tapCycle(TP_STRUCT * const tp, tpn_seg *sg)
+{
+    double u, v, a;
+    int i, r = tpnTapCycle(tp, sg, &u, &v, &a);
+    tpn_vec p, d1;
+    if (r == TPN_TAP_STOPPED) {
+        queueReset(tp);
+        statusIdle(tp);
+        tp->spindle.waiting_for_index = MOTION_INVALID_ID;
+        tp->spindle.waiting_for_atspeed = MOTION_INVALID_ID;
+        return TP_ERR_STOPPED;
+    }
+    for (i = 0; i < TPN_NAX; i++) {
+        p.v[i] = sg->geom.p0.v[i] + sg->geom.g.v[i] * u;
+        d1.v[i] = v < 0.0 ? -sg->geom.g.v[i] : sg->geom.g.v[i];
+    }
+    double dtg = fabs(sg->geom.L - u);
+    if (r == TPN_TAP_PLACE) {
+        tapToPath(sg, u, v, a);
+        dtg = sg->geom.L;
+    }
+    tpnPoseFromVec(&tp->currentPos, &p);
+    updateStatus(tp, &d1);
+    tpn.emcmotStatus->distance_to_go = dtg;
+    tpn.emcmotStatus->current_vel = fabs(v);
+    tpn.emcmotStatus->current_acc = a;
+    return TP_ERR_OK;
+}
+
 /* returns nonzero while a finished move still has to wait */
 static int finish(tpn_seg *sg)
 {
@@ -638,7 +722,7 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
         return TP_ERR_WAITING;
     }
 
-    if (tp->aborting && tpn.cur_v <= 0.0 && tpn.cur_a == 0.0) {
+    if (tp->aborting && tpn.cur_v <= 0.0 && tpn.cur_a == 0.0 && !tpnTapMoving()) {
         queueReset(tp);
         statusIdle(tp);
         tp->spindle.waiting_for_index = MOTION_INVALID_ID;
@@ -662,6 +746,16 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
         queueReset(tp);
         statusIdle(tp);
         return TP_ERR_OK;
+    }
+    if (seg(0)->tap) {
+        /* a tap starts on the index even right after a thread */
+        if (!seg(0)->active) {
+            tpnSyncReset();
+        }
+        if (activate(tp, seg(0))) {
+            return TP_ERR_WAITING;
+        }
+        return tapCycle(tp, seg(0));
     }
     if (seg(0)->sync != TC_SYNC_POSITION) {
         tpnSyncReset();
