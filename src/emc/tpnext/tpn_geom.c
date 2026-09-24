@@ -62,6 +62,7 @@ int tpnLineInit(tpn_geom *g, EmcPose const *start, EmcPose const *end)
     tpn_vec d;
     int i;
     g->type = TPN_LINE;
+    g->flat = 0;
     tpnVecFromPose(&g->p0, start);
     tpnVecFromPose(&g->p1, end);
     for (i = 0; i < TPN_NAX; i++) {
@@ -108,8 +109,12 @@ int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
     for (i = 0; i < 3; i++) {
         g->g.v[i] = 0.0;
     }
+    g->flat = fabs(c.spiral) < 1e-12 && helix < 1e-12;
     for (i = 3; i < TPN_NAX; i++) {
         g->g.v[i] = (g->p1.v[i] - g->p0.v[i]) / g->L;
+        if (g->g.v[i] != 0.0) {
+            g->flat = 0;
+        }
     }
     return 0;
 }
@@ -260,15 +265,33 @@ double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
      * refine on the weighted distance */
     double const *rt = &g->rTan.x;
     double const *rq = &g->rPerp.x;
-    double x = 0.0, y = 0.0;
+    double x = 0.0, y = 0.0, d2 = 0.0;
     for (i = 0; i < 3; i++) {
         double d = q->v[i] - (&g->center.x)[i];
         x += d * rt[i];
         y += d * rq[i];
+        d2 += d * d;
     }
     double phi = atan2(y, x);
     if (phi < 0.0) {
         phi += 2.0 * M_PI;
+    }
+    if (g->flat && w->v[0] == w->v[1] && w->v[1] == w->v[2]) {
+        /* a circle in XYZ weighted alike, the other axes fixed: the
+         * nearest point is at the angle of q if the arc reaches it */
+        if (phi <= g->angle) {
+            double R = g->radius;
+            double rho2 = (x * x + y * y) / (R * R);
+            double rho = sqrt(rho2);
+            double e = (rho - R) * (rho - R) + fmax(d2 - rho2, 0.0);
+            double s = e * w->v[0] * w->v[0];
+            for (i = 3; i < TPN_NAX; i++) {
+                double f = (q->v[i] - g->p0.v[i]) * w->v[i];
+                s += f * f;
+            }
+            best = fmin(best, s);
+        }
+        return sqrt(best);
     }
     for (; phi <= g->angle + M_PI; phi += 2.0 * M_PI) {
         best = fmin(best, refineDist2(g, q, w, fmin(g->L, phi * g->L / g->angle)));
@@ -327,6 +350,10 @@ void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
         double bz[6];
         double c0 = b->c[0][i], c1 = b->c[1][i], c2 = b->c[2][i];
         double c3 = b->c[3][i], c4 = b->c[4][i], c5 = b->c[5][i];
+        if (c1 == 0.0 && c2 == 0.0 && c3 == 0.0 && c4 == 0.0 && c5 == 0.0) {
+            G->v[i] = G1->v[i] = G2->v[i] = 0.0;
+            continue;
+        }
         /* power to Bernstein, degree 5 */
         bz[0] = c0;
         bz[1] = c0 + c1 / 5.0;
@@ -350,6 +377,37 @@ void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
     }
 }
 
+void tpnBlendPart(tpn_blend const *b, double t0, double t1, tpn_blend *part)
+{
+    static const double binom[6][6] = {
+        {1, 0, 0, 0, 0, 0}, {1, 1, 0, 0, 0, 0}, {1, 2, 1, 0, 0, 0},
+        {1, 3, 3, 1, 0, 0}, {1, 4, 6, 4, 1, 0}, {1, 5, 10, 10, 5, 1}};
+    double d = t1 - t0;
+    int i, k, m;
+    part->H = b->H * d;
+    for (i = 0; i < TPN_NAX; i++) {
+        double dk = 1.0;
+        if (b->c[1][i] == 0.0 && b->c[2][i] == 0.0 && b->c[3][i] == 0.0
+                && b->c[4][i] == 0.0 && b->c[5][i] == 0.0) {
+            /* an axis the blend does not move */
+            part->c[0][i] = b->c[0][i];
+            for (k = 1; k < 6; k++) {
+                part->c[k][i] = 0.0;
+            }
+            continue;
+        }
+        for (k = 0; k < 6; k++) {
+            double c = 0.0, tp = 1.0;
+            for (m = k; m < 6; m++) {
+                c += binom[m][k] * b->c[m][i] * tp;
+                tp *= t0;
+            }
+            part->c[k][i] = c * dk;
+            dk *= d;
+        }
+    }
+}
+
 static double cbrt_pos(double x)
 {
     return x > 0.0 ? pow(x, 1.0 / 3.0) : 0.0;
@@ -361,46 +419,70 @@ static double cbrt_pos(double x)
  *   x'   = s' P'
  *   x''  = s'' P' + s'^2 P''
  *   x''' = s''' P' + 3 s' s'' P'' + s'^3 P'''
- * On curved pieces half of the axis acceleration goes to the s'^2 term,
- * a quarter of the jerk to s'^3 P''' and a quarter to the cross term.
+ * On curved pieces the speed cap takes at most half of the acceleration
+ * for s'^2 P'' and a quarter of the jerk for s'^3 P'''. Only what the cap
+ * takes is reserved; of the rest of the jerk two thirds go to s''' P' and
+ * one third to the cross term.
  */
-void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
-        tpn_vec const *G2, tpn_lim *lim)
+void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, tpn_caps *caps)
 {
     int i;
-    int curved = 0;
+    caps->curved = 0;
     for (i = 0; i < TPN_NAX; i++) {
         if (G1->v[i] > TPN_TINY || G2->v[i] > TPN_TINY) {
-            curved = 1;
+            caps->curved = 1;
         }
     }
-    double fa = curved ? 0.5 : 0.0;
-    double fj1 = curved ? 0.25 : 0.0;
-    double fj2 = curved ? 0.25 : 0.0;
-    double V = TPN_BIG, A = TPN_BIG, J = TPN_BIG;
+    double fa = caps->curved ? 0.5 : 0.0;
+    double fj2 = caps->curved ? 0.25 : 0.0;
+    double V2 = TPN_BIG, V3 = TPN_BIG;
+    caps->Vg = TPN_BIG;
     for (i = 0; i < TPN_NAX; i++) {
         if (G->v[i] > TPN_TINY) {
-            V = fmin(V, ax->vel[i] / G->v[i]);
-            A = fmin(A, (1.0 - fa) * ax->acc[i] / G->v[i]);
-            J = fmin(J, (1.0 - fj1 - fj2) * ax->jerk[i] / G->v[i]);
+            caps->Vg = fmin(caps->Vg, ax->vel[i] / G->v[i]);
         }
         if (G1->v[i] > TPN_TINY) {
-            V = fmin(V, sqrt(fa * ax->acc[i] / G1->v[i]));
+            V2 = fmin(V2, fa * ax->acc[i] / G1->v[i]);
         }
         if (G2->v[i] > TPN_TINY) {
-            V = fmin(V, cbrt_pos(fj2 * ax->jerk[i] / G2->v[i]));
+            V3 = fmin(V3, fj2 * ax->jerk[i] / G2->v[i]);
         }
     }
-    /* cross term: reduce the tangential acceleration so that the speed
-     * cap is not lowered by it */
+    caps->V2 = V2 < TPN_BIG ? sqrt(V2) : TPN_BIG;
+    caps->V3 = V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG;
+}
+
+void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, double r, double V, int curved, tpn_lim *lim)
+{
+    int i;
+    double fj = curved ? 2.0 / 3.0 : 1.0;
+    double A = TPN_BIG, J = TPN_BIG;
     for (i = 0; i < TPN_NAX; i++) {
-        if (G1->v[i] > TPN_TINY && V > TPN_TINY) {
-            A = fmin(A, fj1 * ax->jerk[i] / (3.0 * V * G1->v[i]));
+        double g1 = G1->v[i] * r, g2 = G2->v[i] * r * r;
+        double ra = ax->acc[i] - V * V * g1;
+        double rj = ax->jerk[i] - V * V * V * g2;
+        if (G->v[i] > TPN_TINY) {
+            A = fmin(A, ra / G->v[i]);
+            J = fmin(J, fj * rj / G->v[i]);
+        }
+        if (g1 > TPN_TINY && V > TPN_TINY) {
+            A = fmin(A, (1.0 - fj) * rj / (3.0 * V * g1));
         }
     }
     lim->V = V;
     lim->A = A;
     lim->J = J;
+}
+
+void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, double vcap, tpn_lim *lim)
+{
+    tpn_caps caps;
+    tpnLimitCaps(ax, G, G1, G2, &caps);
+    double V = fmin(fmin(vcap, caps.Vg), fmin(caps.V2, caps.V3));
+    tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
 }
 
 /* distance of the symmetric velocity change from (v1, 0) down to (vt, 0) */

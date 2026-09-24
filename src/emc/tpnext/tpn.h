@@ -46,7 +46,12 @@ typedef struct {
     /* arc, xyz part */
     PmCartesian center, rTan, rPerp, rHelix;
     double radius, spiral, angle;
+    int flat;               /* a circle, no spiral, helix or other axes */
 } tpn_geom;
+
+/* a blend is followed in TPN_NSUB parts of equal length, each with its
+ * own limits, so that only the sharpest part runs at the lowest speed */
+#define TPN_NSUB 6
 
 /* quintic blend, power basis in tau = sigma / H, sigma in [0, H] */
 typedef struct {
@@ -76,10 +81,11 @@ typedef struct {
     double h_out;           /* blend half length at the end */
     int stop_in;            /* motion stops at the start */
     tpn_blend bin;          /* blend with the previous move */
-    tpn_lim lim_bin;
+    tpn_lim lim_bin;        /* smallest limits over the blend */
+    tpn_lim lim_sub[TPN_NSUB];  /* limits of each part of the blend */
     double vreq_bin;
     tpn_lim lim_int;        /* limits of the unblended interior */
-    double E_bin, E_int;    /* backward envelope at the entry of each piece */
+    double E_sub[TPN_NSUB], E_int;  /* backward envelope at the entry of each piece */
     int active;
 } tpn_seg;
 
@@ -98,10 +104,24 @@ void tpnBlendInit(tpn_blend *b, double H, tpn_vec const *p0, tpn_vec const *d0,
         tpn_vec const *dd0, tpn_vec const *p1, tpn_vec const *d1, tpn_vec const *dd1);
 void tpnBlendEval(tpn_blend const *b, double sigma, tpn_vec *p, tpn_vec *d1);
 void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2);
+/* the part of b between tau = t0 and t1 as a blend of its own */
+void tpnBlendPart(tpn_blend const *b, double t0, double t1, tpn_blend *part);
 
 /* limits */
+/* limits of a piece whose speed is also capped at vcap */
 void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
-        tpn_vec const *G2, tpn_lim *lim);
+        tpn_vec const *G2, double vcap, tpn_lim *lim);
+/* the same in two steps, for pieces whose G1 and G2 scale by r and r^2:
+ * the speed caps from the unscaled bounds, which scale by 1 / sqrt(r)
+ * (V2) and r^(-2/3) (V3), then the limits at a speed V */
+typedef struct {
+    double Vg, V2, V3;
+    int curved;
+} tpn_caps;
+void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, tpn_caps *caps);
+void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, double r, double V, int curved, tpn_lim *lim);
 
 /* one dimensional jerk limited profile helpers */
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
