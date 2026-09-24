@@ -77,6 +77,9 @@ static double pieceSoft(tpn_seg const *sg, int blend, double scale)
 
 typedef struct {
     double V, A, J;     /* caps of the pieces the step touches */
+    double Jhi;         /* largest jerk that keeps the step out of pieces
+                         * with a lower jerk limit, or leaves it in them
+                         * at their limit */
     double Vs;          /* soft cap there, < 0 for none */
     double Sstop;       /* nearest stop ahead */
 } tpn_step;
@@ -106,6 +109,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
     st->V = TPN_BIG;
     st->A = TPN_BIG;
     st->J = TPN_BIG;
+    st->Jhi = TPN_BIG;
     st->Vs = -1.0;
     st->Sstop = TPN_BIG;
 
@@ -144,10 +148,14 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
             } else {
                 /* a step that ends inside the piece runs part of the
-                 * cycle there at the jerk it picks */
-                if (st->J < TPN_BIG && Pa < tpn.cur_s + tpn.cur_v * dt
-                        + 0.5 * tpn.cur_a * dt * dt + st->J * dt * dt * dt / 6.0) {
+                 * cycle there at the jerk it picks; jstar ends it on Pa */
+                double jstar = (Pa - tpn.cur_s - tpn.cur_v * dt - 0.5 * tpn.cur_a * dt * dt)
+                    * 6.0 / (dt * dt * dt);
+                if (jstar < -lim->J) {
+                    /* every jerk within the limits enters it */
                     st->J = fmin(st->J, lim->J);
+                } else {
+                    st->Jhi = fmin(st->Jhi, fmax(jstar, lim->J));
                 }
                 addCon(Pa, E, soft, lim->A, Arun, Jrun);
             }
@@ -270,7 +278,7 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     double dt = tp->cycleTime;
     double J = st->J;
     double A = st->A;
-    double jhi = fmin(J, (A - tpn.cur_a) / dt);
+    double jhi = fmin(fmin(J, st->Jhi), (A - tpn.cur_a) / dt);
     double jlo = fmax(-J, (-A - tpn.cur_a) / dt);
     tpn_next n;
     int k, i;
