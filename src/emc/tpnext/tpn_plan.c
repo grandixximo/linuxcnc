@@ -20,6 +20,10 @@
 #define TPN_TOL_SCALE 0.98
 #define TPN_DEV_SAMPLES 32
 #define TPN_DEV_REFINE 14
+/* blend sizes tried below the tolerance, each half the one before, down
+ * to one crossed in TPN_BLEND_CYCLES cycles */
+#define TPN_SIZE_TRIES 6
+#define TPN_BLEND_CYCLES 4.0
 
 static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
 {
@@ -89,14 +93,19 @@ static void backwardPass(void)
         tpn_seg *sg = seg(i);
         double len = fmax(0.0, sg->geom.L - sg->h_in - sg->h_out);
         double Eint = fmin(sg->lim_int.V, sqrt(Enext * Enext + sg->lim_int.A * len));
-        double Ebin = Eint;
-        if (sg->h_in > 0.0) {
-            Ebin = fmin(sg->lim_bin.V, sqrt(Eint * Eint + sg->lim_bin.A * 2.0 * sg->h_in));
-        }
-        int same = (i < tpn.q_len - 2) && Eint == sg->E_int && Ebin == sg->E_bin;
+        int same = (i < tpn.q_len - 2) && Eint == sg->E_int;
+        double E = Eint;
+        int k;
         sg->E_int = Eint;
-        sg->E_bin = Ebin;
-        Enext = sg->stop_in ? 0.0 : Ebin;
+        if (sg->h_in > 0.0) {
+            double part = 2.0 * sg->h_in / TPN_NSUB;
+            for (k = TPN_NSUB - 1; k >= 0; k--) {
+                E = fmin(sg->lim_sub[k].V, sqrt(E * E + sg->lim_sub[k].A * part));
+                same = same && E == sg->E_sub[k];
+                sg->E_sub[k] = E;
+            }
+        }
+        Enext = sg->stop_in ? 0.0 : E;
         if (same) {
             break;
         }
@@ -159,37 +168,127 @@ static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend c
     return fmax(dev, fmax(d1, d2));
 }
 
-static void blendLimits(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
-        tpn_seg const *sg, tpn_blend const *b, tpn_lim *lim)
+/* derivative bounds of each part of the blend */
+typedef struct {
+    tpn_vec G[TPN_NSUB], G1[TPN_NSUB], G2[TPN_NSUB];
+} tpn_parts;
+
+static void blendParts(tpn_blend const *b, tpn_parts *pt)
 {
-    tpn_vec G, G1, G2;
-    tpnBlendBounds(b, &G, &G1, &G2);
-    tpnLimits(ax, &G, &G1, &G2, lim);
-    lim->V = fmin(lim->V, linearCap(tp, &G));
-    lim->V = fmin(lim->V, fmin(prev->vreq, sg->vreq) * speedFactor(tp));
+    int k;
+    for (k = 0; k < TPN_NSUB; k++) {
+        tpn_blend part;
+        tpnBlendPart(b, (double)k / TPN_NSUB, (double)(k + 1) / TPN_NSUB, &part);
+        tpnBlendBounds(&part, &pt->G[k], &pt->G1[k], &pt->G2[k]);
+    }
 }
 
-/* Smallest acceleration and jerk limits of the pieces between the
- * current position and S. */
-static void runLimits(double S, double *A, double *J)
+/* limits of each part of the blend, with its second and third derivative
+ * bounds scaled by r and r^2, and the smallest of them in lim */
+static void partLimits(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
+        tpn_seg const *sg, tpn_parts const *pt, double r, tpn_lim *lim, tpn_lim *sub)
+{
+    double vcap = fmin(prev->vreq, sg->vreq) * speedFactor(tp);
+    int k, i;
+    lim->V = lim->A = lim->J = TPN_BIG;
+    for (k = 0; k < TPN_NSUB; k++) {
+        tpn_vec G1, G2;
+        tpn_lim l;
+        for (i = 0; i < TPN_NAX; i++) {
+            G1.v[i] = pt->G1[k].v[i] * r;
+            G2.v[i] = pt->G2[k].v[i] * r * r;
+        }
+        tpnLimits(ax, &pt->G[k], &G1, &G2, fmin(vcap, linearCap(tp, &pt->G[k])), &l);
+        lim->V = fmin(lim->V, l.V);
+        lim->A = fmin(lim->A, l.A);
+        lim->J = fmin(lim->J, l.J);
+        if (sub) {
+            sub[k] = l;
+        }
+    }
+}
+
+/* limits of each part of the blend, and the smallest of them in lim */
+static void blendLimits(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
+        tpn_seg const *sg, tpn_blend const *b, tpn_lim *lim, tpn_lim *sub)
+{
+    tpn_parts pt;
+    blendParts(b, &pt);
+    partLimits(tp, ax, prev, sg, &pt, 1.0, lim, sub);
+}
+
+/* Smallest acceleration and jerk limits of the pieces between from and
+ * S, scanned back from the end of the queue. */
+static void runLimits(double from, double S, double *A, double *J)
 {
     int i;
     *A = TPN_BIG;
     *J = TPN_BIG;
-    for (i = 0; i < tpn.q_len; i++) {
+    for (i = tpn.q_len - 1; i >= 0; i--) {
         tpn_seg *sg = seg(i);
-        if (ownedStart(sg) >= S) {
+        if (ownedEnd(sg) <= from) {
             break;
         }
-        if (sg->h_in > 0.0 && sg->S0 + sg->h_in > tpn.cur_s) {
+        if (ownedStart(sg) >= S) {
+            continue;
+        }
+        if (sg->h_in > 0.0 && sg->S0 + sg->h_in > from) {
             *A = fmin(*A, sg->lim_bin.A);
             *J = fmin(*J, sg->lim_bin.J);
         }
-        if (ownedEnd(sg) > tpn.cur_s && sg->S0 + sg->h_in < S) {
+        if (sg->S0 + sg->h_in < S) {
             *A = fmin(*A, sg->lim_int.A);
             *J = fmin(*J, sg->lim_int.J);
         }
     }
+}
+
+#define TPN_SLOW_POINTS 8
+
+/* The last TPN_SLOW_POINTS pieces or stops that start between the
+ * controller and S with a speed cap no higher than V, latest first: start
+ * P, cap Vp and acceleration limit Ap. Returns how many. */
+static int slowPoints(double S, double V, double *P, double *Vp, double *Ap)
+{
+    int i, k, n = 0;
+    for (i = tpn.q_len - 1; i >= 0 && n < TPN_SLOW_POINTS; i--) {
+        tpn_seg const *sg = seg(i);
+        if (ownedEnd(sg) <= tpn.cur_s) {
+            break;
+        }
+        if (ownedStart(sg) >= S) {
+            continue;
+        }
+        /* the interior, the parts of the blend and the stop, last first */
+        for (k = TPN_NSUB; k >= -1 && n < TPN_SLOW_POINTS; k--) {
+            double p, vp, ap;
+            if (k == TPN_NSUB) {
+                p = sg->S0 + sg->h_in;
+                vp = sg->lim_int.V;
+                ap = sg->lim_int.A;
+            } else if (k >= 0) {
+                if (sg->h_in <= 0.0) {
+                    continue;
+                }
+                p = ownedStart(sg) + 2.0 * sg->h_in * k / TPN_NSUB;
+                vp = sg->lim_sub[k].V;
+                ap = sg->lim_sub[k].A;
+            } else {
+                if (!sg->stop_in) {
+                    continue;
+                }
+                p = sg->S0;
+                vp = ap = 0.0;
+            }
+            if (p > tpn.cur_s && p < S && vp <= V) {
+                P[n] = p;
+                Vp[n] = vp;
+                Ap[n] = ap;
+                n++;
+            }
+        }
+    }
+    return n;
 }
 
 /* Can the controller, from its current state, reach the new blend with a
@@ -209,7 +308,22 @@ static int reachable(double S, double V)
                 tpn.J_lo * TPN_BRAKE_SCALE) <= d) {
         return 1;
     }
-    runLimits(S, &A, &J);
+    /* the controller may already have to slow down to V or below on the
+     * way: then only the rest of the way counts */
+    double P[TPN_SLOW_POINTS], Vp[TPN_SLOW_POINTS], Ap[TPN_SLOW_POINTS];
+    int i, n = slowPoints(S, V, P, Vp, Ap);
+    for (i = 0; i < n; i++) {
+        /* past P the controller keeps v + a^2 / 2J within Vp, so it brakes
+         * as from (Vp, 0) after ramping its acceleration out */
+        runLimits(P[i], S, &A, &J);
+        A *= TPN_BRAKE_SCALE;
+        J *= TPN_BRAKE_SCALE;
+        double ramp = Vp[i] * fmin(Ap[i], sqrt(2.0 * J * Vp[i])) / J;
+        if (ramp + tpnBrakeDist(Vp[i], 0.0, V, A, J) <= S - P[i] - 1e-9) {
+            return 1;
+        }
+    }
+    runLimits(tpn.cur_s, S, &A, &J);
     if (A >= TPN_BIG) {
         return 1;
     }
@@ -221,7 +335,74 @@ static int reachable(double S, double V)
         tpn.A_lo = fmin(tpn.A_lo, last->lim_bin.A);
         tpn.J_lo = fmin(tpn.J_lo, last->lim_bin.J);
     }
-    return tpnBrakeDist(tpn.cur_v, tpn.cur_a, V, A * TPN_BRAKE_SCALE, J * TPN_BRAKE_SCALE) <= d;
+    if (tpnBrakeDist(tpn.cur_v, tpn.cur_a, V, A * TPN_BRAKE_SCALE, J * TPN_BRAKE_SCALE) <= d) {
+        return 1;
+    }
+    return 0;
+}
+
+/* duration of the velocity change dv with zero acceleration at both ends */
+static double rampTime(double dv, double A, double J)
+{
+    if (dv <= 0.0) {
+        return 0.0;
+    }
+    if (dv * J <= A * A) {
+        return 2.0 * sqrt(dv / J);
+    }
+    return dv / A + A / J;
+}
+
+/* Time to cover D from speed V, speeding up to at most vr under A and J */
+static double sideTime(double V, double vr, double A, double J, double D)
+{
+    if (D <= 0.0) {
+        return 0.0;
+    }
+    if (V >= vr) {
+        return D / vr;
+    }
+    double T = rampTime(vr - V, A, J);
+    double d = 0.5 * (V + vr) * T;
+    if (d <= D) {
+        return T + (D - d) / vr;
+    }
+    /* D ends before vr: find the speed reached at its end; a ramp by dv
+     * takes at least dv^1.5 / sqrt(J) */
+    double lo = V, hi = fmin(vr, V + pow(D * D * J, 1.0 / 3.0));
+    int k;
+    for (k = 0; k < 12; k++) {
+        double mid = 0.5 * (lo + hi);
+        if (0.5 * (V + mid) * rampTime(mid - V, A, J) > D) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    return rampTime(lo - V, A, J);
+}
+
+/* Estimated time over the interior before the corner, the blend of half
+ * length h with the limits sub of its parts (none for a stop) and half of
+ * the next move: each part of the blend at its speed cap, and speeding up
+ * on the interiors on both sides. */
+static double cornerTime(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_lim const *sub,
+        double vr)
+{
+    double A = fmin(prev->lim_int.A, sg->lim_int.A) * TPN_BRAKE_SCALE;
+    double J = fmin(prev->lim_int.J, sg->lim_int.J) * TPN_BRAKE_SCALE;
+    double Vin = 0.0, Vout = 0.0, tb = 0.0;
+    int k;
+    if (sub) {
+        for (k = 0; k < TPN_NSUB; k++) {
+            tb += 2.0 * h / TPN_NSUB / fmin(sub[k].V, vr);
+        }
+        Vin = fmin(sub[0].V, vr);
+        Vout = fmin(sub[TPN_NSUB - 1].V, vr);
+    }
+    double Din = prev->geom.L - prev->h_in - h;
+    double Dout = 0.5 * sg->geom.L - h;
+    return tb + sideTime(Vin, vr, A, J, Din) + sideTime(Vout, vr, A, J, Dout);
 }
 
 static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, tpn_seg *sg)
@@ -261,8 +442,9 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     double atol = prev->ang_tolerance * TPN_TOL_SCALE;
     double h = hmax;
     tpn_blend b;
-    tpn_lim lim;
-    int k;
+    tpn_lim lim, sub[TPN_NSUB];
+    int k, i;
+    int lines = prev->geom.type == TPN_LINE && sg->geom.type == TPN_LINE;
     blendBuild(prev, sg, h, &b);
     if (tol > 0.0 || atol > 0.0) {
         tpn_vec w;
@@ -272,7 +454,6 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
         }
         /* between two lines the blend only scales about the corner, and
          * its deviation with it */
-        int lines = prev->geom.type == TPN_LINE && sg->geom.type == TPN_LINE;
         for (k = 0; k < 40; k++) {
             double r = blendDeviation(prev, sg, &b, &w);
             if (r <= 1.0) {
@@ -292,9 +473,65 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
             return;
         }
     }
-    /* no longer than needed for the requested speed */
+    /* A longer blend is faster where it turns hardest, but only with
+     * about the cube root of its length when the jerk limits it, and it
+     * takes longer to cross: a sharp corner is often passed sooner with a
+     * shorter blend, or a stop. Take the fastest of a few sizes inside
+     * the tolerance and a stop, among those the controller can reach. */
     double vwant = fmin(prev->vreq, sg->vreq) * speedFactor(tp);
-    blendLimits(tp, ax, prev, sg, &b, &lim);
+    /* judged at the programmed feed */
+    double vr = fmin(fmin(prev->vreq, sg->vreq), fmin(prev->lim_int.V, sg->lim_int.V));
+    tpn_parts pt;
+    blendParts(&b, &pt);
+    partLimits(tp, ax, prev, sg, &pt, 1.0, &lim, sub);
+    if (vr > 1e-6) {
+        double best = TPN_BIG, h0 = h, hc = h;
+        int found = 0;
+        for (k = 0; k <= TPN_SIZE_TRIES; k++, hc *= 0.5) {
+            tpn_blend bc = b;
+            tpn_lim lc = lim, subc[TPN_NSUB];
+            if (hc < 1e-6) {
+                break;
+            }
+            if (k > 0) {
+                blendBuild(prev, sg, hc, &bc);
+                if (lines) {
+                    /* the blend between lines only scales */
+                    partLimits(tp, ax, prev, sg, &pt, h0 / hc, &lc, subc);
+                } else {
+                    blendLimits(tp, ax, prev, sg, &bc, &lc, subc);
+                }
+                if (2.0 * hc < TPN_BLEND_CYCLES * fmin(lc.V, vr) * tp->cycleTime) {
+                    break;
+                }
+            } else {
+                for (i = 0; i < TPN_NSUB; i++) {
+                    subc[i] = sub[i];
+                }
+            }
+            if (lc.V < 1e-6 || lc.A < 1e-9 || !reachable(segEnd(prev) - hc, lc.V)) {
+                continue;
+            }
+            double t = cornerTime(prev, sg, hc, subc, vr);
+            if (!found || t < 0.99 * best) {
+                found = 1;
+                best = t;
+                h = hc;
+                b = bc;
+                lim = lc;
+                for (i = 0; i < TPN_NSUB; i++) {
+                    sub[i] = subc[i];
+                }
+            }
+        }
+        /* and a stop at the corner, which is also all that is left when no
+         * blend can be reached */
+        if (!found || cornerTime(prev, sg, 0.0, 0, vr) < 0.99 * best) {
+            sg->stop_in = 1;
+            return;
+        }
+    }
+    /* no longer than needed for the requested speed */
     if (lim.V >= vwant) {
         double lo = h * 1e-3, hi = h;
         for (k = 0; k < 14; k++) {
@@ -302,7 +539,7 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
             tpn_blend bm;
             tpn_lim lm;
             blendBuild(prev, sg, mid, &bm);
-            blendLimits(tp, ax, prev, sg, &bm, &lm);
+            blendLimits(tp, ax, prev, sg, &bm, &lm, 0);
             if (lm.V >= vwant) {
                 hi = mid;
             } else {
@@ -311,7 +548,7 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
         }
         h = hi;
         blendBuild(prev, sg, h, &b);
-        blendLimits(tp, ax, prev, sg, &b, &lim);
+        blendLimits(tp, ax, prev, sg, &b, &lim, sub);
     }
     if (lim.V < 1e-6 || lim.A < 1e-9 || !reachable(segEnd(prev) - h, lim.V)) {
         sg->stop_in = 1;
@@ -321,6 +558,9 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     prev->h_out = h;
     sg->bin = b;
     sg->lim_bin = lim;
+    for (k = 0; k < TPN_NSUB; k++) {
+        sg->lim_sub[k] = sub[k];
+    }
     sg->vreq_bin = fmin(prev->vreq, sg->vreq);
 }
 
@@ -371,13 +611,11 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     }
 
     tpnGeomBounds(&sg->geom, &G, &G1, &G2);
-    tpnLimits(&ax, &G, &G1, &G2, &sg->lim_int);
-    sg->lim_int.V = fmin(sg->lim_int.V, linearCap(tp, &G));
     double vmax = sg->vreq * speedFactor(tp);
     if (ini_maxvel > 0.0) {
         vmax = fmin(vmax, ini_maxvel);
     }
-    sg->lim_int.V = fmin(sg->lim_int.V, vmax);
+    tpnLimits(&ax, &G, &G1, &G2, fmin(vmax, linearCap(tp, &G)), &sg->lim_int);
 
     if (tpn.q_len > 0) {
         joinMoves(tp, &ax, seg(tpn.q_len - 1), sg);

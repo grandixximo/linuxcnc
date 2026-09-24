@@ -327,6 +327,10 @@ void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
         double bz[6];
         double c0 = b->c[0][i], c1 = b->c[1][i], c2 = b->c[2][i];
         double c3 = b->c[3][i], c4 = b->c[4][i], c5 = b->c[5][i];
+        if (c1 == 0.0 && c2 == 0.0 && c3 == 0.0 && c4 == 0.0 && c5 == 0.0) {
+            G->v[i] = G1->v[i] = G2->v[i] = 0.0;
+            continue;
+        }
         /* power to Bernstein, degree 5 */
         bz[0] = c0;
         bz[1] = c0 + c1 / 5.0;
@@ -350,6 +354,37 @@ void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
     }
 }
 
+void tpnBlendPart(tpn_blend const *b, double t0, double t1, tpn_blend *part)
+{
+    static const double binom[6][6] = {
+        {1, 0, 0, 0, 0, 0}, {1, 1, 0, 0, 0, 0}, {1, 2, 1, 0, 0, 0},
+        {1, 3, 3, 1, 0, 0}, {1, 4, 6, 4, 1, 0}, {1, 5, 10, 10, 5, 1}};
+    double d = t1 - t0;
+    int i, k, m;
+    part->H = b->H * d;
+    for (i = 0; i < TPN_NAX; i++) {
+        double dk = 1.0;
+        if (b->c[1][i] == 0.0 && b->c[2][i] == 0.0 && b->c[3][i] == 0.0
+                && b->c[4][i] == 0.0 && b->c[5][i] == 0.0) {
+            /* an axis the blend does not move */
+            part->c[0][i] = b->c[0][i];
+            for (k = 1; k < 6; k++) {
+                part->c[k][i] = 0.0;
+            }
+            continue;
+        }
+        for (k = 0; k < 6; k++) {
+            double c = 0.0, tp = 1.0;
+            for (m = k; m < 6; m++) {
+                c += binom[m][k] * b->c[m][i] * tp;
+                tp *= t0;
+            }
+            part->c[k][i] = c * dk;
+            dk *= d;
+        }
+    }
+}
+
 static double cbrt_pos(double x)
 {
     return x > 0.0 ? pow(x, 1.0 / 3.0) : 0.0;
@@ -361,11 +396,13 @@ static double cbrt_pos(double x)
  *   x'   = s' P'
  *   x''  = s'' P' + s'^2 P''
  *   x''' = s''' P' + 3 s' s'' P'' + s'^3 P'''
- * On curved pieces half of the axis acceleration goes to the s'^2 term,
- * a quarter of the jerk to s'^3 P''' and a quarter to the cross term.
+ * On curved pieces the speed cap takes at most half of the acceleration
+ * for s'^2 P'' and a quarter of the jerk for s'^3 P'''. Only what the cap
+ * takes is reserved; of the rest of the jerk two thirds go to s''' P' and
+ * one third to the cross term.
  */
 void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
-        tpn_vec const *G2, tpn_lim *lim)
+        tpn_vec const *G2, double vcap, tpn_lim *lim)
 {
     int i;
     int curved = 0;
@@ -375,27 +412,36 @@ void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         }
     }
     double fa = curved ? 0.5 : 0.0;
-    double fj1 = curved ? 0.25 : 0.0;
     double fj2 = curved ? 0.25 : 0.0;
-    double V = TPN_BIG, A = TPN_BIG, J = TPN_BIG;
+    double fj = curved ? 2.0 / 3.0 : 1.0;
+    double V = vcap, A = TPN_BIG, J = TPN_BIG;
+    double V2 = TPN_BIG, V3 = TPN_BIG;
     for (i = 0; i < TPN_NAX; i++) {
         if (G->v[i] > TPN_TINY) {
             V = fmin(V, ax->vel[i] / G->v[i]);
-            A = fmin(A, (1.0 - fa) * ax->acc[i] / G->v[i]);
-            J = fmin(J, (1.0 - fj1 - fj2) * ax->jerk[i] / G->v[i]);
         }
         if (G1->v[i] > TPN_TINY) {
-            V = fmin(V, sqrt(fa * ax->acc[i] / G1->v[i]));
+            V2 = fmin(V2, fa * ax->acc[i] / G1->v[i]);
         }
         if (G2->v[i] > TPN_TINY) {
-            V = fmin(V, cbrt_pos(fj2 * ax->jerk[i] / G2->v[i]));
+            V3 = fmin(V3, fj2 * ax->jerk[i] / G2->v[i]);
         }
     }
-    /* cross term: reduce the tangential acceleration so that the speed
-     * cap is not lowered by it */
+    if (V2 < TPN_BIG) {
+        V = fmin(V, sqrt(V2));
+    }
+    if (V3 < TPN_BIG) {
+        V = fmin(V, cbrt_pos(V3));
+    }
     for (i = 0; i < TPN_NAX; i++) {
+        double ra = ax->acc[i] - V * V * G1->v[i];
+        double rj = ax->jerk[i] - V * V * V * G2->v[i];
+        if (G->v[i] > TPN_TINY) {
+            A = fmin(A, ra / G->v[i]);
+            J = fmin(J, fj * rj / G->v[i]);
+        }
         if (G1->v[i] > TPN_TINY && V > TPN_TINY) {
-            A = fmin(A, fj1 * ax->jerk[i] / (3.0 * V * G1->v[i]));
+            A = fmin(A, (1.0 - fj) * rj / (3.0 * V * G1->v[i]));
         }
     }
     lim->V = V;
