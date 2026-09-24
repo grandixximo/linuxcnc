@@ -25,10 +25,14 @@
 #define TPN_SIZE_TRIES 6
 #define TPN_BLEND_CYCLES 4.0
 
+/* A position synchronized move takes the trapezoid jerk whatever the
+ * planner: it must follow the spindle, and a lower jerk only delays the
+ * catch-up and the turns of a thread chain. */
 static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
 {
     int i;
-    int trapezoid = tpn.emcmotStatus->planner_type != 1;
+    int trapezoid = tpn.emcmotStatus->planner_type != 1
+            || tp->synchronized == TC_SYNC_POSITION;
     for (i = 0; i < TPN_NAX; i++) {
         double v = tpn.axis_get_vel_limit ? tpn.axis_get_vel_limit(i) : 0.0;
         double a = tpn.axis_get_acc_limit ? tpn.axis_get_acc_limit(i) : 0.0;
