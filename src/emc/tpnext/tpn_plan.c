@@ -37,13 +37,10 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
          * only appear in a move with zero displacement */
         ax->vel[i] = v > 0.0 ? v * TPN_LIMIT_SCALE : TPN_BIG;
         ax->acc[i] = a > 0.0 ? a * TPN_LIMIT_SCALE : TPN_BIG;
-        if (trapezoid || j <= 0.0) {
-            /* acceleration may change within two cycles */
-            j = ax->acc[i] / (2.0 * tp->cycleTime);
-        } else {
-            j *= TPN_LIMIT_SCALE;
-        }
-        ax->jerk[i] = j;
+        /* acceleration may change within two cycles, and no faster:
+         * a higher jerk cannot be shaped at this cycle time */
+        double jtrap = ax->acc[i] / (2.0 * tp->cycleTime);
+        ax->jerk[i] = trapezoid || j <= 0.0 ? jtrap : fmin(j * TPN_LIMIT_SCALE, jtrap);
     }
     if (tpn.axis_is_angular) {
         tpn.lin_mask = tpn.ang_mask = 0;
