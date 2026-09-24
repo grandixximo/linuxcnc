@@ -73,6 +73,7 @@ typedef struct {
     double tolerance;       /* G64 P, linear axes, 0 = none */
     double ang_tolerance;   /* G64 E, angular axes, 0 = none */
     int sync;               /* TC_SYNC_* */
+    int spindle;            /* the spindle it follows */
     double uu_per_rev;
     double vreq;            /* requested feed, path units */
     syncdio_t syncdio;
@@ -157,6 +158,12 @@ typedef struct {
     /* lower bounds of the smallest acceleration and jerk limits of the
      * queued pieces, see reachable() */
     double A_lo, J_lo;
+    /* spindle position sync: while track is set the controller follows
+     * s_ref, v_ref and a_ref instead of the requested speed */
+    int track;
+    double s_ref, v_ref, a_ref, j_ref;
+    /* velocity cap of the pieces the last step touched */
+    double step_V;
 } tpn_state;
 
 extern tpn_state tpn;
@@ -187,6 +194,19 @@ static inline double ownedEnd(tpn_seg const *sg)
 int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         double ini_maxvel, unsigned char enables, char atspeed, int indexer_jnum,
         struct state_tag_t tag);
+
+/* spindle synchronization, tpn_sync.c; a catch up to the spindle uses
+ * this much of the acceleration and jerk limits, the rest is left for
+ * following it */
+#define TPN_SYNC_AMARGIN 0.9
+#define TPN_SYNC_JMARGIN 0.8
+void tpnSyncReset(void);
+int tpnSyncOn(void);
+void tpnSpindleEstimate(TP_STRUCT const *tp);
+/* returns nonzero while the move waits for the spindle */
+int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg);
+void tpnSyncReference(TP_STRUCT const *tp);
+void tpnSyncOverrun(TP_STRUCT * const tp);
 
 /* per cycle controller, tpn_run.c */
 void tpnRunReset(void);

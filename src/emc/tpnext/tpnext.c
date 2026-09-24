@@ -16,8 +16,9 @@
 *   follows it with the same jerk limits.
 *
 *   This file holds the module interface and the queue bookkeeping;
-*   tpn_plan.c builds the queue, tpn_run.c is the per cycle controller
-*   and tpn_geom.c the geometry.
+*   tpn_plan.c builds the queue, tpn_run.c is the per cycle controller,
+*   tpn_sync.c follows the spindle for G33 and tpn_geom.c holds the
+*   geometry.
 *
 * License: GPL Version 2
 * System: Linux
@@ -124,6 +125,7 @@ static void queueReset(TP_STRUCT * const tp)
     tpn.q_start = 0;
     tpn.q_len = 0;
     tpn.cur_s = tpn.cur_v = tpn.cur_a = tpn.cur_j = 0.0;
+    tpnSyncReset();
     tpnRunReset();
     tp->goalPos = tp->currentPos;
     tp->done = 1;
@@ -306,6 +308,8 @@ int tpSetSpindleSync(TP_STRUCT * const tp, int spindle, double sync, int mode)
         tp->synchronized = mode ? TC_SYNC_VELOCITY : TC_SYNC_POSITION;
         tp->uu_per_rev = sync;
         tp->spindle.spindle_num = spindle;
+        /* each synchronized move may report again */
+        tp->spindle.overrun_reported = 0;
     } else {
         tp->synchronized = 0;
     }
@@ -552,7 +556,7 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
     tpn.emcmotStatus->current_vel = tpn.cur_v;
     tpn.emcmotStatus->current_acc = tpn.cur_a;
     tpn.emcmotStatus->current_jerk = tpn.cur_j;
-    tpn.emcmotStatus->spindleSync = 0;
+    tpn.emcmotStatus->spindleSync = tpnSyncOn();
     tpn.emcmotStatus->tcqlen = tpn.q_len;
     m = sqrt(d1->v[0] * d1->v[0] + d1->v[1] * d1->v[1] + d1->v[2] * d1->v[2]);
     if (m > 1e-12) {
@@ -599,6 +603,9 @@ static int activate(TP_STRUCT * const tp, tpn_seg *sg)
             return 1;
         }
     }
+    if (sg->sync == TC_SYNC_POSITION && !tpnSyncOn() && tpnSyncStart(tp, sg)) {
+        return 1;
+    }
     sg->active = 1;
     toggleDIOs(&sg->syncdio);
     tp->execTag = sg->tag;
@@ -621,6 +628,8 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
 {
     (void)period;
     int stepping = tpn.emcmotStatus->stepping;
+
+    tpnSpindleEstimate(tp);
 
     if (tpn.q_len == 0) {
         queueReset(tp);
@@ -654,18 +663,29 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
         statusIdle(tp);
         return TP_ERR_OK;
     }
+    if (seg(0)->sync != TC_SYNC_POSITION) {
+        tpnSyncReset();
+    }
     if (activate(tp, seg(0))) {
         return TP_ERR_WAITING;
     }
 
     double scale = tpn.emcmotStatus->net_feed_scale;
-    if (tp->pausing || tp->aborting) {
+    /* a thread runs at the spindle's pace, through feed hold and override */
+    tpn.track = tpnSyncOn() && !tp->aborting;
+    if (tpn.track) {
+        tpnSyncReference(tp);
+        scale = 1.0;
+    } else if (tp->pausing || tp->aborting) {
         scale = 0.0;
     }
     if (scale < 0.0) {
         scale = 0.0;
     }
     tpnAdvance(tp, scale, stepping);
+    if (tpn.track) {
+        tpnSyncOverrun(tp);
+    }
 
     tpn_vec p, d1;
     poseAt(tpn.cur_s, &p, &d1);

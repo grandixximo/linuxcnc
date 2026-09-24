@@ -1365,6 +1365,7 @@ tpnextmod-objs := emc/tpnext/tpnext.o
 tpnextmod-objs += emc/tpnext/tpn_plan.o
 tpnextmod-objs += emc/tpnext/tpn_run.o
 tpnextmod-objs += emc/tpnext/tpn_geom.o
+tpnextmod-objs += emc/tpnext/tpn_sync.o
 tpnextmod-objs += libposemath/emcpose.o
 tpnextmod-objs += libposemath/_posemath.o
 tpnextmod-objs += $(MATHSTUB)
