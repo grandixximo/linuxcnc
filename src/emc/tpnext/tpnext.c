@@ -656,7 +656,8 @@ static void tapToPath(tpn_seg *sg, double u, double v, double a)
     sg->tap = 0;
     sg->sync = TC_SYNC_NONE;
     sg->vreq = sg->lim_int.V;
-    sg->E_int = fmin(sg->lim_int.V, sqrt(sg->lim_int.A * sg->geom.L));
+    sg->lim_int_hi = sg->lim_int;
+    sg->E_int = sg->E_int_hi = fmin(sg->lim_int.V, sqrt(sg->lim_int.A * sg->geom.L));
     tpnSyncReset();
     tpnRunReset();
     tpn.cur_s = sg->S0;
