@@ -90,6 +90,12 @@ void tpMotFunctions(void(  *pDioWrite)(int,char)
     _axis_get_acc_limit  = paxis_get_acc_limit;
 }
 
+/* the joints are bounded in canon for this planner */
+void tpMotKins(tp_kins_t const *kins)
+{
+    (void)kins;
+}
+
 void tpMotData(emcmot_status_t *pstatus
               ,emcmot_config_t *pconfig
               )
@@ -4686,6 +4692,7 @@ int tpIsMoving(TP_STRUCT const * const tp)
 
 // api: functions called by motion:
 EXPORT_SYMBOL(tpMotFunctions);
+EXPORT_SYMBOL(tpMotKins);
 EXPORT_SYMBOL(tpMotData);
 
 EXPORT_SYMBOL(tpAbort);
