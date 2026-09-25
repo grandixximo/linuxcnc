@@ -26,6 +26,7 @@
 #include <rtapi.h>
 #include <rtapi_app.h>
 #include <rtapi_math.h>
+#include <rtapi_string.h>
 #include <hal.h>
 #include <posemath.h>
 #include <emcpose.h>
@@ -66,6 +67,24 @@ void tpMotFunctions(void (*pDioWrite)(int, char)
     tpn.axis_get_acc_limit = paxis_get_acc_limit;
     tpn.axis_get_jerk_limit = paxis_get_jerk_limit;
     tpn.axis_is_angular = paxis_is_angular;
+}
+
+/* set while the planner bounds the joints itself, which canon reads to
+ * leave its own per segment cap out */
+static struct {
+    hal_bool_t joint_limits;
+} *pins;
+
+void tpMotKins(tp_kins_t const *kins)
+{
+    if (kins) {
+        tpn.kins = *kins;
+    } else {
+        memset(&tpn.kins, 0, sizeof(tpn.kins));
+    }
+    if (pins) {
+        hal_set_bool(pins->joint_limits, tpn.kins.inverse != 0);
+    }
 }
 
 void tpMotData(emcmot_status_t *pstatus, emcmot_config_t *pconfig)
@@ -125,6 +144,8 @@ static void queueReset(TP_STRUCT * const tp)
     tpn.q_start = 0;
     tpn.q_len = 0;
     tpn.cur_s = tpn.cur_v = tpn.cur_a = tpn.cur_j = 0.0;
+    tpn.jseed_valid = 0;
+    tpn.jtail.valid = 0;
     tpnSyncReset();
     tpnRunReset();
     tp->goalPos = tp->currentPos;
@@ -850,6 +871,13 @@ int rtapi_app_main(void)
         rtapi_print_msg(RTAPI_MSG_ERR, "tpnextmod: hal_init() failed\n");
         return -1;
     }
+    pins = hal_malloc(sizeof(*pins));
+    if (!pins || hal_pin_new_bool(tpnext_id, HAL_OUT, &pins->joint_limits, 0,
+                "tpnextmod.joint-limits") < 0) {
+        pins = 0;
+        hal_exit(tpnext_id);
+        return -1;
+    }
     hal_ready(tpnext_id);
     return 0;
 }
@@ -861,6 +889,7 @@ void rtapi_app_exit(void)
 
 EXPORT_SYMBOL(tpMotFunctions);
 EXPORT_SYMBOL(tpMotData);
+EXPORT_SYMBOL(tpMotKins);
 
 EXPORT_SYMBOL(tpAbort);
 EXPORT_SYMBOL(tpActiveDepth);

@@ -167,6 +167,300 @@ static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend c
     return fmax(dev, fmax(d1, d2));
 }
 
+/* ---------------------------------------------------------------- joints
+ *
+ * With kinematics other than the identity each joint is one more channel
+ * of the limits, with its own derivative bounds per piece. The
+ * kinematics is asked only at anchors along each move: the joints and
+ * the Jacobian there, so q' = J P' is exact at every anchor; q'' and q'''
+ * come from how q' changes between anchors. A blend asks nothing: near
+ * the corner J is the corner's plus its rate along each move, and the
+ * blend's own polynomial gives the rest. */
+
+#define TPN_JANCH_MAX 32
+/* anchors per degree of rotary travel and per unit of length */
+#define TPN_JANCH_DEG 0.5
+#define TPN_JANCH_LEN 0.05
+#define TPN_JPART_SAMPLES 5
+/* for the peaks of q''' between anchors or samples */
+#define TPN_JMARGIN 1.1
+/* for the peaks between the samples of a blend part */
+#define TPN_JPART_MARGIN 1.03
+
+static int jointsOn(tpn_seg const *sg)
+{
+    if (!tpn.kins.inverse || !tpn.kins.identity || !tpn.kins.joints) {
+        return 0;
+    }
+    if (sg->sync == TC_SYNC_POSITION || tpn.kins.identity()) {
+        return 0;
+    }
+    return tpn.kins.joints() > 0;
+}
+
+static void readJointLimits(TP_STRUCT const *tp, tpn_jlim *jl)
+{
+    int trapezoid = tpn.emcmotStatus->planner_type != 1;
+    int j;
+    jl->n = tpn.kins.joints();
+    if (jl->n > TPN_NJ) {
+        jl->n = TPN_NJ;
+    }
+    for (j = 0; j < jl->n; j++) {
+        double v = tpn.kins.joint_vel_limit ? tpn.kins.joint_vel_limit(j) : 0.0;
+        double a = tpn.kins.joint_acc_limit ? tpn.kins.joint_acc_limit(j) : 0.0;
+        double k = tpn.kins.joint_jerk_limit ? tpn.kins.joint_jerk_limit(j) : 0.0;
+        jl->vel[j] = v > 0.0 ? v * TPN_LIMIT_SCALE : TPN_BIG;
+        jl->acc[j] = a > 0.0 ? a * TPN_LIMIT_SCALE : TPN_BIG;
+        double jtrap = jl->acc[j] / (2.0 * tp->cycleTime);
+        jl->jerk[j] = trapezoid || k <= 0.0 ? jtrap : fmin(k * TPN_LIMIT_SCALE, jtrap);
+    }
+}
+
+/* the Jacobian at the joints q of pose p, differenced from the inverse
+ * where the module has none */
+static int jacobianAt(double const *q, tpn_vec const *p, double J[][TPN_NAX])
+{
+    EmcPose pose;
+    int a, j, n = tpn.jl.n;
+    tpnPoseFromVec(&pose, p);
+    if (tpn.kins.jacobian && tpn.kins.jacobian(q, &pose, J) == 0) {
+        return 0;
+    }
+    for (a = 0; a < TPN_NAX; a++) {
+        double qp[TPN_NJ], qm[TPN_NJ];
+        double h = 1e-4;
+        tpn_vec pp = *p, pm = *p;
+        pp.v[a] += h;
+        pm.v[a] -= h;
+        for (j = 0; j < n; j++) {
+            qp[j] = qm[j] = q[j];
+        }
+        tpnPoseFromVec(&pose, &pp);
+        if (tpn.kins.inverse(&pose, qp) != 0) {
+            return -1;
+        }
+        tpnPoseFromVec(&pose, &pm);
+        if (tpn.kins.inverse(&pose, qm) != 0) {
+            return -1;
+        }
+        for (j = 0; j < n; j++) {
+            J[j][a] = (qp[j] - qm[j]) / (2.0 * h);
+        }
+    }
+    return 0;
+}
+
+/* Joint bounds over the whole move sg, in jb, and the joint model at its
+ * start (tpn.jhead) and end (tail). Nonzero if the kinematics cannot
+ * answer somewhere along it. */
+static int jointAnchors(tpn_seg const *sg, tpn_jb *jb, tpn_jend *tail, double *qend)
+{
+    static double qd[TPN_JANCH_MAX + 1][TPN_NJ];
+    static double Jh[3][TPN_NJ][TPN_NAX], Jt[3][TPN_NJ][TPN_NAX];
+    tpn_geom const *g = &sg->geom;
+    double q[TPN_NJ], rot = 0.0;
+    int n = tpn.jl.n, K, k, j, a, i;
+
+    for (a = 0; a < TPN_NAX; a++) {
+        if (tpn.ang_mask & (1u << a)) {
+            rot = fmax(rot, fabs(g->p1.v[a] - g->p0.v[a]));
+        }
+    }
+    K = 3 + (int)ceil(rot * TPN_JANCH_DEG + g->L * TPN_JANCH_LEN);
+    if (K > TPN_JANCH_MAX) {
+        K = TPN_JANCH_MAX;
+    }
+    double du = g->L / K;
+    if (tpn.jseed_valid && tpn.q_len > 0) {
+        for (j = 0; j < n; j++) {
+            q[j] = tpn.jseed[j];
+        }
+    } else if (tpn.kins.joint_pos) {
+        tpn.kins.joint_pos(q);
+    } else {
+        for (j = 0; j < n; j++) {
+            q[j] = 0.0;
+        }
+    }
+    for (k = 0; k <= K; k++) {
+        tpn_vec p, d1;
+        EmcPose pose;
+        double (*Jk)[TPN_NAX] = k < 3 ? Jh[k] : Jt[k % 3];
+        tpnGeomEval(g, k == K ? g->L : du * k, &p, &d1, 0);
+        tpnPoseFromVec(&pose, &p);
+        if (tpn.kins.inverse(&pose, q) != 0 || jacobianAt(q, &p, Jk) != 0) {
+            return -1;
+        }
+        if (k >= K - 2 && k < 3) {
+            /* a short move: its first anchors are also its last */
+            for (j = 0; j < n; j++) {
+                for (a = 0; a < TPN_NAX; a++) {
+                    Jt[k % 3][j][a] = Jk[j][a];
+                }
+            }
+        }
+        for (j = 0; j < n; j++) {
+            double s = 0.0;
+            for (a = 0; a < TPN_NAX; a++) {
+                s += Jk[j][a] * d1.v[a];
+            }
+            qd[k][j] = s;
+        }
+        if (k == 0) {
+            for (a = 0; a < TPN_NAX; a++) {
+                tpn.jhead.t[a] = d1.v[a];
+            }
+        }
+        if (k == K) {
+            for (a = 0; a < TPN_NAX; a++) {
+                tail->t[a] = d1.v[a];
+            }
+        }
+    }
+    for (j = 0; j < n; j++) {
+        double m1 = 0.0, m2 = 0.0, m3 = 0.0, h2 = 0.0, t2 = 0.0;
+        double prev = 0.0;
+        for (k = 0; k <= K; k++) {
+            m1 = fmax(m1, fabs(qd[k][j]));
+        }
+        for (k = 0; k < K; k++) {
+            double dd = (qd[k + 1][j] - qd[k][j]) / du;
+            m2 = fmax(m2, fabs(dd));
+            if (k > 0) {
+                double d3 = fabs(dd - prev) / du;
+                m3 = fmax(m3, d3);
+                if (k == 1) {
+                    h2 = d3;
+                }
+                if (k == K - 1) {
+                    t2 = d3;
+                }
+            }
+            prev = dd;
+        }
+        m3 *= TPN_JMARGIN;
+        /* from the anchors to the peaks between them */
+        m2 += 0.5 * du * m3;
+        m1 += 0.5 * du * m2;
+        jb->G[j] = m1;
+        jb->G1s[j] = m2;
+        jb->G2s[j] = m3;
+        jb->G1u[j] = jb->G2m[j] = jb->G2u[j] = 0.0;
+        tpn.jhead.G2[j] = h2 * TPN_JMARGIN;
+        tail->G2[j] = t2 * TPN_JMARGIN;
+        qend[j] = q[j];
+    }
+    /* the Jacobian at both ends and its rate along the move there, to
+     * second order */
+    for (j = 0; j < n; j++) {
+        for (a = 0; a < TPN_NAX; a++) {
+            double t0 = Jt[K % 3][j][a], t1 = Jt[(K - 1) % 3][j][a], t2 = Jt[(K - 2) % 3][j][a];
+            tpn.jhead.J[j][a] = Jh[0][j][a];
+            tpn.jhead.D[j][a] = (-3.0 * Jh[0][j][a] + 4.0 * Jh[1][j][a] - Jh[2][j][a]) / (2.0 * du);
+            tail->J[j][a] = t0;
+            tail->D[j][a] = (3.0 * t0 - 4.0 * t1 + t2) / (2.0 * du);
+        }
+    }
+    for (i = n; i < TPN_NJ; i++) {
+        jb->G[i] = jb->G1s[i] = jb->G1u[i] = jb->G2s[i] = jb->G2m[i] = jb->G2u[i] = 0.0;
+    }
+    tpn.jhead.valid = 1;
+    tail->valid = 1;
+    return 0;
+}
+
+/* position and first three derivatives of a blend at tau, per unit sigma */
+static void blendDerivs(tpn_blend const *b, double t, double *p, double *d1, double *d2, double *d3)
+{
+    double H = b->H;
+    int i;
+    for (i = 0; i < TPN_NAX; i++) {
+        double c0 = b->c[0][i], c1 = b->c[1][i], c2 = b->c[2][i];
+        double c3 = b->c[3][i], c4 = b->c[4][i], c5 = b->c[5][i];
+        p[i] = c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * c5))));
+        d1[i] = (c1 + t * (2.0 * c2 + t * (3.0 * c3 + t * (4.0 * c4 + t * 5.0 * c5)))) / H;
+        d2[i] = (2.0 * c2 + t * (6.0 * c3 + t * (12.0 * c4 + t * 20.0 * c5))) / (H * H);
+        d3[i] = (6.0 * c3 + t * (24.0 * c4 + t * 60.0 * c5)) / (H * H * H);
+    }
+}
+
+/* Joint bounds of each part of the blend b between the move ending with
+ * the joint model in and the one starting with out, at the corner pc.
+ * The blend runs near the plane of the two tangents: each point and
+ * derivative of it is split into its parts x, y along them, and J there
+ * is in->J + x in->D + y out->D. */
+static void jointBlendParts(tpn_blend const *b, tpn_jend const *in, tpn_jend const *out,
+        tpn_vec const *pc, tpn_jb *jb)
+{
+    double const *ti = in->t, *to = out->t;
+    double g11 = 0.0, g12 = 0.0, g22 = 0.0;
+    int n = tpn.jl.n, k, m, j, a, d;
+    for (a = 0; a < TPN_NAX; a++) {
+        g11 += ti[a] * ti[a];
+        g12 += ti[a] * to[a];
+        g22 += to[a] * to[a];
+    }
+    double det = g11 * g22 - g12 * g12;
+    int flat = det <= 1e-9 * g11 * g22;
+    for (k = 0; k < TPN_NSUB; k++) {
+        for (j = 0; j < TPN_NJ; j++) {
+            jb[k].G[j] = jb[k].G1s[j] = jb[k].G1u[j] = 0.0;
+            jb[k].G2s[j] = jb[k].G2m[j] = 0.0;
+            jb[k].G2u[j] = j < n ? fmax(in->G2[j], out->G2[j]) : 0.0;
+        }
+        for (m = 0; m < TPN_JPART_SAMPLES; m++) {
+            double tau = (k + (double)m / (TPN_JPART_SAMPLES - 1)) / TPN_NSUB;
+            double p[TPN_NAX], d1[TPN_NAX], d2[TPN_NAX], d3[TPN_NAX];
+            double x[3], y[3];
+            double const *w[3] = {p, d1, d2};
+            blendDerivs(b, tau, p, d1, d2, d3);
+            for (a = 0; a < TPN_NAX; a++) {
+                p[a] -= pc->v[a];
+            }
+            for (d = 0; d < 3; d++) {
+                double r1 = 0.0, r2 = 0.0;
+                for (a = 0; a < TPN_NAX; a++) {
+                    r1 += w[d][a] * ti[a];
+                    r2 += w[d][a] * to[a];
+                }
+                if (flat) {
+                    x[d] = y[d] = g11 > 0.0 ? 0.5 * r1 / g11 : 0.0;
+                } else {
+                    x[d] = (g22 * r1 - g12 * r2) / det;
+                    y[d] = (g11 * r2 - g12 * r1) / det;
+                }
+            }
+            for (j = 0; j < n; j++) {
+                double jp = 0.0, s1 = 0.0, u1 = 0.0, s2 = 0.0, m2 = 0.0;
+                for (a = 0; a < TPN_NAX; a++) {
+                    double Di = in->D[j][a], Do = out->D[j][a];
+                    double J0 = in->J[j][a] + x[0] * Di + y[0] * Do;
+                    double J1 = x[1] * Di + y[1] * Do;
+                    double J2 = x[2] * Di + y[2] * Do;
+                    jp += J0 * d1[a];
+                    s1 += J0 * d2[a];
+                    u1 += J1 * d1[a];
+                    s2 += J0 * d3[a];
+                    m2 += 2.0 * J1 * d2[a] + J2 * d1[a];
+                }
+                jb[k].G[j] = fmax(jb[k].G[j], fabs(jp));
+                jb[k].G1s[j] = fmax(jb[k].G1s[j], fabs(s1));
+                jb[k].G1u[j] = fmax(jb[k].G1u[j], fabs(u1));
+                jb[k].G2s[j] = fmax(jb[k].G2s[j], fabs(s2));
+                jb[k].G2m[j] = fmax(jb[k].G2m[j], fabs(m2));
+            }
+        }
+        for (j = 0; j < n; j++) {
+            jb[k].G[j] *= TPN_JPART_MARGIN;
+            jb[k].G1s[j] *= TPN_JPART_MARGIN;
+            jb[k].G1u[j] *= TPN_JPART_MARGIN;
+            jb[k].G2s[j] *= TPN_JPART_MARGIN;
+            jb[k].G2m[j] *= TPN_JPART_MARGIN;
+        }
+    }
+}
+
 /* derivative bounds and speed caps of each part of the blend */
 typedef struct {
     tpn_vec G[TPN_NSUB], G1[TPN_NSUB], G2[TPN_NSUB];
@@ -174,6 +468,8 @@ typedef struct {
     double vcap[TPN_NSUB];
     double vwant;           /* programmed feed through the blend */
     double vtop;            /* the higher cap of the two moves */
+    int jon;                /* the joints are bounded too, by jb */
+    tpn_jb jb[TPN_NSUB];
 } tpn_parts;
 
 static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
@@ -195,6 +491,10 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
         tpnLimitCaps(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], &pt->caps[k]);
         pt->vcap[k] = fmin(vcap, pt->caps[k].Vg);
     }
+    pt->jon = tpn.jtail.valid && tpn.jhead.valid;
+    if (pt->jon) {
+        jointBlendParts(b, &tpn.jtail, &tpn.jhead, &prev->geom.p1, pt->jb);
+    }
 }
 
 /* limits of each part of the blend, with its second and third derivative
@@ -206,8 +506,16 @@ static void partLimits(tpn_axlim const *ax, tpn_parts const *pt, double r, tpn_l
     lim->V = lim->A = lim->J = TPN_BIG;
     for (k = 0; k < TPN_NSUB; k++) {
         tpn_lim l;
-        double V = fmin(fmin(pt->vcap[k], pt->vtop), tpnCurveCap(&pt->caps[k], r, pt->vwant));
-        tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, pt->caps[k].curved, &l);
+        if (pt->jon) {
+            tpn_caps c;
+            tpnLimitCapsJ(&pt->caps[k], r, &tpn.jl, &pt->jb[k], &c);
+            double V = fmin(fmin(fmin(pt->vcap[k], c.Vg), pt->vtop), tpnCurveCap(&c, 1.0, pt->vwant));
+            tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, c.curved, &l);
+            tpnJointLimitsAt(&tpn.jl, &pt->jb[k], r, V, c.curved, &l);
+        } else {
+            double V = fmin(fmin(pt->vcap[k], pt->vtop), tpnCurveCap(&pt->caps[k], r, pt->vwant));
+            tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, pt->caps[k].curved, &l);
+        }
         lim->V = fmin(lim->V, l.V);
         lim->A = fmin(lim->A, l.A);
         lim->J = fmin(lim->J, l.J);
@@ -600,6 +908,10 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
 {
     tpn_axlim ax;
     tpn_vec G, G1, G2;
+    tpn_jb jb;
+    tpn_jend tail;
+    double qend[TPN_NJ];
+    int jon;
 
     if (!tp || tp->aborting) {
         rtapi_print_msg(RTAPI_MSG_ERR, "tpnext: cannot queue a move while aborting\n");
@@ -644,6 +956,21 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         sg->syncdio.anychanged = 0;
     }
 
+    jon = jointsOn(sg);
+    tpn.jhead.valid = 0;
+    tail.valid = 0;
+    if (jon) {
+        readJointLimits(tp, &tpn.jl);
+        if (jointAnchors(sg, &jb, &tail, qend) != 0) {
+            rtapi_print_msg(RTAPI_MSG_ERR,
+                    "tpnext: the kinematics cannot answer along move %d, its joints follow the axis limits only\n",
+                    sg->id);
+            jon = 0;
+            tpn.jhead.valid = 0;
+            tail.valid = 0;
+        }
+    }
+
     tpnGeomBounds(&sg->geom, &G, &G1, &G2);
     double vmax = sg->vreq * speedFactor(tp);
     if (ini_maxvel > 0.0) {
@@ -659,6 +986,14 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         }
         tpnLimits(&axs, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
         tpnLimits(&axs, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
+    } else if (jon) {
+        tpnLimitsJ(&ax, &G, &G1, &G2, &tpn.jl, &jb, vmax, sg->vreq, &sg->lim_int);
+        tpnLimitsJ(&ax, &G, &G1, &G2, &tpn.jl, &jb, vmax, vmax, &sg->lim_int_hi);
+        if (sg->lim_int.V < 0.01 * sg->vreq) {
+            rtapi_print_msg(RTAPI_MSG_ERR,
+                    "tpnext: move %d slowed to %g by its joints, near a singular pose\n",
+                    sg->id, sg->lim_int.V);
+        }
     } else {
         tpnLimits(&ax, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
         tpnLimits(&ax, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
@@ -670,6 +1005,14 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         sg->S0 = tpn.cur_s;
         sg->stop_in = 1;
         tpn.A_lo = tpn.J_lo = TPN_BIG;
+    }
+    tpn.jtail = tail;
+    tpn.jseed_valid = jon;
+    if (jon) {
+        int j;
+        for (j = 0; j < tpn.jl.n; j++) {
+            tpn.jseed[j] = qend[j];
+        }
     }
     if (sg->h_in > 0.0) {
         tpn.A_lo = fmin(tpn.A_lo, sg->lim_bin.A);

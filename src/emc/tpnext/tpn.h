@@ -15,7 +15,7 @@
 #define TPN_H
 
 #include <posemath.h>
-#include "../tp/tp_types.h"
+#include "../tp/tp.h"
 
 #define TPN_NAX 9
 
@@ -35,6 +35,35 @@ typedef struct {
     double acc[TPN_NAX];
     double jerk[TPN_NAX];
 } tpn_axlim;
+
+/* per joint limits, for kinematics other than the identity */
+#define TPN_NJ TP_KINS_MAX_JOINTS
+typedef struct {
+    int n;
+    double vel[TPN_NJ];
+    double acc[TPN_NJ];
+    double jerk[TPN_NJ];
+} tpn_jlim;
+
+/* bounds of the joint derivatives per unit s over a piece: q' by G,
+ * q'' by r G1s + G1u and q''' by r^2 G2s + r G2m + G2u, for a blend
+ * part scaled by r (1 elsewhere) */
+typedef struct {
+    double G[TPN_NJ];
+    double G1s[TPN_NJ], G1u[TPN_NJ];
+    double G2s[TPN_NJ], G2m[TPN_NJ], G2u[TPN_NJ];
+} tpn_jb;
+
+/* the joints at one end of a move, for the blend there: the Jacobian,
+ * its rate per unit s along the move, the tangent, and a bound of the
+ * third derivative of the joints near the end */
+typedef struct {
+    int valid;
+    double J[TPN_NJ][TPN_NAX];
+    double D[TPN_NJ][TPN_NAX];
+    double t[TPN_NAX];
+    double G2[TPN_NJ];
+} tpn_jend;
 
 enum { TPN_LINE = 1, TPN_ARC = 2 };
 
@@ -138,6 +167,17 @@ double tpnCurveCap(tpn_caps const *caps, double r, double vwant);
 void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         tpn_vec const *G2, double r, double V, int curved, tpn_lim *lim);
 
+/* the caps of the axes at r merged with those of the joints at r, as
+ * caps of scale 1 */
+void tpnLimitCapsJ(tpn_caps const *axcaps, double r, tpn_jlim const *jl, tpn_jb const *jb,
+        tpn_caps *caps);
+/* lower lim->A and lim->J to what the joints leave at V */
+void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, int curved,
+        tpn_lim *lim);
+/* tpnLimits() with the joints as well */
+void tpnLimitsJ(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1, tpn_vec const *G2,
+        tpn_jlim const *jl, tpn_jb const *jb, double vcap, double vwant, tpn_lim *lim);
+
 /* one dimensional jerk limited profile helpers */
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
 
@@ -178,6 +218,15 @@ typedef struct {
     double s_ref, v_ref, a_ref, j_ref;
     /* velocity cap of the pieces the last step touched */
     double step_V;
+    /* kinematics from motion, the joint limits at the last add, the
+     * joints at the end of the queue, and the joint model at the end of
+     * the last queued move (jtail) and at the start of the one being
+     * added (jhead) */
+    tp_kins_t kins;
+    tpn_jlim jl;
+    int jseed_valid;
+    double jseed[TPN_NJ];
+    tpn_jend jtail, jhead;
 } tpn_state;
 
 extern tpn_state tpn;
