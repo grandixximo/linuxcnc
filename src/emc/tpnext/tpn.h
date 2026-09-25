@@ -88,9 +88,14 @@ typedef struct {
     double vreq_bin;
     double vlimit_bin;      /* slider scale of the blend, 0 = none */
     tpn_lim lim_int;        /* limits of the unblended interior */
+    /* the same with the curvature caps opened up to the feed at the
+     * highest feed override, which the runtime takes where the override
+     * asks for more than the caps above allow */
+    tpn_lim lim_sub_hi[TPN_NSUB], lim_int_hi;
     int tap;                /* a rigid tap (G33.1) still following the spindle */
     double tap_scale;       /* spindle speed factor of its way out */
     double E_sub[TPN_NSUB], E_int;  /* backward envelope at the entry of each piece */
+    double E_sub_hi[TPN_NSUB], E_int_hi;
     int active;
 } tpn_seg;
 
