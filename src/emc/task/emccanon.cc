@@ -898,6 +898,20 @@ static bool kins_load(void)
     snprintf(name, sizeof(name), "canon.%d", (int)getpid());
     kins.comp_id = hal_init(name);
     if (kins.comp_id < 0) { return false; }
+    // a planner that bounds the joints itself wants no cap from here: one
+    // cap for the whole segment slows it where the joints allow more
+    {
+        hal_query_t q;
+        memset(&q, 0, sizeof(q));
+        q.name = "tpnextmod.joint-limits";
+        q.qtype = HAL_QTYPE_PIN;
+        q.pp.type = HAL_BIT;
+        if (hal_get_p(&q, NULL, NULL) == 0 && q.pp.value.b) {
+            hal_exit(kins.comp_id);
+            kins.comp_id = -1;
+            return false;
+        }
+    }
     kins.ctx = kinematicsUserInitString(module->c_str(), joints, kins.comp_id, name);
     hal_ready(kins.comp_id);
     if (kins.ctx && kinematicsUserIsRtOnly(kins.ctx)) {
