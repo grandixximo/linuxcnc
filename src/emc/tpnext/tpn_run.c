@@ -69,6 +69,9 @@ static int accEntryOk(double v1, double a1, double d, double Aentry, double J)
     return dist <= d;
 }
 
+/* a speed that settles on a cap from below approaches it only slowly */
+#define TPN_CAP_NEAR 0.98
+
 /* requested speed of a piece, < 0 for none: a move synchronized to the
  * spindle position follows the spindle instead, unless an abort stops it.
  * Feed override and the max velocity slider apply here, every cycle. */
@@ -139,6 +142,8 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
         for (piece = 0; piece <= TPN_NSUB; piece++) {
             double Pa, Pb, E, soft;
             tpn_lim const *lim;
+            tpn_lim const *hi;
+            double E_hi;
             if (piece < TPN_NSUB) {
                 if (sg->h_in <= 0.0) {
                     continue;
@@ -147,17 +152,34 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 Pb = piece == TPN_NSUB - 1 ? sg->S0 + sg->h_in
                     : ownedStart(sg) + 2.0 * sg->h_in * (piece + 1) / TPN_NSUB;
                 lim = &sg->lim_sub[piece];
+                hi = &sg->lim_sub_hi[piece];
                 E = sg->E_sub[piece];
+                E_hi = sg->E_sub_hi[piece];
             } else {
                 Pa = sg->S0 + sg->h_in;
                 Pb = ownedEnd(sg);
                 lim = &sg->lim_int;
+                hi = &sg->lim_int_hi;
                 E = sg->E_int;
+                E_hi = sg->E_int_hi;
             }
             if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == TPN_NSUB)) {
                 continue;
             }
             soft = pieceSoft(tp, sg, piece < TPN_NSUB, scale);
+            /* the opened caps where the override asks for more than the
+             * caps allow and they let the motion run faster; in the piece
+             * the motion is in only once it is about to reach the caps,
+             * since they leave less acceleration along the path, and for
+             * as long as it runs faster than the caps allow */
+            if (soft >= 0.0 && (Pa <= tpn.cur_s ? tpn.cur_v > lim->V
+                        || (soft > lim->V && E_hi > E && tpn.cur_v
+                            + 0.5 * tpn.cur_a * fabs(tpn.cur_a) / lim->J
+                            >= TPN_CAP_NEAR * lim->V)
+                    : soft > lim->V && E_hi > E)) {
+                lim = hi;
+                E = E_hi;
+            }
             if (Pa <= tpn.cur_s) {
                 st->V = fmin(st->V, lim->V);
                 st->A = fmin(st->A, lim->A);

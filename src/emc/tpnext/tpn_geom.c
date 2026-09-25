@@ -419,11 +419,17 @@ static double cbrt_pos(double x)
  *   x'   = s' P'
  *   x''  = s'' P' + s'^2 P''
  *   x''' = s''' P' + 3 s' s'' P'' + s'^3 P'''
- * On curved pieces the speed cap takes at most half of the acceleration
- * for s'^2 P'' and a quarter of the jerk for s'^3 P'''. Only what the cap
+ * On curved pieces the speed cap takes half of the acceleration for
+ * s'^2 P'' and a quarter of the jerk for s'^3 P''', or up to
+ * TPN_CURVE_AMAX and TPN_CURVE_JMAX of them where the programmed feed
+ * needs more: a cap just under the feed would have the controller speed
+ * up and slow down at every piece of a chain of arcs. Only what the cap
  * takes is reserved; of the rest of the jerk two thirds go to s''' P' and
  * one third to the cross term.
  */
+#define TPN_CURVE_AMAX 0.8
+#define TPN_CURVE_JMAX 0.6
+
 void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         tpn_vec const *G2, tpn_caps *caps)
 {
@@ -451,6 +457,22 @@ void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
     }
     caps->V2 = V2 < TPN_BIG ? sqrt(V2) : TPN_BIG;
     caps->V3 = V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG;
+    caps->V2max = V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG;
+    caps->V3max = V3 < TPN_BIG ? cbrt_pos(V3 * TPN_CURVE_JMAX / fj2) : TPN_BIG;
+}
+
+double tpnCurveCap(tpn_caps const *caps, double r, double vwant)
+{
+    double s2 = r == 1.0 ? 1.0 : sqrt(r);
+    double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
+    double V2 = caps->V2 / s2, V3 = caps->V3 / s3;
+    if (vwant > V2) {
+        V2 = fmin(vwant, caps->V2max / s2);
+    }
+    if (vwant > V3) {
+        V3 = fmin(vwant, caps->V3max / s3);
+    }
+    return fmin(V2, V3);
 }
 
 void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
@@ -477,11 +499,11 @@ void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
 }
 
 void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
-        tpn_vec const *G2, double vcap, tpn_lim *lim)
+        tpn_vec const *G2, double vcap, double vwant, tpn_lim *lim)
 {
     tpn_caps caps;
     tpnLimitCaps(ax, G, G1, G2, &caps);
-    double V = fmin(fmin(vcap, caps.Vg), fmin(caps.V2, caps.V3));
+    double V = fmin(fmin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
     tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
 }
 

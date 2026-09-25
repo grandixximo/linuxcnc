@@ -64,31 +64,39 @@ static double speedFactor(TP_STRUCT const *tp)
     return fmax(tpn.emcmotConfig->maxFeedScale, 1.0);
 }
 
+/* envelope at the entry of a piece of length len from Enext at its end */
+static double envelopeIn(tpn_lim const *lim, double Enext, double len, double *E, int *same)
+{
+    double e = fmin(lim->V, sqrt(Enext * Enext + lim->A * len));
+    *same = *same && e == *E;
+    *E = e;
+    return e;
+}
+
 /* Backward envelope with half of each piece's tangential acceleration and
- * zero speed at the end of the queue and at every stop. The runtime
- * checks the true caps inside its braking horizon; the envelope carries
- * everything beyond it. */
+ * zero speed at the end of the queue and at every stop, for both sets of
+ * limits. The runtime checks the true caps inside its braking horizon;
+ * the envelope carries everything beyond it. */
 static void backwardPass(void)
 {
-    double Enext = 0.0;
+    double Enext = 0.0, Enext_hi = 0.0;
     int i;
     for (i = tpn.q_len - 1; i >= 0; i--) {
         tpn_seg *sg = seg(i);
         double len = fmax(0.0, sg->geom.L - sg->h_in - sg->h_out);
-        double Eint = fmin(sg->lim_int.V, sqrt(Enext * Enext + sg->lim_int.A * len));
-        int same = (i < tpn.q_len - 2) && Eint == sg->E_int;
-        double E = Eint;
+        int same = i < tpn.q_len - 2;
+        double E = envelopeIn(&sg->lim_int, Enext, len, &sg->E_int, &same);
+        double E_hi = envelopeIn(&sg->lim_int_hi, Enext_hi, len, &sg->E_int_hi, &same);
         int k;
-        sg->E_int = Eint;
         if (sg->h_in > 0.0) {
             double part = 2.0 * sg->h_in / TPN_NSUB;
             for (k = TPN_NSUB - 1; k >= 0; k--) {
-                E = fmin(sg->lim_sub[k].V, sqrt(E * E + sg->lim_sub[k].A * part));
-                same = same && E == sg->E_sub[k];
-                sg->E_sub[k] = E;
+                E = envelopeIn(&sg->lim_sub[k], E, part, &sg->E_sub[k], &same);
+                E_hi = envelopeIn(&sg->lim_sub_hi[k], E_hi, part, &sg->E_sub_hi[k], &same);
             }
         }
         Enext = sg->stop_in ? 0.0 : E;
+        Enext_hi = sg->stop_in ? 0.0 : E_hi;
         if (same) {
             break;
         }
@@ -164,6 +172,8 @@ typedef struct {
     tpn_vec G[TPN_NSUB], G1[TPN_NSUB], G2[TPN_NSUB];
     tpn_caps caps[TPN_NSUB];
     double vcap[TPN_NSUB];
+    double vwant;           /* programmed feed through the blend */
+    double vtop;            /* the higher cap of the two moves */
 } tpn_parts;
 
 static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
@@ -171,6 +181,13 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
 {
     double vcap = fmin(prev->vreq, sg->vreq) * speedFactor(tp);
     int k;
+    pt->vwant = fmin(prev->vreq, sg->vreq);
+    /* a blend part between two arcs may bound the curvature closer than
+     * the arcs do, but a speed above both only makes the S-curve
+     * controller speed up and slow down again */
+    pt->vtop = tpn.emcmotStatus->planner_type == 1
+        && prev->geom.type == TPN_ARC && sg->geom.type == TPN_ARC
+        ? fmax(prev->lim_int.V, sg->lim_int.V) : TPN_BIG;
     for (k = 0; k < TPN_NSUB; k++) {
         tpn_blend part;
         tpnBlendPart(b, (double)k / TPN_NSUB, (double)(k + 1) / TPN_NSUB, &part);
@@ -185,13 +202,11 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
 static void partLimits(tpn_axlim const *ax, tpn_parts const *pt, double r, tpn_lim *lim,
         tpn_lim *sub)
 {
-    double s2 = r == 1.0 ? 1.0 : sqrt(r);
-    double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
     int k;
     lim->V = lim->A = lim->J = TPN_BIG;
     for (k = 0; k < TPN_NSUB; k++) {
         tpn_lim l;
-        double V = fmin(pt->vcap[k], fmin(pt->caps[k].V2 / s2, pt->caps[k].V3 / s3));
+        double V = fmin(fmin(pt->vcap[k], pt->vtop), tpnCurveCap(&pt->caps[k], r, pt->vwant));
         tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, pt->caps[k].curved, &l);
         lim->V = fmin(lim->V, l.V);
         lim->A = fmin(lim->A, l.A);
@@ -566,6 +581,12 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     for (k = 0; k < TPN_NSUB; k++) {
         sg->lim_sub[k] = sub[k];
     }
+    blendParts(tp, ax, prev, sg, &b, &pt);
+    pt.vwant *= speedFactor(tp);
+    if (pt.vtop < TPN_BIG) {
+        pt.vtop = fmax(prev->lim_int_hi.V, sg->lim_int_hi.V);
+    }
+    partLimits(ax, &pt, 1.0, &lim, sg->lim_sub_hi);
     sg->vreq_bin = fmin(prev->vreq, sg->vreq);
     /* the lower of the two caps, where 0 is none */
     sg->vlimit_bin = prev->vlimit_scale <= 0.0 ? sg->vlimit_scale
@@ -636,9 +657,11 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         for (i = 0; i < TPN_NAX; i++) {
             axs.vel[i] /= TPN_LIMIT_SCALE;
         }
-        tpnLimits(&axs, &G, &G1, &G2, vmax, &sg->lim_int);
+        tpnLimits(&axs, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
+        tpnLimits(&axs, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
     } else {
-        tpnLimits(&ax, &G, &G1, &G2, vmax, &sg->lim_int);
+        tpnLimits(&ax, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
+        tpnLimits(&ax, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
     }
 
     if (tpn.q_len > 0) {
