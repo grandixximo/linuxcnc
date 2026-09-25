@@ -1068,6 +1068,7 @@ static struct {
     double joints[EMCMOT_MAX_JOINTS];   // the joints at canon.endPoint, as far as canon knows
     bool in_arc;                // ARC_FEED caps the arc itself; the straight helpers stand back
     bool debug;                 // EMCCANON_KINS_DEBUG in the environment: say what every segment got
+    bool no_cap;                // the planner bounds the joints: check the travel, cap nothing
     motion_planning::SegmentCapLimits limits;
     // the last straight segment's answer, since its velocity and its
     // acceleration are asked for separately
@@ -1078,7 +1079,7 @@ static struct {
         double vel, acc;
         KinsTravel travel;
     } memo;
-} kins = { NULL, false, -1, {}, false, false, {}, { false, {}, {}, false, 0.0, 0.0, { -1, 0, 0.0, 0.0, 0.0 } } };
+} kins = { NULL, false, -1, {}, false, false, false, {}, { false, {}, {}, false, 0.0, 0.0, { -1, 0, 0.0, 0.0, 0.0 } } };
 
 // the machine's own module, once
 static bool kins_load(void)
@@ -1088,6 +1089,17 @@ static bool kins_load(void)
     if (kins.tried) { return kins.ctx != NULL; }
     kins.tried = true;
     if (!kins_hal()) { return false; }
+    // a planner that bounds the joints itself wants no cap from here: one
+    // cap for the whole segment slows it where the joints allow more; the
+    // travel along the segment is still checked here
+    {
+        hal_query_t q;
+        memset(&q, 0, sizeof(q));
+        q.name = "tpnextmod.joint-limits";
+        q.qtype = HAL_QTYPE_PIN;
+        q.pp.type = HAL_BOOL;
+        kins.no_cap = hal_get_p(&q, NULL, NULL) == 0 && q.pp.value.b;
+    }
     kins.ctx = kinematicsUserInitString(khal.module, khal.joints, khal.comp_id, khal.name);
     if (kins.ctx && kinematicsUserIsRtOnly(kins.ctx)) {
         kinematicsUserFree(kins.ctx);
@@ -1217,7 +1229,7 @@ static bool kins_cap(KinematicsUserContext *ctx, const EmcPose *start, const Emc
     // a pole: some joint would have to move at any speed at all for the
     // path to advance, and the move crawls rather than being dropped,
     // since a dropped segment would send the next one along another path
-    if (cap.vel_joint >= 0 && cap.vel < 1e-3) {
+    if (!kins.no_cap && cap.vel_joint >= 0 && cap.vel < 1e-3) {
         CANON_ERROR(fmt::format("joint {} cannot follow the move to X{:.3f} Y{:.3f} Z{:.3f} A{:.3f} B{:.3f} C{:.3f} near {:.0f}% of its length: the kinematics is singular there and the move crawls",
                     cap.vel_joint, end->tran.x, end->tran.y, end->tran.z, end->a, end->b, end->c, 100.0 * cap.vel_at));
     }
@@ -1239,7 +1251,7 @@ static bool kins_cap(KinematicsUserContext *ctx, const EmcPose *start, const Emc
     }
     *vel = cap.vel;
     *acc = cap.acc;
-    return cap.vel_joint >= 0 || cap.acc_joint >= 0;
+    return !kins.no_cap && (cap.vel_joint >= 0 || cap.acc_joint >= 0);
 }
 
 // a segment a joint would leave its travel along refuses the move, the
