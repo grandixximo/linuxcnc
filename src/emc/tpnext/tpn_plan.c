@@ -395,55 +395,66 @@ static void jointBlendParts(tpn_blend const *b, tpn_jend const *in, tpn_jend con
 {
     double const *ti = in->t, *to = out->t;
     double g11 = 0.0, g12 = 0.0, g22 = 0.0;
-    int n = tpn.jl.n, k, m, j, a, d;
+    int ax[TPN_NAX], na = 0;
+    int n = tpn.jl.n, k, i, j, a, d;
+    int const M = TPN_JPART_SAMPLES - 1;
     for (a = 0; a < TPN_NAX; a++) {
         g11 += ti[a] * ti[a];
         g12 += ti[a] * to[a];
         g22 += to[a] * to[a];
+        /* an axis the blend does not move adds nothing to any sum */
+        if (b->c[1][a] != 0.0 || b->c[2][a] != 0.0 || b->c[3][a] != 0.0
+                || b->c[4][a] != 0.0 || b->c[5][a] != 0.0) {
+            ax[na++] = a;
+        }
     }
     double det = g11 * g22 - g12 * g12;
     int flat = det <= 1e-9 * g11 * g22;
     for (k = 0; k < TPN_NSUB; k++) {
-        for (j = 0; j < TPN_NJ; j++) {
+        for (j = 0; j < n; j++) {
             jb[k].G[j] = jb[k].G1s[j] = jb[k].G1u[j] = 0.0;
             jb[k].G2s[j] = jb[k].G2m[j] = 0.0;
-            jb[k].G2u[j] = j < n ? fmax(in->G2[j], out->G2[j]) : 0.0;
+            jb[k].G2u[j] = fmax(in->G2[j], out->G2[j]);
         }
-        for (m = 0; m < TPN_JPART_SAMPLES; m++) {
-            double tau = (k + (double)m / (TPN_JPART_SAMPLES - 1)) / TPN_NSUB;
-            double p[TPN_NAX], d1[TPN_NAX], d2[TPN_NAX], d3[TPN_NAX];
-            double x[3], y[3];
-            double const *w[3] = {p, d1, d2};
-            blendDerivs(b, tau, p, d1, d2, d3);
-            for (a = 0; a < TPN_NAX; a++) {
-                p[a] -= pc->v[a];
+    }
+    /* the samples of each part, the ends shared with its neighbours */
+    for (i = 0; i <= TPN_NSUB * M; i++) {
+        double tau = (double)i / (TPN_NSUB * M);
+        double p[TPN_NAX], d1[TPN_NAX], d2[TPN_NAX], d3[TPN_NAX];
+        double x[3], y[3];
+        double const *w[3] = {p, d1, d2};
+        int k1 = i / M < TPN_NSUB ? i / M : TPN_NSUB - 1;
+        int k0 = i % M == 0 && i > 0 && i < TPN_NSUB * M ? k1 - 1 : k1;
+        blendDerivs(b, tau, p, d1, d2, d3);
+        for (d = 0; d < 3; d++) {
+            double r1 = 0.0, r2 = 0.0;
+            for (a = 0; a < na; a++) {
+                double v = d == 0 ? w[0][ax[a]] - pc->v[ax[a]] : w[d][ax[a]];
+                r1 += v * ti[ax[a]];
+                r2 += v * to[ax[a]];
             }
-            for (d = 0; d < 3; d++) {
-                double r1 = 0.0, r2 = 0.0;
-                for (a = 0; a < TPN_NAX; a++) {
-                    r1 += w[d][a] * ti[a];
-                    r2 += w[d][a] * to[a];
-                }
-                if (flat) {
-                    x[d] = y[d] = g11 > 0.0 ? 0.5 * r1 / g11 : 0.0;
-                } else {
-                    x[d] = (g22 * r1 - g12 * r2) / det;
-                    y[d] = (g11 * r2 - g12 * r1) / det;
-                }
+            if (flat) {
+                x[d] = y[d] = g11 > 0.0 ? 0.5 * r1 / g11 : 0.0;
+            } else {
+                x[d] = (g22 * r1 - g12 * r2) / det;
+                y[d] = (g11 * r2 - g12 * r1) / det;
             }
-            for (j = 0; j < n; j++) {
-                double jp = 0.0, s1 = 0.0, u1 = 0.0, s2 = 0.0, m2 = 0.0;
-                for (a = 0; a < TPN_NAX; a++) {
-                    double Di = in->D[j][a], Do = out->D[j][a];
-                    double J0 = in->J[j][a] + x[0] * Di + y[0] * Do;
-                    double J1 = x[1] * Di + y[1] * Do;
-                    double J2 = x[2] * Di + y[2] * Do;
-                    jp += J0 * d1[a];
-                    s1 += J0 * d2[a];
-                    u1 += J1 * d1[a];
-                    s2 += J0 * d3[a];
-                    m2 += 2.0 * J1 * d2[a] + J2 * d1[a];
-                }
+        }
+        for (j = 0; j < n; j++) {
+            double jp = 0.0, s1 = 0.0, u1 = 0.0, s2 = 0.0, m2 = 0.0;
+            for (a = 0; a < na; a++) {
+                int c = ax[a];
+                double Di = in->D[j][c], Do = out->D[j][c];
+                double J0 = in->J[j][c] + x[0] * Di + y[0] * Do;
+                double J1 = x[1] * Di + y[1] * Do;
+                double J2 = x[2] * Di + y[2] * Do;
+                jp += J0 * d1[c];
+                s1 += J0 * d2[c];
+                u1 += J1 * d1[c];
+                s2 += J0 * d3[c];
+                m2 += 2.0 * J1 * d2[c] + J2 * d1[c];
+            }
+            for (k = k0; k <= k1; k++) {
                 jb[k].G[j] = fmax(jb[k].G[j], fabs(jp));
                 jb[k].G1s[j] = fmax(jb[k].G1s[j], fabs(s1));
                 jb[k].G1u[j] = fmax(jb[k].G1u[j], fabs(u1));
@@ -451,6 +462,8 @@ static void jointBlendParts(tpn_blend const *b, tpn_jend const *in, tpn_jend con
                 jb[k].G2m[j] = fmax(jb[k].G2m[j], fabs(m2));
             }
         }
+    }
+    for (k = 0; k < TPN_NSUB; k++) {
         for (j = 0; j < n; j++) {
             jb[k].G[j] *= TPN_JPART_MARGIN;
             jb[k].G1s[j] *= TPN_JPART_MARGIN;
@@ -523,15 +536,6 @@ static void partLimits(tpn_axlim const *ax, tpn_parts const *pt, double r, tpn_l
             sub[k] = l;
         }
     }
-}
-
-/* limits of each part of the blend, and the smallest of them in lim */
-static void blendLimits(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
-        tpn_seg const *sg, tpn_blend const *b, tpn_lim *lim, tpn_lim *sub)
-{
-    tpn_parts pt;
-    blendParts(tp, ax, prev, sg, b, &pt);
-    partLimits(ax, &pt, 1.0, lim, sub);
 }
 
 /* Smallest acceleration and jerk limits of the pieces between from and
@@ -626,17 +630,33 @@ static int reachable(double S, double V)
         return 1;
     }
     /* the controller may already have to slow down to V or below on the
-     * way: then only the rest of the way counts */
+     * way: then only the rest of the way counts. Past P the controller
+     * keeps v + a^2 / 2J within Vp, so it brakes as from (Vp, 0) after
+     * ramping its acceleration out. The slow point found last time is
+     * tried first, with the bounds kept of the pieces after it, which
+     * spares the scan of a long queue behind one slow piece. */
+    if (tpn.slow_A < TPN_BIG && tpn.slow_P > tpn.cur_s && tpn.slow_V <= V) {
+        A = tpn.slow_A * TPN_BRAKE_SCALE;
+        J = tpn.slow_J * TPN_BRAKE_SCALE;
+        double ramp = tpn.slow_V * fmin(tpn.slow_Ap, sqrt(2.0 * J * tpn.slow_V)) / J;
+        if (ramp + tpnBrakeDist(tpn.slow_V, 0.0, V, A, J) <= S - tpn.slow_P - 1e-9) {
+            return 1;
+        }
+    }
     double P[TPN_SLOW_POINTS], Vp[TPN_SLOW_POINTS], Ap[TPN_SLOW_POINTS];
     int i, n = slowPoints(S, V, P, Vp, Ap);
     for (i = 0; i < n; i++) {
-        /* past P the controller keeps v + a^2 / 2J within Vp, so it brakes
-         * as from (Vp, 0) after ramping its acceleration out */
         runLimits(P[i], S, &A, &J);
+        double Ab = A, Jb = J;
         A *= TPN_BRAKE_SCALE;
         J *= TPN_BRAKE_SCALE;
         double ramp = Vp[i] * fmin(Ap[i], sqrt(2.0 * J * Vp[i])) / J;
         if (ramp + tpnBrakeDist(Vp[i], 0.0, V, A, J) <= S - P[i] - 1e-9) {
+            tpn.slow_P = P[i];
+            tpn.slow_V = Vp[i];
+            tpn.slow_Ap = Ap[i];
+            tpn.slow_A = Ab;
+            tpn.slow_J = Jb;
             return 1;
         }
     }
@@ -875,7 +895,25 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     if (h != h0) {
         blendBuild(prev, sg, h, &b);
         if (!lines) {
-            blendLimits(tp, ax, prev, sg, &b, &lim, sub);
+            /* the bounds of the blend taken, for the limits at the
+             * highest override below as well */
+            blendParts(tp, ax, prev, sg, &b, &pt);
+            h0 = h;
+            partLimits(ax, &pt, 1.0, &lim, sub);
+        } else if (pt.jon) {
+            /* the axes scale with a blend between two lines, the joints
+             * only roughly: their bounds from the blend taken, put back to
+             * the scale of pt */
+            double r = h0 / h;
+            jointBlendParts(&b, &tpn.jtail, &tpn.jhead, &prev->geom.p1, pt.jb);
+            for (k = 0; k < TPN_NSUB; k++) {
+                for (i = 0; i < tpn.jl.n; i++) {
+                    pt.jb[k].G1s[i] /= r;
+                    pt.jb[k].G2s[i] /= r * r;
+                    pt.jb[k].G2m[i] /= r;
+                }
+            }
+            partLimits(ax, &pt, r, &lim, sub);
         }
     }
     if (lim.V < 1e-6 || lim.A < 1e-9 || !reachable(segEnd(prev) - h, lim.V)) {
@@ -889,12 +927,13 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     for (k = 0; k < TPN_NSUB; k++) {
         sg->lim_sub[k] = sub[k];
     }
-    blendParts(tp, ax, prev, sg, &b, &pt);
+    /* pt holds the bounds of the blend of half length h0, which between
+     * two lines is this one scaled about the corner */
     pt.vwant *= speedFactor(tp);
     if (pt.vtop < TPN_BIG) {
         pt.vtop = fmax(prev->lim_int_hi.V, sg->lim_int_hi.V);
     }
-    partLimits(ax, &pt, 1.0, &lim, sg->lim_sub_hi);
+    partLimits(ax, &pt, h0 / h, &lim, sg->lim_sub_hi);
     sg->vreq_bin = fmin(prev->vreq, sg->vreq);
     /* the lower of the two caps, where 0 is none */
     sg->vlimit_bin = prev->vlimit_scale <= 0.0 ? sg->vlimit_scale
@@ -1005,6 +1044,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         sg->S0 = tpn.cur_s;
         sg->stop_in = 1;
         tpn.A_lo = tpn.J_lo = TPN_BIG;
+        tpn.slow_A = tpn.slow_J = TPN_BIG;
     }
     tpn.jtail = tail;
     tpn.jseed_valid = jon;
@@ -1020,6 +1060,14 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     }
     tpn.A_lo = fmin(tpn.A_lo, sg->lim_int.A);
     tpn.J_lo = fmin(tpn.J_lo, sg->lim_int.J);
+    if (tpn.slow_A < TPN_BIG) {
+        if (sg->h_in > 0.0) {
+            tpn.slow_A = fmin(tpn.slow_A, sg->lim_bin.A);
+            tpn.slow_J = fmin(tpn.slow_J, sg->lim_bin.J);
+        }
+        tpn.slow_A = fmin(tpn.slow_A, sg->lim_int.A);
+        tpn.slow_J = fmin(tpn.slow_J, sg->lim_int.J);
+    }
 
     tpn.q_len++;
     tp->queue._len = tpn.q_len;

@@ -212,6 +212,11 @@ typedef struct {
     /* lower bounds of the smallest acceleration and jerk limits of the
      * queued pieces, see reachable() */
     double A_lo, J_lo;
+    /* the latest slow point reachable() found enough: its start, speed
+     * cap and acceleration limit, and lower bounds of the limits of the
+     * pieces from there to the end of the queue; valid while slow_A is
+     * below TPN_BIG */
+    double slow_P, slow_V, slow_Ap, slow_A, slow_J;
     /* spindle position sync: while track is set the controller follows
      * s_ref, v_ref and a_ref instead of the requested speed */
     int track;

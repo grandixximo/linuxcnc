@@ -42,6 +42,8 @@ MODULE_LICENSE("GPL");
 tpn_state tpn = {
     .lin_mask = 0707,
     .ang_mask = 0070,
+    .slow_A = TPN_BIG,
+    .slow_J = TPN_BIG,
 };
 
 static void (*_DioWrite)(int, char);
