@@ -507,6 +507,80 @@ void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
     tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
 }
 
+static void jointAt(tpn_jb const *jb, int j, double r, double *G, double *G1, double *G2)
+{
+    *G = jb->G[j];
+    *G1 = r * jb->G1s[j] + jb->G1u[j];
+    *G2 = r * r * jb->G2s[j] + r * jb->G2m[j] + jb->G2u[j];
+}
+
+void tpnLimitCapsJ(tpn_caps const *axcaps, double r, tpn_jlim const *jl, tpn_jb const *jb,
+        tpn_caps *caps)
+{
+    double s2 = r == 1.0 ? 1.0 : sqrt(r);
+    double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
+    double G, G1, G2;
+    int j, curved = axcaps->curved;
+    for (j = 0; j < jl->n; j++) {
+        jointAt(jb, j, r, &G, &G1, &G2);
+        if (G1 > TPN_TINY || G2 > TPN_TINY) {
+            curved = 1;
+        }
+    }
+    double fa = curved ? 0.5 : 0.0;
+    double fj2 = curved ? 0.25 : 0.0;
+    double V2 = TPN_BIG, V3 = TPN_BIG;
+    caps->curved = curved;
+    caps->Vg = axcaps->Vg;
+    for (j = 0; j < jl->n; j++) {
+        jointAt(jb, j, r, &G, &G1, &G2);
+        if (G > TPN_TINY) {
+            caps->Vg = fmin(caps->Vg, jl->vel[j] / G);
+        }
+        if (G1 > TPN_TINY) {
+            V2 = fmin(V2, fa * jl->acc[j] / G1);
+        }
+        if (G2 > TPN_TINY) {
+            V3 = fmin(V3, fj2 * jl->jerk[j] / G2);
+        }
+    }
+    caps->V2 = fmin(axcaps->V2 / s2, V2 < TPN_BIG ? sqrt(V2) : TPN_BIG);
+    caps->V3 = fmin(axcaps->V3 / s3, V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG);
+    caps->V2max = fmin(axcaps->V2max / s2, V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG);
+    caps->V3max = fmin(axcaps->V3max / s3, V3 < TPN_BIG ? cbrt_pos(V3 * TPN_CURVE_JMAX / fj2) : TPN_BIG);
+}
+
+void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, int curved,
+        tpn_lim *lim)
+{
+    double fj = curved ? 2.0 / 3.0 : 1.0;
+    double G, G1, G2;
+    int j;
+    for (j = 0; j < jl->n; j++) {
+        jointAt(jb, j, r, &G, &G1, &G2);
+        double ra = jl->acc[j] - V * V * G1;
+        double rj = jl->jerk[j] - V * V * V * G2;
+        if (G > TPN_TINY) {
+            lim->A = fmin(lim->A, ra / G);
+            lim->J = fmin(lim->J, fj * rj / G);
+        }
+        if (G1 > TPN_TINY && V > TPN_TINY) {
+            lim->A = fmin(lim->A, (1.0 - fj) * rj / (3.0 * V * G1));
+        }
+    }
+}
+
+void tpnLimitsJ(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1, tpn_vec const *G2,
+        tpn_jlim const *jl, tpn_jb const *jb, double vcap, double vwant, tpn_lim *lim)
+{
+    tpn_caps axcaps, caps;
+    tpnLimitCaps(ax, G, G1, G2, &axcaps);
+    tpnLimitCapsJ(&axcaps, 1.0, jl, jb, &caps);
+    double V = fmin(fmin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
+    tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
+    tpnJointLimitsAt(jl, jb, 1.0, V, caps.curved, lim);
+}
+
 /* distance of the symmetric velocity change from (v1, 0) down to (vt, 0) */
 static double symDist(double v1, double vt, double A, double J)
 {
