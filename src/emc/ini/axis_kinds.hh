@@ -17,11 +17,14 @@
 #include <inifile.hh>
 
 /* Axis numbers, the bit of each axis in the masks below */
+#ifndef AXIS_INDEX_DECLARED
+#define AXIS_INDEX_DECLARED
 enum AxisIndex {
     AXIS_X, AXIS_Y, AXIS_Z,
     AXIS_A, AXIS_B, AXIS_C,
     AXIS_U, AXIS_V, AXIS_W,
 };
+#endif
 
 #define AXIS_KINDS_ALL     0x1ffu   /* X Y Z A B C U V W, bit 0 is X */
 #define AXIS_KINDS_ABC     0x038u   /* angular unless the INI says otherwise */

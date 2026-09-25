@@ -33,13 +33,16 @@ extern "C" {
 /* Maximum number of joints supported */
 #define KINEMATICS_USER_MAX_JOINTS 9
 
-/* Axis coordinate indices for EmcPose */
-typedef enum {
-    AXIS_X = 0, AXIS_Y = 1, AXIS_Z = 2,
-    AXIS_A = 3, AXIS_B = 4, AXIS_C = 5,
-    AXIS_U = 6, AXIS_V = 7, AXIS_W = 8,
-    AXIS_COUNT = 9
-} AxisIndex;
+/* Axis coordinate indices for EmcPose, the numbers axis_kinds.hh names */
+#ifndef AXIS_INDEX_DECLARED
+#define AXIS_INDEX_DECLARED
+enum AxisIndex {
+    AXIS_X, AXIS_Y, AXIS_Z,
+    AXIS_A, AXIS_B, AXIS_C,
+    AXIS_U, AXIS_V, AXIS_W,
+};
+#endif
+#define AXIS_COUNT 9
 
 /* Opaque context for userspace kinematics */
 typedef struct KinematicsUserContext KinematicsUserContext;
