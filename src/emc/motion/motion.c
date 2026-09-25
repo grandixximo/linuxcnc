@@ -31,6 +31,7 @@
 
 // old modules export no kinematicsTypeFlags; keep it optional
 #pragma weak kinematicsTypeFlags
+#pragma weak kinematicsJacobian
 
 /***********************************************************************
 *                    KERNEL MODULE PARAMETERS                          *
@@ -276,6 +277,54 @@ int count_names(char *names[], int max_length)
     return count;
 }
 
+/* the kinematics the planner bounds the joints with, on the flags and
+   solution branch motion runs the inverse on */
+static int tp_kins_identity(void)
+{
+    int flags = emcmotStatus->switchkins_flags[emcmotStatus->switchkins_type];
+    return flags >= 0 ? (flags & KINSTYPE_IDENTITY) != 0
+                      : emcmotConfig->kinType == KINEMATICS_IDENTITY;
+}
+
+static int tp_kins_joints(void)
+{
+    return NO_OF_KINS_JOINTS;
+}
+
+static int tp_kins_inverse(EmcPose const *pos, double *jpos)
+{
+    KINEMATICS_INVERSE_FLAGS i = iflags;
+    KINEMATICS_FORWARD_FLAGS f = fflags;
+    return kinematicsInverse(pos, jpos, &i, &f);
+}
+
+static int tp_kins_jacobian(double const *jpos, EmcPose const *pos, double jac[][9])
+{
+    double j[EMCMOT_MAX_JOINTS][EMCMOT_MAX_AXIS];
+    KINEMATICS_INVERSE_FLAGS i = iflags;
+    int n, a;
+    if (!kinematicsJacobian || kinematicsJacobian(jpos, pos, j, &i) != 0) { return -1; }
+    for (n = 0; n < NO_OF_KINS_JOINTS; n++) {
+        for (a = 0; a < EMCMOT_MAX_AXIS; a++) { jac[n][a] = j[n][a]; }
+    }
+    return 0;
+}
+
+static void tp_kins_joint_pos(double *jpos)
+{
+    int n;
+    for (n = 0; n < NO_OF_KINS_JOINTS; n++) { jpos[n] = joints[n].pos_cmd; }
+}
+
+static double tp_joint_vel_limit(int n) { return joints[n].vel_limit; }
+static double tp_joint_acc_limit(int n) { return joints[n].acc_limit; }
+static double tp_joint_jerk_limit(int n) { return joints[n].jerk_limit; }
+
+static const tp_kins_t tp_kins = {
+    tp_kins_identity, tp_kins_joints, tp_kins_inverse, tp_kins_jacobian,
+    tp_kins_joint_pos, tp_joint_vel_limit, tp_joint_acc_limit, tp_joint_jerk_limit,
+};
+
 static int module_intfc() {
     homeMotFunctions(emcmotSetRotaryUnlock
                     ,emcmotGetRotaryIsUnlocked
@@ -294,6 +343,7 @@ static int module_intfc() {
     tpMotData(emcmotStatus
              ,emcmotConfig
              );
+    tpMotKins(&tp_kins);
     return 0;
 }
 
