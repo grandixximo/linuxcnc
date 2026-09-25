@@ -19,6 +19,8 @@
  * it also keeps the reference reachable */
 #define TPN_SYNC_W 80.0
 #define TPN_SYNC_LAND 0.02
+/* landing plans tried beyond the shortest, in steps */
+#define TPN_LAND_EXTRA 4
 
 /* deadbeat stop sequence in progress */
 #define TPN_DB_MAX 40
@@ -47,6 +49,45 @@ static int conOk(double v1, double a1, double d, double V, double A, double J)
 {
     double bd = tpnBrakeDist(v1, a1, V, A, J);
     return bd <= fmax(d, 0.0) + 1e-12;
+}
+
+/* Shortest distance in which (v0, a0) gets down to vt, still braking if
+ * need be: the deceleration ramps to A and holds, and is let go only
+ * past vt. Zero if the speed never exceeds vt. */
+static double reachDist(double v0, double a0, double vt, double A, double J)
+{
+    double d = 0.0;
+    if (vt < 0.0) {
+        vt = 0.0;
+    }
+    if (a0 >= 0.0) {
+        double t1 = a0 / J;
+        double v1 = v0 + 0.5 * a0 * t1;
+        if (v1 <= vt) {
+            return 0.0;
+        }
+        d = v0 * t1 + 0.5 * a0 * t1 * t1 - J * t1 * t1 * t1 / 6.0;
+        v0 = v1;
+        a0 = 0.0;
+    } else if (v0 <= vt) {
+        return 0.0;
+    }
+    /* from (vv, 0) the deceleration ramps down through a0 */
+    double Aeff = fmax(A, -a0);
+    double t0 = -a0 / J;
+    double vv = v0 + 0.5 * a0 * a0 / J;
+    double dpre = vv * t0 - J * t0 * t0 * t0 / 6.0;
+    double dv = vv - vt, dr;
+    if (dv <= 0.5 * Aeff * Aeff / J) {
+        double t = sqrt(2.0 * dv / J);
+        dr = vv * t - J * t * t * t / 6.0;
+    } else {
+        double t2 = Aeff / J;
+        double v2 = vv - 0.5 * Aeff * t2;
+        double t3 = (v2 - vt) / Aeff;
+        dr = vv * t2 - J * t2 * t2 * t2 / 6.0 + v2 * t3 - 0.5 * Aeff * t3 * t3;
+    }
+    return d + fmax(0.0, dr - dpre);
 }
 
 /* distance needed to bring |a1| down to Aentry */
@@ -257,6 +298,12 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
     }
     tpn_con const *c = &con[k];
     double d = c->S - n->s1;
+    /* inside a chain of caps stepping down, a cap may be met still
+     * braking: the speed only goes on down to the next one. Met at rest
+     * in acceleration, each would be a small plateau of its own, and the
+     * jerk would swing from one to the next. */
+    int chain = k + 1 < ncon && con[k + 1].Vh > 0.0 && con[k + 1].Vh < c->Vh;
+    int chain_s = k + 1 < ncon && con[k + 1].Vs >= 0.0 && con[k + 1].Vs < c->Vs;
     double J = fmin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
     double A = fmin(c->Arun, st->A) * TPN_BRAKE_SCALE;
     if (what == CHK_HARD || what == CHK_SPEED) {
@@ -264,12 +311,18 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
             /* leave the deadbeat finish a little room to land on a cycle */
             d -= 4.0 * J * g_dt * g_dt * g_dt;
         }
+        int ok = chain ? reachDist(n->v1, n->a1, c->Vh, A, J) <= fmax(d, 0.0) + 1e-12
+            : conOk(n->v1, n->a1, d, c->Vh, A, J);
         if (what == CHK_SPEED) {
-            return conOk(n->v1, n->a1, d, c->Vh, A, J);
+            return ok;
         }
-        return conOk(n->v1, n->a1, d, c->Vh, A, J) && accEntryOk(n->v1, n->a1, d, c->Aentry, J);
+        return ok && accEntryOk(n->v1, n->a1, d, c->Aentry, J);
     }
-    return c->Vs < 0.0 || conOk(n->v1, n->a1, d, c->Vs, A, J);
+    if (c->Vs < 0.0) {
+        return 1;
+    }
+    return chain_s ? reachDist(n->v1, n->a1, c->Vs, A, J) <= fmax(d, 0.0) + 1e-12
+        : conOk(n->v1, n->a1, d, c->Vs, A, J);
 }
 
 /* smallest jerk that keeps the motion from reversing */
@@ -447,6 +500,70 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     }
     if (Vtrack < TPN_BIG) {
         j = fmin(j, jerkTrack(Vtrack, jlo, jhi, J, dt));
+    }
+    return j;
+}
+
+/* Jerk j_k = c0 + c1 k, k = 0 .. N-1, that takes (v, a) to (Vt, 0) in N
+ * steps. */
+static int landPlan(double v, double a, double Vt, int N, double dt, double *c0, double *c1)
+{
+    double S1 = 0.5 * N * (N - 1.0), S2 = (N - 1.0) * N * (2.0 * N - 1.0) / 6.0;
+    double m10 = 0.5 * N * N, m11 = (N - 0.5) * S1 - S2;
+    double r0 = -a / dt, r1 = (Vt - v - N * a * dt) / (dt * dt);
+    double det = N * m11 - S1 * m10;
+    if (fabs(det) < 1e-12) {
+        return 0;
+    }
+    *c0 = (r0 * m11 - S1 * r1) / det;
+    *c1 = (N * r1 - m10 * r0) / det;
+    return 1;
+}
+
+/* A speed plateau. Riding the braking curve onto a speed cap ends with an
+ * acceleration below one cycle of jerk, which no jerk takes to zero
+ * without passing the cap: the largest jerk under it overshoots into the
+ * opposite acceleration, and back, the jerk flipping sign cycle after
+ * cycle. Nor can the curve be left at its end without a reversal of the
+ * jerk. So leave it at its start: once N steps of jerk of one sign,
+ * changing linearly, land (v, a) exactly on the cap with no
+ * acceleration, follow them. A plan braking no later than the jerk
+ * chosen keeps every cap; one braking later only if they all hold. */
+static double landJerk(TP_STRUCT const *tp, tpn_step const *st, double j)
+{
+    double dt = tp->cycleTime, a = tpn.cur_a, v = tpn.cur_v;
+    double Vt = st->Vs >= 0.0 ? fmin(st->Vs, st->V) : st->V;
+    double Jf = st->J, sg = a > 0.0 ? 1.0 : -1.0;
+    tpn_next n;
+    int n0, N, i;
+    if (Vt >= TPN_BIG || a == 0.0 || (a > 0.0) != (v < Vt)) {
+        return j;
+    }
+    n0 = (int)ceil(fabs(a) / (Jf * dt));
+    if (n0 < 2) {
+        n0 = 2;
+    }
+    for (N = n0; N <= n0 + TPN_LAND_EXTRA; N++) {
+        double c0, c1;
+        if (!landPlan(v, a, Vt, N, dt, &c0, &c1)) {
+            continue;
+        }
+        double jN = c0 + c1 * (N - 1);
+        if (sg * c0 > 1e-9 * Jf || sg * jN > 1e-9 * Jf || fabs(c0) > Jf || fabs(jN) > Jf) {
+            continue;
+        }
+        if (c0 > j) {
+            int ok;
+            stepState(c0, dt, &n);
+            ok = checkOne(-1, CHK_HARD, &n, st) && checkOne(-1, CHK_SOFT, &n, st);
+            for (i = 0; i < ncon && ok; i++) {
+                ok = checkOne(i, CHK_HARD, &n, st) && checkOne(i, CHK_SOFT, &n, st);
+            }
+            if (!ok) {
+                continue;
+            }
+        }
+        return c0;
     }
     return j;
 }
@@ -748,6 +865,9 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
         j = syncJerk(tp, &st, j);
     }
     tpn.step_V = st.V;
+    if (!tpn.track) {
+        j = landJerk(tp, &st, j);
+    }
     if (scale > 0.0 && finishStop(tp, &st, &jf)) {
         j = jf;
     }
