@@ -164,6 +164,7 @@ typedef struct {
     tpn_vec G[TPN_NSUB], G1[TPN_NSUB], G2[TPN_NSUB];
     tpn_caps caps[TPN_NSUB];
     double vcap[TPN_NSUB];
+    double vwant;           /* programmed feed through the blend */
 } tpn_parts;
 
 static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
@@ -171,6 +172,7 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
 {
     double vcap = fmin(prev->vreq, sg->vreq) * speedFactor(tp);
     int k;
+    pt->vwant = fmin(prev->vreq, sg->vreq);
     for (k = 0; k < TPN_NSUB; k++) {
         tpn_blend part;
         tpnBlendPart(b, (double)k / TPN_NSUB, (double)(k + 1) / TPN_NSUB, &part);
@@ -185,13 +187,11 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
 static void partLimits(tpn_axlim const *ax, tpn_parts const *pt, double r, tpn_lim *lim,
         tpn_lim *sub)
 {
-    double s2 = r == 1.0 ? 1.0 : sqrt(r);
-    double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
     int k;
     lim->V = lim->A = lim->J = TPN_BIG;
     for (k = 0; k < TPN_NSUB; k++) {
         tpn_lim l;
-        double V = fmin(pt->vcap[k], fmin(pt->caps[k].V2 / s2, pt->caps[k].V3 / s3));
+        double V = fmin(pt->vcap[k], tpnCurveCap(&pt->caps[k], r, pt->vwant));
         tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, pt->caps[k].curved, &l);
         lim->V = fmin(lim->V, l.V);
         lim->A = fmin(lim->A, l.A);
@@ -636,9 +636,9 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         for (i = 0; i < TPN_NAX; i++) {
             axs.vel[i] /= TPN_LIMIT_SCALE;
         }
-        tpnLimits(&axs, &G, &G1, &G2, vmax, &sg->lim_int);
+        tpnLimits(&axs, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
     } else {
-        tpnLimits(&ax, &G, &G1, &G2, vmax, &sg->lim_int);
+        tpnLimits(&ax, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
     }
 
     if (tpn.q_len > 0) {

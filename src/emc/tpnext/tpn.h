@@ -113,18 +113,23 @@ void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2);
 void tpnBlendPart(tpn_blend const *b, double t0, double t1, tpn_blend *part);
 
 /* limits */
-/* limits of a piece whose speed is also capped at vcap */
+/* limits of a piece whose speed is also capped at vcap, for the
+ * programmed feed vwant */
 void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
-        tpn_vec const *G2, double vcap, tpn_lim *lim);
+        tpn_vec const *G2, double vcap, double vwant, tpn_lim *lim);
 /* the same in two steps, for pieces whose G1 and G2 scale by r and r^2:
  * the speed caps from the unscaled bounds, which scale by 1 / sqrt(r)
- * (V2) and r^(-2/3) (V3), then the limits at a speed V */
+ * (V2) and r^(-2/3) (V3), then the limits at a speed V. V2 and V3 leave
+ * the rest of the limits for speed changes along the path; V2max and
+ * V3max leave less, taken only as far as the programmed feed needs. */
 typedef struct {
-    double Vg, V2, V3;
+    double Vg, V2, V3, V2max, V3max;
     int curved;
 } tpn_caps;
 void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         tpn_vec const *G2, tpn_caps *caps);
+/* speed cap of the curvature of a piece scaled by r, for the feed vwant */
+double tpnCurveCap(tpn_caps const *caps, double r, double vwant);
 void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         tpn_vec const *G2, double r, double V, int curved, tpn_lim *lim);
 
