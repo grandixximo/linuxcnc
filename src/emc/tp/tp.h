@@ -97,6 +97,24 @@ void tpMotFunctions(void(*pDioWrite)(int,char)
                    ,int(*paxis_is_angular)(int)
                    );
 
+// The kinematics a planner may bound the joints with.  The joint count
+// is that of the kinematics, extra joints excluded; jac rows are joints,
+// columns the nine axes.  inverse reads joints as the seed.  identity is
+// nonzero while the kinematics in force is the identity, and then the
+// axis limits are all there is.
+#define TP_KINS_MAX_JOINTS 16
+typedef struct {
+    int (*identity)(void);
+    int (*joints)(void);
+    int (*inverse)(EmcPose const *pos, double *joints);
+    int (*jacobian)(double const *joints, EmcPose const *pos, double jac[][9]);
+    void (*joint_pos)(double *joints);
+    double (*joint_vel_limit)(int);
+    double (*joint_acc_limit)(int);
+    double (*joint_jerk_limit)(int);
+} tp_kins_t;
+void tpMotKins(tp_kins_t const *kins);
+
 // These are here so we don't need to include "motion/motion.h"
 // because that feels very wrong. The real solution is to untangle
 // motion controller and trajectory planner sources. Only the shared
