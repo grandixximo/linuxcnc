@@ -361,6 +361,55 @@ int tpGetPos(TP_STRUCT const * const tp, EmcPose * const pos)
     return TP_ERR_OK;
 }
 
+int tpGetGoalPos(TP_STRUCT const * const tp, EmcPose * const pos)
+{
+    if (!tp) {
+        ZERO_EMC_POSE((*pos));
+        return TP_ERR_FAIL;
+    }
+    *pos = tp->goalPos;
+    return TP_ERR_OK;
+}
+
+/* Joint interpolated moves (G53.4 family) are not planned here yet: the
+ * queue refuses them and never holds one, so the joint queries answer
+ * that none is active or queued. */
+int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
+        int num_joints, EmcPose world_end, int canon_motion_type,
+        double vel, double ini_maxvel, double acc, double ini_maxjerk,
+        unsigned char enables, struct state_tag_t tag)
+{
+    (void)tp; (void)start; (void)end; (void)num_joints; (void)world_end;
+    (void)canon_motion_type; (void)vel; (void)ini_maxvel; (void)acc;
+    (void)ini_maxjerk; (void)enables; (void)tag;
+    rtapi_print_msg(RTAPI_MSG_ERR, "tpnextmod: joint interpolated moves are not supported\n");
+    return TP_ERR_FAIL;
+}
+
+int tpGetJointPos(TP_STRUCT const * const tp, double * const joints)
+{
+    (void)tp; (void)joints;
+    return 0;
+}
+
+int tpTakeJointEnd(TP_STRUCT * const tp, double * const joints)
+{
+    (void)tp; (void)joints;
+    return 0;
+}
+
+int tpJointSegmentsQueued(TP_STRUCT const * const tp)
+{
+    (void)tp;
+    return 0;
+}
+
+int tpGetQueueEndJoints(TP_STRUCT const * const tp, double * const joints)
+{
+    (void)tp; (void)joints;
+    return 0;
+}
+
 int tpIsDone(TP_STRUCT * const tp)
 {
     return tp ? tp->done : TP_ERR_OK;
@@ -816,15 +865,20 @@ EXPORT_SYMBOL(tpMotData);
 EXPORT_SYMBOL(tpAbort);
 EXPORT_SYMBOL(tpActiveDepth);
 EXPORT_SYMBOL(tpAddCircle);
+EXPORT_SYMBOL(tpAddJointLine);
 EXPORT_SYMBOL(tpAddLine);
 EXPORT_SYMBOL(tpAddRigidTap);
 EXPORT_SYMBOL(tpClear);
 EXPORT_SYMBOL(tpCreate);
 EXPORT_SYMBOL(tpGetExecId);
 EXPORT_SYMBOL(tpGetExecTag);
+EXPORT_SYMBOL(tpGetGoalPos);
+EXPORT_SYMBOL(tpGetJointPos);
 EXPORT_SYMBOL(tpGetMotionType);
 EXPORT_SYMBOL(tpGetPos);
+EXPORT_SYMBOL(tpGetQueueEndJoints);
 EXPORT_SYMBOL(tpIsDone);
+EXPORT_SYMBOL(tpJointSegmentsQueued);
 EXPORT_SYMBOL(tpPause);
 EXPORT_SYMBOL(tpQueueDepth);
 EXPORT_SYMBOL(tpResume);
@@ -840,5 +894,6 @@ EXPORT_SYMBOL(tpSetSpindleSync);
 EXPORT_SYMBOL(tpSetTermCond);
 EXPORT_SYMBOL(tpSetVlimit);
 EXPORT_SYMBOL(tpSetVmax);
+EXPORT_SYMBOL(tpTakeJointEnd);
 
 EXPORT_SYMBOL(tcqFull);
