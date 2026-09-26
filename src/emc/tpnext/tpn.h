@@ -174,6 +174,7 @@ void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
  * V3max leave less, taken only as far as the programmed feed needs. */
 typedef struct {
     double Vg, V2, V3, V2max, V3max;
+    double scale;           /* share of the curvature caps taken, 1 but at corners */
     int curved;
 } tpn_caps;
 void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,

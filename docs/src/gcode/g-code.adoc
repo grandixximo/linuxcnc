@@ -2349,6 +2349,8 @@ aggressiveness in one modal dial:
   speed that the look-ahead may use: 'R1.0' is full corner speed, lower
   values corner more gently ('R0.5' matches the initial S-curve release).
   Values outside 0.1..1.0 are clamped.
+  With the `tpnextmod` trajectory planner the value scales the speed the
+  curvature of each corner allows.
 
 The program only requests 'trapezoidal' or 'smooth'; which smooth planner
 implements the request is machine configuration

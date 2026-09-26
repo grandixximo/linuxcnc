@@ -824,6 +824,19 @@ typedef struct {
     tpn_jb jb[TPN_NSUB];
 } tpn_parts;
 
+/* G64 R0.1 to R1 (or [TRAJ]SCURVE_PEAK_SCALE): the share of the speed
+ * the curvature of a corner allows that the S-curve planner takes, as
+ * tpmod does */
+static double cornerScale(TP_STRUCT const *tp)
+{
+    double r = tpn.emcmotStatus->scurve_peak_scale;
+    if (tpn.emcmotStatus->planner_type != 1 || tp->synchronized == TC_SYNC_POSITION
+            || !(r >= 0.1 && r <= 1.0)) {
+        return 1.0;
+    }
+    return r;
+}
+
 static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
         tpn_seg const *sg, tpn_blend const *b, tpn_parts *pt)
 {
@@ -841,6 +854,7 @@ static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *
         tpnBlendPart(b, (double)k / TPN_NSUB, (double)(k + 1) / TPN_NSUB, &part);
         tpnBlendBounds(&part, &pt->G[k], &pt->G1[k], &pt->G2[k]);
         tpnLimitCaps(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], &pt->caps[k]);
+        pt->caps[k].scale = cornerScale(tp);
         pt->vcap[k] = fmin(vcap, pt->caps[k].Vg);
     }
     pt->jon = tpn.jtail.valid && tpn.jhead.valid;
