@@ -208,6 +208,9 @@ void tpnLimitsJ(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1, tpn_ve
 
 /* one dimensional jerk limited profile helpers */
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
+/* the speed change a ramp from V with zero acceleration at both ends
+ * makes over D, which is also how far above vt a stop at vt may start */
+double tpnRampReach(double V, double A, double J, double D);
 /* duration of the speed change dv with zero acceleration at both ends */
 double tpnRampTime(double dv, double A, double J);
 /* distance of that change from v0 to v1 */

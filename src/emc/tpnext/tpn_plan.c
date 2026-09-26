@@ -1054,28 +1054,17 @@ static double sideTime(double V, double vr, double A, double J, double D)
     if (d <= D) {
         return T + (D - d) / vr;
     }
-    /* D ends before vr. A jerk limited ramp by dv = x^2 covers
-     * (2 V x + x^3) / sqrt(J), so x solves x^3 + 2 V x = D sqrt(J), whose
-     * one real root is Cardano's; past dv = A^2 / J the ramp holds A and
-     * covers (V + dv / 2) (dv / A + A / J), a quadratic in dv. */
-    double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
-    double disc = sqrt(0.25 * q * q + p3 * p3 * p3);
-    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = pow(fmax(disc - 0.5 * q, 0.0), 1.0 / 3.0);
-    /* ca - cb without the cancellation: ca^3 - cb^3 = q */
-    double x = q / (ca * ca + ca * cb + cb * cb);
-    double dv = x * x;
-    if (dv * J > A * A) {
-        /* dv^2 / (2A) + dv (V / A + A / (2J)) - (D - V A / J) = 0 */
-        double a2 = 0.5 / A, b2 = V / A + 0.5 * A / J, c2 = D - V * A / J;
-        dv = 2.0 * c2 / (b2 + sqrt(b2 * b2 + 4.0 * a2 * c2));
-    }
-    return tpnRampTime(dv, A, J);
+    /* D ends before vr */
+    return tpnRampTime(tpnRampReach(V, A, J, D), A, J);
 }
 
-/* Estimated time over the interior before the corner, the blend of half
- * length h with the limits sub of its parts (none for a stop) and half of
- * the next move: each part of the blend at its speed cap, and speeding up
- * on the interiors on both sides. */
+/* Estimated time over the half of the move before the corner, the blend
+ * of half length h with the limits sub of its parts (none for a stop) and
+ * half of the next move, speeding up on the interiors on both sides. In
+ * the blend the speed at each boundary of its parts is at most the caps on
+ * both sides and what one jerk limited ramp reaches from any boundary
+ * before or after it, as the controller follows the caps; in a part the
+ * speed rises from both boundaries towards its cap. */
 static double cornerTime(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_lim const *sub,
         double vr)
 {
@@ -1083,15 +1072,49 @@ static double cornerTime(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_l
     double A = fmin(li->A, lo->A) * TPN_BRAKE_SCALE;
     double J = fmin(li->J, lo->J) * TPN_BRAKE_SCALE;
     double Vin = 0.0, Vout = 0.0, tb = 0.0;
-    int k;
+    int k, m;
     if (sub) {
-        for (k = 0; k < TPN_NSUB; k++) {
-            tb += 2.0 * h / TPN_NSUB / fmin(sub[k].V, vr);
+        double vb[TPN_NSUB + 1], part = 2.0 * h / TPN_NSUB;
+        for (k = 0; k <= TPN_NSUB; k++) {
+            vb[k] = vr;
+            if (k > 0) {
+                vb[k] = fmin(vb[k], sub[k - 1].V);
+            }
+            if (k < TPN_NSUB) {
+                vb[k] = fmin(vb[k], sub[k].V);
+            }
         }
-        Vin = fmin(sub[0].V, vr);
-        Vout = fmin(sub[TPN_NSUB - 1].V, vr);
+        /* one ramp from each boundary before, under the lowest limits on
+         * the way, then the same backwards */
+        for (k = 1; k <= TPN_NSUB; k++) {
+            double a = A, j = J;
+            for (m = k - 1; m >= 0; m--) {
+                a = fmin(a, sub[m].A);
+                j = fmin(j, sub[m].J);
+                vb[k] = fmin(vb[k], vb[m] + tpnRampReach(vb[m], a, j, (k - m) * part));
+            }
+        }
+        for (k = TPN_NSUB - 1; k >= 0; k--) {
+            double a = A, j = J;
+            for (m = k + 1; m <= TPN_NSUB; m++) {
+                a = fmin(a, sub[m - 1].A);
+                j = fmin(j, sub[m - 1].J);
+                vb[k] = fmin(vb[k], vb[m] + tpnRampReach(vb[m], a, j, (m - k) * part));
+            }
+        }
+        /* in a part the speed rises from both ends towards its cap */
+        for (k = 0; k < TPN_NSUB; k++) {
+            double a = fmin(A, sub[k].A), j = fmin(J, sub[k].J), v = fmin(sub[k].V, vr);
+            tb += sideTime(vb[k], v, a, j, 0.5 * part) + sideTime(vb[k + 1], v, a, j, 0.5 * part);
+        }
+        Vin = vb[0];
+        Vout = vb[TPN_NSUB];
     }
-    double Din = prev->geom.L - prev->h_in - h;
+    /* the half of each move next to the corner, the other corners of
+     * both taken alike: judged on what the previous corner chose, one
+     * stop would make the next corner stop too, along a whole chain of
+     * corners that would all be passed sooner blended */
+    double Din = 0.5 * prev->geom.L - h;
     double Dout = 0.5 * sg->geom.L - h;
     return tb + sideTime(Vin, vr, A, J, Din) + sideTime(Vout, vr, A, J, Dout);
 }
