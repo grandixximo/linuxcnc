@@ -1004,6 +1004,12 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     double dt = tp->cycleTime;
     int rev = tp->reverse_run == TC_DIR_REVERSE;
     g_dt = dt;
+    if (scale == 0.0 && tpn.cur_v == 0.0 && tpn.cur_a == 0.0) {
+        /* paused at rest: hold still, the search would creep by the
+         * smallest jerk it leaves */
+        tpn.cur_j = 0.0;
+        return;
+    }
     cx = rev ? -tpn.cur_s : tpn.cur_s;
 
     tpn_step st;
