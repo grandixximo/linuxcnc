@@ -77,6 +77,19 @@ int tpnLineInit(tpn_geom *g, EmcPose const *start, EmcPose const *end)
     return 0;
 }
 
+void tpnChordInit(tpn_geom *g, EmcPose const *start, EmcPose const *end, double L)
+{
+    int i;
+    g->type = TPN_LINE;
+    g->flat = 0;
+    tpnVecFromPose(&g->p0, start);
+    tpnVecFromPose(&g->p1, end);
+    g->L = L;
+    for (i = 0; i < TPN_NAX; i++) {
+        g->g.v[i] = (g->p1.v[i] - g->p0.v[i]) / L;
+    }
+}
+
 int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
         PmCartesian const *center, PmCartesian const *normal, int turn)
 {

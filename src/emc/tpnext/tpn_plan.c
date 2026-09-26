@@ -1113,7 +1113,7 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     if (sg->atspeed || sg->indexer_jnum != -1 || prev->indexer_jnum != -1) {
         stop = 1;
     }
-    if (prev->sync != sg->sync || prev->tap) {
+    if (prev->sync != sg->sync || prev->tap || prev->joint || sg->joint) {
         stop = 1;
     }
     double hmax = fmin(prev->geom.L - prev->h_in, 0.5 * sg->geom.L);
@@ -1346,12 +1346,13 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     sg->enables = enables;
     sg->atspeed = atspeed;
     sg->indexer_jnum = indexer_jnum;
-    sg->term_cond = tp->termCond;
+    sg->term_cond = sg->joint ? TC_TERM_COND_STOP : tp->termCond;
     sg->tolerance = tp->tolerance;
     sg->ang_tolerance = tpn.ang_tolerance;
-    sg->sync = tp->synchronized;
+    /* a point-to-point move has no path to follow a spindle along */
+    sg->sync = sg->joint ? TC_SYNC_NONE : tp->synchronized;
     sg->spindle = tp->spindle.spindle_num;
-    sg->uu_per_rev = tp->uu_per_rev;
+    sg->uu_per_rev = sg->joint ? 0.0 : tp->uu_per_rev;
     sg->vreq = fmin(vel, ini_maxvel > 0.0 ? ini_maxvel : vel);
     if (sg->vreq <= 0.0 || (sg->sync == TC_SYNC_POSITION && ini_maxvel > 0.0)) {
         /* the spindle sets the speed of a position synchronized move */
@@ -1382,7 +1383,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     if (ini_maxvel > 0.0) {
         vmax = fmin(vmax, ini_maxvel);
     }
-    jon = jointsOn(sg);
+    jon = !sg->joint && jointsOn(sg);
     sg->nint = 1;
     sg->hj_in = sg->hj_out = TPN_BIG;
     tpn.jhead.valid = 0;
@@ -1413,6 +1414,17 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         }
         tpnLimits(&axs, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
         tpnLimits(&axs, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
+    } else if (sg->joint) {
+        /* motion scaled the limits of the joints onto the joint space
+         * distance, the slowest joint setting them, and the caller left
+         * the acceleration and jerk in lim_int */
+        double A = sg->lim_int.A * TPN_LIMIT_SCALE;
+        double jtrap = A / (2.0 * tp->cycleTime);
+        sg->lim_int.A = A;
+        sg->lim_int.J = tpn.emcmotStatus->planner_type != 1 || sg->lim_int.J <= 0.0
+            ? jtrap : fmin(sg->lim_int.J * TPN_LIMIT_SCALE, jtrap);
+        sg->lim_int.V = ini_maxvel > 0.0 ? fmin(vmax, ini_maxvel * TPN_LIMIT_SCALE) : vmax;
+        sg->lim_int_hi = sg->lim_int;
     } else if (jon) {
         tpn_lim axl;
         int k, low = 0, floored = 0;
@@ -1477,6 +1489,14 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         for (j = 0; j < tpn.jl.n; j++) {
             tpn.jseed[j] = qend[j];
         }
+    } else if (sg->joint) {
+        /* the next move starts from the joint set this one ends on */
+        int j;
+        for (j = 0; j < sg->joint && j < TPN_NJ; j++) {
+            tpn.jseed[j] = sg->jq1[j];
+        }
+        tpn.jseed_valid = 1;
+        tpn.jmoves++;
     }
     if (sg->h_in > 0.0) {
         tpn.A_lo = fmin(tpn.A_lo, sg->lim_bin.A);

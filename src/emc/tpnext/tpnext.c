@@ -149,6 +149,7 @@ static void queueReset(TP_STRUCT * const tp)
     tpn.cur_s = tpn.cur_v = tpn.cur_a = tpn.cur_j = 0.0;
     tpn.jseed_valid = 0;
     tpn.jtail.valid = 0;
+    tpn.jmoves = 0;
     tpnSyncReset();
     tpnRunReset();
     tp->goalPos = tp->currentPos;
@@ -164,6 +165,7 @@ static void queueReset(TP_STRUCT * const tp)
 int tpClear(TP_STRUCT * const tp)
 {
     queueReset(tp);
+    tpn.jend_valid = 0;
     tp->nextId = 0;
     struct state_tag_t tag = {};
     tp->execTag = tag;
@@ -395,45 +397,6 @@ int tpGetGoalPos(TP_STRUCT const * const tp, EmcPose * const pos)
     return TP_ERR_OK;
 }
 
-/* Joint interpolated moves (G53.4 family) are not planned here yet: the
- * queue refuses them and never holds one, so the joint queries answer
- * that none is active or queued. */
-int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
-        int num_joints, EmcPose world_end, int canon_motion_type,
-        double vel, double ini_maxvel, double acc, double ini_maxjerk,
-        unsigned char enables, struct state_tag_t tag)
-{
-    (void)tp; (void)start; (void)end; (void)num_joints; (void)world_end;
-    (void)canon_motion_type; (void)vel; (void)ini_maxvel; (void)acc;
-    (void)ini_maxjerk; (void)enables; (void)tag;
-    rtapi_print_msg(RTAPI_MSG_ERR, "tpnextmod: joint interpolated moves are not supported\n");
-    return TP_ERR_FAIL;
-}
-
-int tpGetJointPos(TP_STRUCT const * const tp, double * const joints)
-{
-    (void)tp; (void)joints;
-    return 0;
-}
-
-int tpTakeJointEnd(TP_STRUCT * const tp, double * const joints)
-{
-    (void)tp; (void)joints;
-    return 0;
-}
-
-int tpJointSegmentsQueued(TP_STRUCT const * const tp)
-{
-    (void)tp;
-    return 0;
-}
-
-int tpGetQueueEndJoints(TP_STRUCT const * const tp, double * const joints)
-{
-    (void)tp; (void)joints;
-    return 0;
-}
-
 int tpIsDone(TP_STRUCT * const tp)
 {
     return tp ? tp->done : TP_ERR_OK;
@@ -561,7 +524,7 @@ static tpn_seg *newSlot(void)
 
 static void setReversible(tpn_seg *sg)
 {
-    sg->rev_ok = !sg->tap && sg->sync == TC_SYNC_NONE && sg->indexer_jnum == -1;
+    sg->rev_ok = !sg->tap && !sg->joint && sg->sync == TC_SYNC_NONE && sg->indexer_jnum == -1;
 }
 
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
@@ -578,6 +541,7 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
         return TP_ERR_FAIL;
     }
     tpn_seg *sg = newSlot();
+    sg->joint = 0;
     if (tpnLineInit(&sg->geom, &tp->goalPos, &end)) {
         return TP_ERR_ZERO_LENGTH;
     }
@@ -604,6 +568,7 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
         return TP_ERR_FAIL;
     }
     tpn_seg *sg = newSlot();
+    sg->joint = 0;
     if (tpnArcInit(&sg->geom, &tp->goalPos, &end, &center, &normal, turn)) {
         return TP_ERR_ZERO_LENGTH;
     }
@@ -633,6 +598,7 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
         return TP_ERR_FAIL;
     }
     tpn_seg *sg = newSlot();
+    sg->joint = 0;
     /* only XYZ move */
     EmcPose bottom = tp->goalPos;
     bottom.tran = end.tran;
@@ -648,6 +614,99 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
     }
     /* the tap ends where it started, goalPos stays */
     return res;
+}
+
+/* the first n joints of point-to-point move sg at S */
+static void jointsAt(tpn_seg const *sg, double S, int n, double *q)
+{
+    double f = sg->geom.L > 0.0 ? (S - sg->S0) / sg->geom.L : 1.0;
+    int j;
+    f = fmin(fmax(f, 0.0), 1.0);
+    for (j = 0; j < n; j++) {
+        q[j] = sg->jq0[j] + f * (sg->jq1[j] - sg->jq0[j]);
+    }
+}
+
+/* A point-to-point move (G53.4 to G53.7): motion hands the joints at both
+ * ends and the limits of the slowest joint scaled onto the joint space
+ * distance, which is the path parameter along the move. */
+int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
+        int num_joints, EmcPose world_end, int canon_motion_type,
+        double vel, double ini_maxvel, double acc, double ini_maxjerk,
+        unsigned char enables, struct state_tag_t tag)
+{
+    double L = 0.0;
+    int j;
+    if (!tp || !start || !end || num_joints <= 0 || num_joints > TPN_NJ) {
+        return TP_ERR_MISSING_INPUT;
+    }
+    if (tpn.q_len >= TPN_QSIZE) {
+        return TP_ERR_FAIL;
+    }
+    for (j = 0; j < num_joints; j++) {
+        L += (end[j] - start[j]) * (end[j] - start[j]);
+    }
+    L = sqrt(L);
+    if (L < TP_POS_EPSILON) {
+        return TP_ERR_ZERO_LENGTH;
+    }
+    tpn_seg *sg = newSlot();
+    tpnChordInit(&sg->geom, &tp->goalPos, &world_end, L);
+    sg->joint = num_joints;
+    for (j = 0; j < TPN_NJ; j++) {
+        sg->jq0[j] = j < num_joints ? start[j] : 0.0;
+        sg->jq1[j] = j < num_joints ? end[j] : 0.0;
+    }
+    sg->lim_int.A = acc;
+    sg->lim_int.J = ini_maxjerk;
+    int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, 0.0, enables, 0, -1,
+            tag);
+    if (res == TP_ERR_OK) {
+        sg->rev_ok = 0;
+        tp->goalPos = world_end;
+    }
+    return res;
+}
+
+int tpGetJointPos(TP_STRUCT const * const tp, double * const joints)
+{
+    tpn_seg const *sg = seg(0);
+    if (!tp || !joints || tpn.q_len == 0 || !sg->joint || !sg->active) {
+        return 0;
+    }
+    jointsAt(sg, tpn.cur_s, sg->joint, joints);
+    return sg->joint;
+}
+
+int tpTakeJointEnd(TP_STRUCT * const tp, double * const joints)
+{
+    int j;
+    if (!tp || !joints || !tpn.jend_valid) {
+        return 0;
+    }
+    for (j = 0; j < TPN_NJ; j++) {
+        joints[j] = tpn.jend[j];
+    }
+    tpn.jend_valid = 0;
+    return 1;
+}
+
+int tpJointSegmentsQueued(TP_STRUCT const * const tp)
+{
+    return tp ? tpn.jmoves : 0;
+}
+
+int tpGetQueueEndJoints(TP_STRUCT const * const tp, double * const joints)
+{
+    tpn_seg const *sg = seg(tpn.q_len - 1);
+    int j;
+    if (!tp || !joints || tpn.q_len == 0 || !sg->joint) {
+        return 0;
+    }
+    for (j = 0; j < TPN_NJ; j++) {
+        joints[j] = sg->jq1[j];
+    }
+    return 1;
 }
 
 /* ------------------------------------------------------------ runtime */
@@ -712,6 +771,14 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
 
 static void popFront(TP_STRUCT * const tp)
 {
+    tpn_seg const *sg = seg(0);
+    if (sg->joint) {
+        /* the joints it ended on seed motion's inverse of the point it
+         * left the machine at, which may have more than one joint set */
+        jointsAt(sg, segEnd(sg), TPN_NJ, tpn.jend);
+        tpn.jend_valid = 1;
+        tpn.jmoves--;
+    }
     tpn.q_start = (tpn.q_start + 1) % TPN_QSIZE;
     tpn.q_len--;
     if (tpn.h_len < TPN_QSIZE - tpn.q_len) {
@@ -881,6 +948,15 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
     }
 
     if (tp->aborting && tpn.cur_v <= 0.0 && tpn.cur_a == 0.0 && !tpnTapMoving()) {
+        /* stopped inside a point-to-point move: the machine is where the
+         * joints put it, which motion found from them last cycle, not on
+         * the chord, and the joints stay where they are */
+        int jhold = seg(0)->joint && seg(0)->active;
+        if (jhold) {
+            jointsAt(seg(0), tpn.cur_s, TPN_NJ, tpn.jend);
+            tp->currentPos = tpn.emcmotStatus->carte_pos_cmd;
+        }
+        tpn.jend_valid = jhold;
         queueReset(tp);
         statusIdle(tp);
         tp->reverse_run = TC_DIR_FORWARD;
