@@ -9,7 +9,6 @@
 #include "tpn.h"
 
 #define TPN_BIG 1e30
-#define TPN_TINY 1e-12
 
 void tpnVecFromPose(tpn_vec *v, EmcPose const *p)
 {
@@ -429,6 +428,9 @@ static double cbrt_pos(double x)
  */
 #define TPN_CURVE_AMAX 0.8
 #define TPN_CURVE_JMAX 0.6
+/* the joints bend harder than the axes along most moves and their jerk
+ * binds first: a cap under the feed may take more of it */
+#define TPN_JCURVE_JMAX 0.8
 
 void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         tpn_vec const *G2, tpn_caps *caps)
@@ -489,7 +491,7 @@ void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
             A = fmin(A, ra / G->v[i]);
             J = fmin(J, fj * rj / G->v[i]);
         }
-        if (g1 > TPN_TINY && V > TPN_TINY) {
+        if (fj < 1.0 && g1 > TPN_TINY && V > TPN_TINY) {
             A = fmin(A, (1.0 - fj) * rj / (3.0 * V * g1));
         }
     }
@@ -547,7 +549,7 @@ void tpnLimitCapsJ(tpn_caps const *axcaps, double r, tpn_jlim const *jl, tpn_jb 
     caps->V2 = fmin(axcaps->V2 / s2, V2 < TPN_BIG ? sqrt(V2) : TPN_BIG);
     caps->V3 = fmin(axcaps->V3 / s3, V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG);
     caps->V2max = fmin(axcaps->V2max / s2, V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG);
-    caps->V3max = fmin(axcaps->V3max / s3, V3 < TPN_BIG ? cbrt_pos(V3 * TPN_CURVE_JMAX / fj2) : TPN_BIG);
+    caps->V3max = fmin(axcaps->V3max / s3, V3 < TPN_BIG ? cbrt_pos(V3 * TPN_JCURVE_JMAX / fj2) : TPN_BIG);
 }
 
 void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, int curved,
@@ -564,7 +566,7 @@ void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, 
             lim->A = fmin(lim->A, ra / G);
             lim->J = fmin(lim->J, fj * rj / G);
         }
-        if (G1 > TPN_TINY && V > TPN_TINY) {
+        if (fj < 1.0 && G1 > TPN_TINY && V > TPN_TINY) {
             lim->A = fmin(lim->A, (1.0 - fj) * rj / (3.0 * V * G1));
         }
     }
