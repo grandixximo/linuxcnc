@@ -419,11 +419,13 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
     /* inside a chain of caps stepping down, a cap may be met still
      * braking: the speed only goes on down to the next one. Met at rest
      * in acceleration, each would be a small plateau of its own, and the
-     * jerk would swing from one to the next. */
-    int chain = k + 1 < ncon && con[k + 1].Vh > 0.0 && con[k + 1].Vh < c->Vh;
-    int chain_s = k + 1 < ncon && con[k + 1].Vs >= 0.0 && con[k + 1].Vs < c->Vs;
+     * jerk would swing from one to the next. Only into a piece that can
+     * hold the deceleration it is met with. */
     double J = fmin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
     double A = fmin(c->Arun, st->A) * TPN_BRAKE_SCALE;
+    int deep = c->Aentry >= A;
+    int chain = deep && k + 1 < ncon && con[k + 1].Vh > 0.0 && con[k + 1].Vh < c->Vh;
+    int chain_s = deep && k + 1 < ncon && con[k + 1].Vs >= 0.0 && con[k + 1].Vs < c->Vs;
     if (what == CHK_HARD || what == CHK_SPEED) {
         if (c->Vh <= 0.0) {
             /* leave the deadbeat finish a little room to land on a cycle */
