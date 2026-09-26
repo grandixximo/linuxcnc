@@ -340,9 +340,10 @@ static int jointAnchors(tpn_seg const *sg, tpn_jb *jb, tpn_jend *tail, double *q
             prev = dd;
         }
         m3 *= TPN_JMARGIN;
-        /* from the anchors to the peaks between them */
+        /* from the anchors to the peaks between them; q' strays from the
+         * line through two anchors by at most du^2/8 of its curvature */
+        m1 += 0.125 * du * du * m3;
         m2 += 0.5 * du * m3;
-        m1 += 0.5 * du * m2;
         jb->G[j] = m1;
         jb->G1s[j] = m2;
         jb->G2s[j] = m3;
