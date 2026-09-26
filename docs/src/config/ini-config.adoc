@@ -979,6 +979,13 @@ Finally, no amount of tweaking will speed up a tool path with lots of small, tig
   jerk-feasible corner speed; lower values corner more gently (0.5 matches the
   initial S-curve release). Clamped to 0.1..1.0. Tunable at runtime via the
   `ini.traj-scurve-peak-scale` HAL pin or the <<gcode:g64,G64 R word>>.
+* `SPEED_HUMP_TIME = 0.0` - (((SPEED HUMP TIME))) Between two slow points close together, such as the corners of a run of short moves, the S-curve planner speeds up as far as it can and slows down again at once.
+  Such a speed hump saves little time and shakes the machine like a vibration.
+  A speed hump shorter than this many seconds is left out: the motion holds its speed instead, for a single speed change.
+  0 (the default) leaves every hump in; 0.02 to 0.05 is a typical value.
+  The <<gcode:g64,G64 R word>> divides it: R0.5 leaves out humps up to twice as long.
+  A speed-up just before a stop is kept.
+  Only the `tpnextmod` trajectory planner honors it.
 * `SINGULAR_MODE = STOP` - (((SINGULAR MODE))) What the `tpnextmod` trajectory planner does with a move that passes a singular pose of the kinematics, where a joint could follow the path only at less than `SINGULAR_FLOOR` of the programmed feed.
   `STOP` (the default) refuses the move when it is queued, with an error naming its line and the joint, and the motion stops before it.
   `FLOOR` runs the move at `SINGULAR_FLOOR` of its feed there, faster than that joint's limits allow, with a message naming its line and the joint.

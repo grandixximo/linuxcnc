@@ -142,6 +142,7 @@ typedef struct {
     double E_sub_hi[TPN_NSUB], E_int_hi;
     int active;
     int rev_ok;             /* may be run backwards: no tap, sync or indexer */
+    double hump_t;          /* speed humps shorter than this are flattened, s */
 } tpn_seg;
 
 /* geometry */
@@ -197,6 +198,16 @@ void tpnLimitsJ(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1, tpn_ve
 
 /* one dimensional jerk limited profile helpers */
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
+/* duration of the speed change dv with zero acceleration at both ends */
+double tpnRampTime(double dv, double A, double J);
+/* distance of that change from v0 to v1 */
+double tpnRampDist(double v0, double v1, double A, double J);
+/* how long a speed hump from va to vb over D, with zero acceleration at
+ * both ends, stays above both, peaking at most at vtop, speeding up under
+ * Aa and Ja and slowing down under Ab and Jb; 0 if it does not get above
+ * them */
+double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, double Ja,
+        double Ab, double Jb);
 
 /* planner state, shared by tpnext.c (module API), tpn_plan.c (queue
  * build) and tpn_run.c (per cycle controller) */

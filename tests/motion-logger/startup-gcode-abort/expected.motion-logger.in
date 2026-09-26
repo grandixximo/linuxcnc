@@ -12,7 +12,7 @@ SET_JERK jerk=1e+09
 SET_PLANNER_TYPE planner_type=0
 SET_SCURVE_PEAK_SCALE scale=1
 SETUP_ARC_BLENDS
-SETUP_TP_OPTIONS singular_stop=1 singular_floor=0.001
+SETUP_TP_OPTIONS singular_stop=1 singular_floor=0.001 speed_hump_time=0
 SET_MAX_FEED_OVERRIDE 1
 SETUP_SET_PROBE_ERR_INHIBIT 0 0
 SET_WORLD_HOME x=0, y=0, z=0, a=0, b=0, c=0, u=0, v=0, w=0
