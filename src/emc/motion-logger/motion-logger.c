@@ -698,6 +698,11 @@ int main(int argc, char* argv[]) {
                 log_print("SETUP_ARC_BLENDS\n");
                 break;
 
+            case EMCMOT_SETUP_TP_OPTIONS:
+                log_print("SETUP_TP_OPTIONS singular_stop=%d singular_floor=%.6g\n",
+                          c->singularStop, c->singularFloor);
+                break;
+
             case EMCMOT_SET_PROBE_ERR_INHIBIT:
                 log_print("SETUP_SET_PROBE_ERR_INHIBIT %d %d\n",
                           c->probe_jog_err_inhibit,

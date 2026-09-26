@@ -2428,6 +2428,11 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
             emcmotConfig->arcBlendRampFreq = emcmotCommand->arcBlendRampFreq;
             emcmotConfig->arcBlendTangentKinkRatio = emcmotCommand->arcBlendTangentKinkRatio;
             break;
+        case EMCMOT_SETUP_TP_OPTIONS:
+            rtapi_print_msg(RTAPI_MSG_DBG, "SETUP_TP_OPTIONS");
+            emcmotConfig->singularStop = emcmotCommand->singularStop;
+            emcmotConfig->singularFloor = emcmotCommand->singularFloor;
+            break;
         case EMCMOT_SET_PROBE_ERR_INHIBIT:
             rtapi_print_msg(RTAPI_MSG_DBG, "SET_PROBE_ERR_INHIBIT");
             emcmot_config_change();
