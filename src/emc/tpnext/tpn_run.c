@@ -214,6 +214,13 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
     for (i = 0; i < tpn.q_len; i++) {
         tpn_seg *sg = seg(i);
         int piece;
+        /* the envelopes beyond hold for acceleration only: where the
+         * table fills up short of the horizon the motion stops */
+        if (nrun < 0 && ncon + tpnPieces(sg) + 3 > TPN_MAXCON) {
+            addCon(ownedStart(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
+            st->Sstop = fmin(st->Sstop, ownedStart(sg));
+            break;
+        }
         if (sg->stop_in && sg->S0 > tpn.cur_s) {
             addCon(sg->S0, 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
             st->Sstop = fmin(st->Sstop, sg->S0);
