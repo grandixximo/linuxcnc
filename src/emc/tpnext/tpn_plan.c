@@ -283,15 +283,36 @@ static int jointAnchors(tpn_seg const *sg, tpn_jb *jb, tpn_jend *tail, double *q
             q[j] = 0.0;
         }
     }
+    tpn_vec pprev;
+    double (*Jp)[TPN_NAX] = 0;
     for (k = 0; k <= K; k++) {
         tpn_vec p, d1;
         EmcPose pose;
         double (*Jk)[TPN_NAX] = k < 3 ? Jh[k] : Jt[k % 3];
         tpnGeomEval(g, k == K ? g->L : du * k, &p, &d1, 0);
-        tpnPoseFromVec(&pose, &p);
-        if (tpn.kins.inverse(&pose, q) != 0 || jacobianAt(q, &p, Jk) != 0) {
+        if (k == 0 && tpn.jseed_valid && tpn.q_len > 0) {
+            /* the previous move ended here */
+        } else if (k > 0 && k < K) {
+            /* between the ends q only places the Jacobian: carry it along
+             * the path instead of paying an inverse, which may iterate */
+            for (j = 0; j < n; j++) {
+                double s = 0.0;
+                for (a = 0; a < TPN_NAX; a++) {
+                    s += Jp[j][a] * (p.v[a] - pprev.v[a]);
+                }
+                q[j] += s;
+            }
+        } else {
+            tpnPoseFromVec(&pose, &p);
+            if (tpn.kins.inverse(&pose, q) != 0) {
+                return -1;
+            }
+        }
+        if (jacobianAt(q, &p, Jk) != 0) {
             return -1;
         }
+        pprev = p;
+        Jp = Jk;
         if (k >= K - 2 && k < 3) {
             /* a short move: its first anchors are also its last */
             for (j = 0; j < n; j++) {
