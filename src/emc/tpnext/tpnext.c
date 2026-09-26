@@ -145,6 +145,7 @@ static void queueReset(TP_STRUCT * const tp)
 {
     tpn.q_start = 0;
     tpn.q_len = 0;
+    tpn.h_len = 0;
     tpn.cur_s = tpn.cur_v = tpn.cur_a = tpn.cur_j = 0.0;
     tpn.jseed_valid = 0;
     tpn.jtail.valid = 0;
@@ -478,14 +479,24 @@ int tpIsMoving(TP_STRUCT const * const tp)
     return tpn.cur_v > 1e-9 || fabs(tpn.cur_a) > 1e-9 || tpnTapMoving();
 }
 
+/* The direction changes at rest only. A reverse run goes back along the
+ * moves already run, as far as the queue keeps them and they may be run
+ * backwards; at a move that may not it holds. */
 int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir)
 {
-    if (dir == TC_DIR_FORWARD) {
-        tp->reverse_run = TC_DIR_FORWARD;
+    if (dir != TC_DIR_FORWARD && dir != TC_DIR_REVERSE) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "Invalid direction flag in SetRunDir");
+        return TP_ERR_FAIL;
+    }
+    if (dir == (tc_direction_t)tp->reverse_run) {
         return TP_ERR_OK;
     }
-    /* running backwards along the path is not supported yet */
-    return TP_ERR_FAIL;
+    if (tpIsMoving(tp)) {
+        return TP_ERR_FAIL;
+    }
+    tp->reverse_run = dir;
+    tpnRunReset();
+    return TP_ERR_OK;
 }
 
 void tpToggleDIOs(TC_STRUCT * const tc)
@@ -496,7 +507,7 @@ void tpToggleDIOs(TC_STRUCT * const tc)
 int tcqFull(TC_QUEUE_STRUCT const * const tcq)
 {
     (void)tcq;
-    return tpn.q_len >= TPN_QSIZE - TPN_QMARGIN;
+    return tpn.q_len >= TPN_QSIZE - TPN_QMARGIN - TPN_HIST;
 }
 
 static void toggleDIOs(syncdio_t *io)
@@ -523,6 +534,21 @@ static void toggleDIOs(syncdio_t *io)
     io->anychanged = 0;
 }
 
+/* the slot of the next move, taken from the oldest move kept for a
+ * reverse run if need be */
+static tpn_seg *newSlot(void)
+{
+    if (tpn.q_len + tpn.h_len >= TPN_QSIZE) {
+        tpn.h_len = TPN_QSIZE - tpn.q_len - 1;
+    }
+    return seg(tpn.q_len);
+}
+
+static void setReversible(tpn_seg *sg)
+{
+    sg->rev_ok = !sg->tap && sg->sync == TC_SYNC_NONE && sg->indexer_jnum == -1;
+}
+
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
         double vel, double ini_maxvel, double acc, double ini_maxjerk,
         double vlimit_scale, unsigned char enables, char atspeed, int indexer_jnum,
@@ -536,13 +562,14 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     if (tpn.q_len >= TPN_QSIZE) {
         return TP_ERR_FAIL;
     }
-    tpn_seg *sg = seg(tpn.q_len);
+    tpn_seg *sg = newSlot();
     if (tpnLineInit(&sg->geom, &tp->goalPos, &end)) {
         return TP_ERR_ZERO_LENGTH;
     }
     int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
             enables, atspeed, indexer_jnum, tag);
     if (res == TP_ERR_OK) {
+        setReversible(sg);
         tp->goalPos = end;
     }
     return res;
@@ -561,13 +588,14 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
     if (tpn.q_len >= TPN_QSIZE) {
         return TP_ERR_FAIL;
     }
-    tpn_seg *sg = seg(tpn.q_len);
+    tpn_seg *sg = newSlot();
     if (tpnArcInit(&sg->geom, &tp->goalPos, &end, &center, &normal, turn)) {
         return TP_ERR_ZERO_LENGTH;
     }
     int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
             enables, atspeed, -1, tag);
     if (res == TP_ERR_OK) {
+        setReversible(sg);
         tp->goalPos = end;
     }
     return res;
@@ -589,7 +617,7 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
     if (tpn.q_len >= TPN_QSIZE) {
         return TP_ERR_FAIL;
     }
-    tpn_seg *sg = seg(tpn.q_len);
+    tpn_seg *sg = newSlot();
     /* only XYZ move */
     EmcPose bottom = tp->goalPos;
     bottom.tran = end.tran;
@@ -601,6 +629,7 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
     if (res == TP_ERR_OK) {
         sg->tap = 1;
         sg->tap_scale = scale > 0.0 ? scale : 1.0;
+        setReversible(sg);
     }
     /* the tap ends where it started, goalPos stays */
     return res;
@@ -635,11 +664,13 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
     tpn_seg *sg = seg(0);
     EmcPose end;
     double m;
+    /* a reverse run goes to the start of the move */
+    int rev = tp->reverse_run == TC_DIR_REVERSE;
     tp->motionType = sg->canon_type;
     tp->execId = sg->id;
     tp->execTag = sg->tag;
     tp->activeDepth = (sg->h_in > 0.0 && tpn.cur_s < sg->S0 + sg->h_in) ? 2 : 1;
-    tpn.emcmotStatus->distance_to_go = fmax(0.0, segEnd(sg) - tpn.cur_s);
+    tpn.emcmotStatus->distance_to_go = fmax(0.0, rev ? tpn.cur_s - sg->S0 : segEnd(sg) - tpn.cur_s);
     tpn.emcmotStatus->enables_queued = sg->enables;
     tpn.emcmotStatus->requested_vel = sg->vreq;
     tpn.emcmotStatus->current_vel = tpn.cur_v;
@@ -648,7 +679,10 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
     tpn.emcmotStatus->spindleSync = tpnSyncOn();
     tpn.emcmotStatus->tcqlen = tpn.q_len;
     m = sqrt(d1->v[0] * d1->v[0] + d1->v[1] * d1->v[1] + d1->v[2] * d1->v[2]);
-    if (m > 1e-12) {
+    if (rev) {
+        m = -m;
+    }
+    if (fabs(m) > 1e-12) {
         tpn.emcmotStatus->current_dir.x = d1->v[0] / m;
         tpn.emcmotStatus->current_dir.y = d1->v[1] / m;
         tpn.emcmotStatus->current_dir.z = d1->v[2] / m;
@@ -657,7 +691,7 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
         tpn.emcmotStatus->current_dir.y = 0;
         tpn.emcmotStatus->current_dir.z = 0;
     }
-    tpnPoseFromVec(&end, &sg->geom.p1);
+    tpnPoseFromVec(&end, rev ? &sg->geom.p0 : &sg->geom.p1);
     emcPoseSub(&end, &tp->currentPos, &tpn.emcmotStatus->dtg);
 }
 
@@ -665,6 +699,20 @@ static void popFront(TP_STRUCT * const tp)
 {
     tpn.q_start = (tpn.q_start + 1) % TPN_QSIZE;
     tpn.q_len--;
+    if (tpn.h_len < TPN_QSIZE - tpn.q_len) {
+        tpn.h_len++;
+    }
+    tp->queue._len = tpn.q_len;
+    tp->depth = tpn.q_len;
+    tpn.emcmotStatus->tcqlen = tpn.q_len;
+}
+
+/* take the last move run back into the queue, in a reverse run */
+static void pushFront(TP_STRUCT * const tp)
+{
+    tpn.q_start = (tpn.q_start + TPN_QSIZE - 1) % TPN_QSIZE;
+    tpn.q_len++;
+    tpn.h_len--;
     tp->queue._len = tpn.q_len;
     tp->depth = tpn.q_len;
     tpn.emcmotStatus->tcqlen = tpn.q_len;
@@ -770,6 +818,14 @@ static int tapCycle(TP_STRUCT * const tp, tpn_seg *sg)
     return TP_ERR_OK;
 }
 
+/* in a reverse run, take back the moves s has gone back into */
+static void takeBack(TP_STRUCT * const tp)
+{
+    while (tpn.h_len > 0 && tpn.cur_s <= ownedStart(seg(0)) && seg(-1)->rev_ok) {
+        pushFront(tp);
+    }
+}
+
 /* returns nonzero while a finished move still has to wait */
 static int finish(tpn_seg *sg)
 {
@@ -799,19 +855,28 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
     if (tp->aborting && tpn.cur_v <= 0.0 && tpn.cur_a == 0.0 && !tpnTapMoving()) {
         queueReset(tp);
         statusIdle(tp);
+        tp->reverse_run = TC_DIR_FORWARD;
         tp->spindle.waiting_for_index = MOTION_INVALID_ID;
         tp->spindle.waiting_for_atspeed = MOTION_INVALID_ID;
         return TP_ERR_STOPPED;
     }
 
+    int rev = tp->reverse_run == TC_DIR_REVERSE;
+    if (rev) {
+        takeBack(tp);
+        if (!seg(0)->rev_ok) {
+            /* a move that may not be run backwards: hold */
+            return TP_ERR_WAITING;
+        }
+    }
     /* moves the controller has left */
-    while (tpn.q_len > 1 && tpn.cur_s >= ownedEnd(seg(0))) {
+    while (!rev && tpn.q_len > 1 && tpn.cur_s >= ownedEnd(seg(0))) {
         if (finish(seg(0))) {
             return TP_ERR_WAITING;
         }
         popFront(tp);
     }
-    if (tpn.q_len == 1 && tpn.cur_s >= segEnd(seg(0)) && tpn.cur_v <= 0.0) {
+    if (!rev && tpn.q_len == 1 && tpn.cur_s >= segEnd(seg(0)) && tpn.cur_v <= 0.0) {
         if (finish(seg(0))) {
             return TP_ERR_WAITING;
         }
@@ -834,7 +899,8 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
     if (seg(0)->sync != TC_SYNC_POSITION) {
         tpnSyncReset();
     }
-    if (activate(tp, seg(0))) {
+    /* the moves taken back in a reverse run were activated on the way */
+    if (!rev && activate(tp, seg(0))) {
         return TP_ERR_WAITING;
     }
 
@@ -853,6 +919,9 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
     tpnAdvance(tp, scale, stepping);
     if (tpn.track) {
         tpnSyncOverrun(tp);
+    }
+    if (rev) {
+        takeBack(tp);
     }
 
     tpn_vec p, d1;
