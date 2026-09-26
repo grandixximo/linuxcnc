@@ -479,9 +479,13 @@ int tpIsMoving(TP_STRUCT const * const tp)
     return tpn.cur_v > 1e-9 || fabs(tpn.cur_a) > 1e-9 || tpnTapMoving();
 }
 
+static void reown(TP_STRUCT * const tp, int rev);
+
 /* The direction changes at rest only. A reverse run goes back along the
  * moves already run, as far as the queue keeps them and they may be run
- * backwards; at a move that may not it holds. */
+ * backwards; at a move that may not it holds. At rest on a move boundary
+ * the move ahead takes over at once, so that motion, stepping, sees the
+ * move it is about to run. */
 int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir)
 {
     if (dir != TC_DIR_FORWARD && dir != TC_DIR_REVERSE) {
@@ -496,6 +500,17 @@ int tpSetRunDir(TP_STRUCT * const tp, tc_direction_t dir)
     }
     tp->reverse_run = dir;
     tpnRunReset();
+    if (tpn.q_len > 0) {
+        /* a stop on the boundary lands on the end of one move, which may
+         * differ from the start of the next in the last bits */
+        double b = dir == TC_DIR_REVERSE ? ownedStart(seg(0)) : ownedEnd(seg(0));
+        if (fabs(tpn.cur_s - b) < 1e-9) {
+            tpn.cur_s = b;
+        }
+        reown(tp, dir == TC_DIR_REVERSE);
+        tp->execId = seg(0)->id;
+        tp->execTag = seg(0)->tag;
+    }
     return TP_ERR_OK;
 }
 
@@ -838,6 +853,19 @@ static int finish(tpn_seg *sg)
     return 0;
 }
 
+/* the move that owns s along the direction of travel goes to the front:
+ * the moves s has left, or in a reverse run gone back into */
+static void reown(TP_STRUCT * const tp, int rev)
+{
+    if (rev) {
+        takeBack(tp);
+        return;
+    }
+    while (tpn.q_len > 1 && tpn.cur_s >= ownedEnd(seg(0)) && !finish(seg(0))) {
+        popFront(tp);
+    }
+}
+
 int tpRunCycle(TP_STRUCT * const tp, long period)
 {
     (void)period;
@@ -920,9 +948,9 @@ int tpRunCycle(TP_STRUCT * const tp, long period)
     if (tpn.track) {
         tpnSyncOverrun(tp);
     }
-    if (rev) {
-        takeBack(tp);
-    }
+    /* on the cycle s gets there, so that a single step pauses before the
+     * next move runs */
+    reown(tp, rev);
 
     tpn_vec p, d1;
     poseAt(tpn.cur_s, &p, &d1);
