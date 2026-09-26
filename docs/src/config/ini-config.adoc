@@ -936,6 +936,8 @@ A value in the range 20 Hz to 200 Hz should be reasonable to start.
 
 Finally, no amount of tweaking will speed up a tool path with lots of small, tight corners, since you're limited by cornering acceleration.
 
+The `ARC_BLEND_` settings tune the default trajectory planner, `tpmod`. The `tpnextmod` trajectory planner ignores them: it sizes every corner blend from the `G64 P` and `E` tolerances and looks ahead over the whole queue.
+
 * `SPINDLES = 3` - The number of spindles to support. It is imperative that this number matches the "num_spindles" parameter passed to the motion module.
 * `COORDINATES = X Y Z` - The names of the axes being controlled.  Only X, Y, Z, A, B, C, U, V, W are valid.
   Only axes named in `COORDINATES` are accepted in G-code.
