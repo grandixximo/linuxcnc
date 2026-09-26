@@ -101,7 +101,8 @@ void tpMotFunctions(void(*pDioWrite)(int,char)
 // is that of the kinematics, extra joints excluded; jac rows are joints,
 // columns the nine axes.  inverse reads joints as the seed.  identity is
 // nonzero while the kinematics in force is the identity, and then the
-// axis limits are all there is.
+// axis limits are all there is.  end_joints gives the joints motion found
+// for the endpoint it checked last, when pos is that endpoint: 1, or 0.
 #define TP_KINS_MAX_JOINTS 16
 typedef struct {
     int (*identity)(void);
@@ -112,6 +113,7 @@ typedef struct {
     double (*joint_vel_limit)(int);
     double (*joint_acc_limit)(int);
     double (*joint_jerk_limit)(int);
+    int (*end_joints)(EmcPose const *pos, double *joints);
 } tp_kins_t;
 void tpMotKins(tp_kins_t const *kins);
 
