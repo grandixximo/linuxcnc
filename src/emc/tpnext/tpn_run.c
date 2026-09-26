@@ -163,34 +163,6 @@ static void addCon(double S, double Vh, double Vs, double Aentry, double Jentry,
     ncon++;
 }
 
-/* Piece k of move sg: a part of the blend (k < TPN_NSUB) or the interior
- * (k == TPN_NSUB), from Pa to Pb along the path, with its limits, the
- * opened ones and their envelopes. Zero if the move has no such piece. */
-static int pieceOf(tpn_seg const *sg, int k, double *Pa, double *Pb,
-        tpn_lim const **lim, tpn_lim const **hi, double *E, double *E_hi)
-{
-    if (k < TPN_NSUB) {
-        if (sg->h_in <= 0.0) {
-            return 0;
-        }
-        *Pa = ownedStart(sg) + 2.0 * sg->h_in * k / TPN_NSUB;
-        *Pb = k == TPN_NSUB - 1 ? sg->S0 + sg->h_in
-            : ownedStart(sg) + 2.0 * sg->h_in * (k + 1) / TPN_NSUB;
-        *lim = &sg->lim_sub[k];
-        *hi = &sg->lim_sub_hi[k];
-        *E = sg->E_sub[k];
-        *E_hi = sg->E_sub_hi[k];
-    } else {
-        *Pa = sg->S0 + sg->h_in;
-        *Pb = ownedEnd(sg);
-        *lim = &sg->lim_int;
-        *hi = &sg->lim_int_hi;
-        *E = sg->E_int;
-        *E_hi = sg->E_int_hi;
-    }
-    return 1;
-}
-
 static void stepInit(tpn_step *st)
 {
     ncon = 0;
@@ -230,15 +202,15 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             st->Sstop = fmin(st->Sstop, sg->S0);
         }
         /* the parts of the blend, then the interior */
-        for (piece = 0; piece <= TPN_NSUB; piece++) {
+        for (piece = 0; piece < tpnPieces(sg); piece++) {
             double Pa, Pb, E, soft;
             tpn_lim const *lim;
             tpn_lim const *hi;
             double E_hi;
-            if (!pieceOf(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi)) {
+            if (!tpnPiece(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi)) {
                 continue;
             }
-            if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == TPN_NSUB)) {
+            if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == tpnPieces(sg) - 1)) {
                 continue;
             }
             soft = pieceSoft(tp, sg, piece < TPN_NSUB, scale);
@@ -310,16 +282,16 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
     for (i = 0; ; i--) {
         tpn_seg *sg = seg(i);
         int piece;
-        if (ncon + TPN_NSUB + 3 > TPN_MAXCON) {
+        if (ncon + tpnPieces(sg) + 3 > TPN_MAXCON) {
             addCon(-ownedEnd(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
             st->Sstop = fmin(st->Sstop, -ownedEnd(sg));
             break;
         }
         /* the interior, then the parts of the blend, last first */
-        for (piece = TPN_NSUB; piece >= 0; piece--) {
+        for (piece = tpnPieces(sg) - 1; piece >= 0; piece--) {
             double Pa, Pb, E, E_hi, soft;
             tpn_lim const *lim, *hi;
-            if (!pieceOf(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi) || Pa >= s) {
+            if (!tpnPiece(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi) || Pa >= s) {
                 continue;
             }
             soft = pieceSoft(tp, sg, piece < TPN_NSUB, scale);
@@ -374,9 +346,12 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
         /* at the start of the move, which is the end of the reverse run:
          * the limits of the piece the move starts with */
         double Pa, Pb, E, E_hi;
-        tpn_lim const *lim, *hi;
         tpn_seg const *sg = seg(0);
-        pieceOf(sg, sg->h_in > 0.0 ? 0 : TPN_NSUB, &Pa, &Pb, &lim, &hi, &E, &E_hi);
+        tpn_lim const *lim = &sg->lim_int, *hi;
+        int k = sg->h_in > 0.0 ? 0 : TPN_NSUB;
+        while (!tpnPiece(sg, k, &Pa, &Pb, &lim, &hi, &E, &E_hi) && k < tpnPieces(sg) - 1) {
+            k++;
+        }
         st->V = lim->V;
         st->A = lim->A;
         st->J = lim->J;
