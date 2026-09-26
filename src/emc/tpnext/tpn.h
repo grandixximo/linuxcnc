@@ -143,12 +143,22 @@ typedef struct {
     int active;
     int rev_ok;             /* may be run backwards: no tap, sync or indexer */
     double hump_t;          /* speed humps shorter than this are flattened, s */
+    /* A point-to-point move (G53.4 to G53.7) has its joint count here, 0
+     * for any other move. Its joints run on the straight line from jq0
+     * to jq1 and s is the joint space distance along it; geom is the
+     * chord between the world ends, which only the status reads. It
+     * stops at both ends and is not run backwards. */
+    int joint;
+    double jq0[TPN_NJ], jq1[TPN_NJ];
 } tpn_seg;
 
 /* geometry */
 void tpnVecFromPose(tpn_vec *v, EmcPose const *p);
 void tpnPoseFromVec(EmcPose *p, tpn_vec const *v);
 int tpnLineInit(tpn_geom *g, EmcPose const *start, EmcPose const *end);
+/* the chord between the world ends of a point-to-point move whose joint
+ * space distance is L */
+void tpnChordInit(tpn_geom *g, EmcPose const *start, EmcPose const *end, double L);
 int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
         PmCartesian const *center, PmCartesian const *normal, int turn);
 void tpnGeomEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2);
@@ -265,6 +275,11 @@ typedef struct {
     int jseed_valid;
     double jseed[TPN_NJ];
     tpn_jend jtail, jhead;
+    /* point-to-point moves in the queue, and the joints the last one run
+     * ended or was stopped on, until motion takes them */
+    int jmoves;
+    int jend_valid;
+    double jend[TPN_NJ];
 } tpn_state;
 
 extern tpn_state tpn;
