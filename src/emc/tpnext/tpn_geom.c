@@ -9,7 +9,6 @@
 #include "tpn.h"
 
 #define TPN_BIG 1e30
-#define TPN_TINY 1e-12
 
 void tpnVecFromPose(tpn_vec *v, EmcPose const *p)
 {

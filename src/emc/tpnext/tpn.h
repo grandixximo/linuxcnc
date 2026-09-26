@@ -82,6 +82,9 @@ typedef struct {
  * own limits, so that only the sharpest part runs at the lowest speed */
 #define TPN_NSUB 6
 
+/* at most this many parts of the interior of a move with joints */
+#define TPN_NINT 8
+
 /* quintic blend, power basis in tau = sigma / H, sigma in [0, H] */
 typedef struct {
     double c[6][TPN_NAX];
@@ -117,6 +120,18 @@ typedef struct {
     double vreq_bin;
     double vlimit_bin;      /* slider scale of the blend, 0 = none */
     tpn_lim lim_int;        /* limits of the unblended interior */
+    /* With joints the interior is followed in nint parts, from u_int[k]
+     * to u_int[k + 1] from the start of the move, each with its own
+     * limits, so a joint that peaks along the move (near a singular pose)
+     * slows only the part it peaks in; lim_int is then the smallest of
+     * them. nint = 1: lim_int alone. */
+    int nint;
+    double u_int[TPN_NINT + 1];
+    /* how far from its start and end a blend may reach into the move
+     * for the joint model of the blend to hold, TPN_BIG without joints */
+    double hj_in, hj_out;
+    tpn_lim lim_ip[TPN_NINT], lim_ip_hi[TPN_NINT];
+    double E_ip[TPN_NINT], E_ip_hi[TPN_NINT];
     /* the same with the curvature caps opened up to the feed at the
      * highest feed override, which the runtime takes where the override
      * asks for more than the caps above allow */
@@ -189,6 +204,7 @@ double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
 /* moves already run that the queue keeps for a reverse run */
 #define TPN_HIST 200
 #define TPN_BIG 1e30
+#define TPN_TINY 1e-12
 /* braking is planned with this fraction of the tangential limits so the
  * cycle by cycle controller has headroom to follow the curve */
 #define TPN_BRAKE_SCALE 0.97
@@ -262,6 +278,71 @@ static inline double ownedStart(tpn_seg const *sg)
 static inline double ownedEnd(tpn_seg const *sg)
 {
     return sg->S0 + sg->geom.L - sg->h_out;
+}
+
+/* the pieces of a move: the parts of its blend with the previous move,
+ * then the parts of its interior */
+static inline int tpnPieces(tpn_seg const *sg)
+{
+    return TPN_NSUB + sg->nint;
+}
+
+/* Part k of the interior of move sg from Pa to Pb along the path, with
+ * its limits, the opened ones and their envelopes. Zero if it is empty. */
+static inline int tpnIntPart(tpn_seg const *sg, int k, double *Pa, double *Pb,
+        tpn_lim const **lim, tpn_lim const **hi, double *E, double *E_hi)
+{
+    if (sg->nint == 1) {
+        *Pa = sg->S0 + sg->h_in;
+        *Pb = ownedEnd(sg);
+        *lim = &sg->lim_int;
+        *hi = &sg->lim_int_hi;
+        *E = sg->E_int;
+        *E_hi = sg->E_int_hi;
+        return 1;
+    }
+    double a = sg->u_int[k], b = sg->u_int[k + 1], end = sg->geom.L - sg->h_out;
+    if (b <= sg->h_in || a >= end) {
+        return 0;
+    }
+    *Pa = a <= sg->h_in ? sg->S0 + sg->h_in : sg->S0 + a;
+    *Pb = b >= end ? ownedEnd(sg) : sg->S0 + b;
+    *lim = &sg->lim_ip[k];
+    *hi = &sg->lim_ip_hi[k];
+    *E = sg->E_ip[k];
+    *E_hi = sg->E_ip_hi[k];
+    return 1;
+}
+
+/* Piece k of move sg: a part of the blend (k < TPN_NSUB) or of the
+ * interior, as tpnIntPart(). */
+static inline int tpnPiece(tpn_seg const *sg, int k, double *Pa, double *Pb,
+        tpn_lim const **lim, tpn_lim const **hi, double *E, double *E_hi)
+{
+    if (k >= TPN_NSUB) {
+        return tpnIntPart(sg, k - TPN_NSUB, Pa, Pb, lim, hi, E, E_hi);
+    }
+    if (sg->h_in <= 0.0) {
+        return 0;
+    }
+    *Pa = ownedStart(sg) + 2.0 * sg->h_in * k / TPN_NSUB;
+    *Pb = k == TPN_NSUB - 1 ? sg->S0 + sg->h_in
+        : ownedStart(sg) + 2.0 * sg->h_in * (k + 1) / TPN_NSUB;
+    *lim = &sg->lim_sub[k];
+    *hi = &sg->lim_sub_hi[k];
+    *E = sg->E_sub[k];
+    *E_hi = sg->E_sub_hi[k];
+    return 1;
+}
+
+/* limits of the interior part a move starts with (end 0) or ends with */
+static inline tpn_lim const *tpnEndLim(tpn_seg const *sg, int end, int hi)
+{
+    if (sg->nint == 1) {
+        return hi ? &sg->lim_int_hi : &sg->lim_int;
+    }
+    int k = end ? sg->nint - 1 : 0;
+    return hi ? &sg->lim_ip_hi[k] : &sg->lim_ip[k];
 }
 
 /* queue build, tpn_plan.c */
