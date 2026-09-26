@@ -148,7 +148,7 @@ extern "C" {
         EMCMOT_SET_OFFSET, /* set tool offsets */
         EMCMOT_SET_MAX_FEED_OVERRIDE,
         EMCMOT_SETUP_ARC_BLENDS,
-        EMCMOT_SETUP_TP_OPTIONS, /* singular poses */
+        EMCMOT_SETUP_TP_OPTIONS, /* singular poses and speed humps */
 
 	EMCMOT_SET_PROBE_ERR_INHIBIT,
 	EMCMOT_JOG_CONT,	/* continuous jog */
@@ -274,6 +274,7 @@ extern "C" {
     double arcBlendTangentKinkRatio;
     int singularStop;          /* refuse a move through a singular pose */
     double singularFloor;      /* fraction of the feed that makes a pose singular */
+    double speedHumpTime;      /* s, shorter speed humps are flattened, 0 = off */
     double maxFeedScale;
     double ext_offset_vel;	/* velocity for an external axis offset */
     double ext_offset_acc;	/* acceleration for an external axis offset */
@@ -773,6 +774,7 @@ Suggestion: Split this in to an Error and a Status flag register..
         double arcBlendTangentKinkRatio;
         int singularStop;       /* [TRAJ]SINGULAR_MODE = STOP */
         double singularFloor;   /* [TRAJ]SINGULAR_FLOOR */
+        double speedHumpTime;   /* [TRAJ]SPEED_HUMP_TIME, s */
         double maxFeedScale;
         int inhibit_probe_jog_error;
         int inhibit_probe_home_error;

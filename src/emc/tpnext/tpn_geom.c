@@ -601,6 +601,49 @@ static double symDist(double v1, double vt, double A, double J)
     return 0.5 * (v1 + vt) * T;
 }
 
+/* duration of the velocity change dv with zero acceleration at both ends */
+double tpnRampTime(double dv, double A, double J)
+{
+    if (dv <= 0.0) {
+        return 0.0;
+    }
+    if (dv * J <= A * A) {
+        return 2.0 * sqrt(dv / J);
+    }
+    return dv / A + A / J;
+}
+
+double tpnRampDist(double v0, double v1, double A, double J)
+{
+    return 0.5 * (v0 + v1) * tpnRampTime(fabs(v1 - v0), A, J);
+}
+
+double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, double Ja,
+        double Ab, double Jb)
+{
+    double vhi = fmax(va, vb);
+    double Dh = D - tpnRampDist(va, vhi, Aa, Ja) - tpnRampDist(vb, vhi, Ab, Jb);
+    int k;
+    if (Dh <= 0.0 || vtop <= vhi) {
+        return 0.0;
+    }
+    double dtop = tpnRampDist(vhi, vtop, Aa, Ja) + tpnRampDist(vhi, vtop, Ab, Jb);
+    if (dtop <= Dh) {
+        return tpnRampTime(vtop - vhi, Aa, Ja) + tpnRampTime(vtop - vhi, Ab, Jb)
+            + (Dh - dtop) / vtop;
+    }
+    double lo = vhi, hi = vtop;
+    for (k = 0; k < 24; k++) {
+        double mid = 0.5 * (lo + hi);
+        if (tpnRampDist(vhi, mid, Aa, Ja) + tpnRampDist(vhi, mid, Ab, Jb) <= Dh) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return tpnRampTime(lo - vhi, Aa, Ja) + tpnRampTime(lo - vhi, Ab, Jb);
+}
+
 /*
  * Shortest distance in which the state (v0, a0) can be brought to a
  * velocity no higher than vt with zero acceleration, under tangential

@@ -699,8 +699,8 @@ int main(int argc, char* argv[]) {
                 break;
 
             case EMCMOT_SETUP_TP_OPTIONS:
-                log_print("SETUP_TP_OPTIONS singular_stop=%d singular_floor=%.6g\n",
-                          c->singularStop, c->singularFloor);
+                log_print("SETUP_TP_OPTIONS singular_stop=%d singular_floor=%.6g speed_hump_time=%.6g\n",
+                          c->singularStop, c->singularFloor, c->speedHumpTime);
                 break;
 
             case EMCMOT_SET_PROBE_ERR_INHIBIT:

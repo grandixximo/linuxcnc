@@ -2350,7 +2350,9 @@ aggressiveness in one modal dial:
   values corner more gently ('R0.5' matches the initial S-curve release).
   Values outside 0.1..1.0 are clamped.
   With the `tpnextmod` trajectory planner the value scales the speed the
-  curvature of each corner allows.
+  curvature of each corner allows, and divides the machine's
+  <<sub:ini:sec:traj,[TRAJ]SPEED_HUMP_TIME>>: 'R0.5' leaves out speed
+  humps twice as long as 'R1.0' does.
 
 The program only requests 'trapezoidal' or 'smooth'; which smooth planner
 implements the request is machine configuration
@@ -2363,7 +2365,7 @@ R0 to R0.1 is a regime flip, not the gentle end of a gradient: the
 trapezoidal planner is the jerk-unlimited, most aggressive setting, while
 R0.1 is the gentlest (jerk-limited and slowest through corners). Within
 R0.1..R1.0 the motion is equally smooth in the jerk sense; only the corner
-speed changes.
+speed changes, and with `tpnextmod` how many speed humps are left out.
 ====
 
 Behavior details:

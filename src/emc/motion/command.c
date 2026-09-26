@@ -2399,6 +2399,7 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
             rtapi_print_msg(RTAPI_MSG_DBG, "SETUP_TP_OPTIONS");
             emcmotConfig->singularStop = emcmotCommand->singularStop;
             emcmotConfig->singularFloor = emcmotCommand->singularFloor;
+            emcmotConfig->speedHumpTime = emcmotCommand->speedHumpTime;
             break;
         case EMCMOT_SET_PROBE_ERR_INHIBIT:
             rtapi_print_msg(RTAPI_MSG_DBG, "SET_PROBE_ERR_INHIBIT");
