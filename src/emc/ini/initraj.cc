@@ -214,6 +214,27 @@ static int loadTraj(const IniFile &ini)
     old_inihal_data.traj_arc_blend_tangent_kink_ratio = arcBlendTangentKinkRatio;
     //TODO update inihal
 
+    // What a planner that bounds the joints does with a move through a
+    // singular pose, where a joint would need a speed below SINGULAR_FLOOR
+    // of the feed: STOP refuses it, FLOOR runs it at that fraction.
+    static const std::map<const std::string, const int, IniFile::caseless> singularMap = {
+        { "STOP",  1 },
+        { "FLOOR", 0 },
+    };
+    int singularStop = 1;
+    if (auto s = ini.findString("SINGULAR_MODE", "TRAJ")) {
+        if (auto m = IniFile::mapMap(singularMap, *s)) {
+            singularStop = *m;
+        } else {
+            rcs_print_error("[TRAJ]SINGULAR_MODE = %s: expected STOP or FLOOR, using STOP\n", s->c_str());
+        }
+    }
+    double singularFloor = ini.findRealV("SINGULAR_FLOOR", "TRAJ", 0.001, 1e-6, 1.0);
+    if (0 != emcSetupTpOptions(singularStop, singularFloor)) {
+        print_dbg_config("emcSetupTpOptions");
+        return -1;
+    }
+
     double maxFeedScale = ini.findRealV("MAX_FEED_OVERRIDE", "DISPLAY", 1.0);
     if (0 != emcSetMaxFeedOverride(maxFeedScale)) {
         print_dbg_config("emcSetMaxFeedOverride");
