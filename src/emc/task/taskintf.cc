@@ -2324,6 +2324,13 @@ int emcSetupArcBlends(int arcBlendEnable,
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
+int emcSetupTpOptions(int singularStop, double singularFloor) {
+    emcmotCommand.command = EMCMOT_SETUP_TP_OPTIONS;
+    emcmotCommand.singularStop = singularStop;
+    emcmotCommand.singularFloor = singularFloor;
+    return usrmotWriteEmcmotCommand(&emcmotCommand);
+}
+
 int emcSetMaxFeedOverride(double maxFeedScale) {
     emcmotCommand.command = EMCMOT_SET_MAX_FEED_OVERRIDE;
     emcmotCommand.maxFeedScale = maxFeedScale;

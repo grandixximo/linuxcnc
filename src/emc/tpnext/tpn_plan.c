@@ -1307,11 +1307,18 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
         : fmin(prev->vlimit_scale, sg->vlimit_scale);
 }
 
-/* Near a singular pose a joint may ask for any low speed. The move goes
- * on at no less than TPN_SING_FLOOR of its feed there, over that joint's
- * limits, rather than crawl or stop: dropping it would take the next move
+/* Near a singular pose a joint may ask for any low speed. Below
+ * [TRAJ]SINGULAR_FLOOR of its feed the move is refused, with
+ * SINGULAR_MODE = STOP, or goes on at that fraction there, over that
+ * joint's limits, rather than crawl: dropping it would take the next move
  * along another path. Nonzero if lim was raised to the floor vfloor. */
 #define TPN_SING_FLOOR 0.001
+
+static double singularFraction(void)
+{
+    double f = tpn.emcmotConfig->singularFloor;
+    return f > 0.0 && f <= 1.0 ? f : TPN_SING_FLOOR;
+}
 
 static int singularFloor(tpn_lim *lim, tpn_lim const *axl, double vfloor)
 {
@@ -1319,8 +1326,8 @@ static int singularFloor(tpn_lim *lim, tpn_lim const *axl, double vfloor)
         return 0;
     }
     lim->V = vfloor;
-    lim->A = fmax(lim->A, TPN_SING_FLOOR * axl->A);
-    lim->J = fmax(lim->J, TPN_SING_FLOOR * axl->J);
+    lim->A = fmax(lim->A, singularFraction() * axl->A);
+    lim->J = fmax(lim->J, singularFraction() * axl->J);
     return 1;
 }
 
@@ -1418,7 +1425,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         int k, low = 0, floored = 0;
         double vlow = TPN_BIG;
         tpnLimits(&ax, &G, &G1, &G2, vmax, sg->vreq, &axl);
-        double vfloor = fmin(TPN_SING_FLOOR * sg->vreq, axl.V);
+        double vfloor = fmin(singularFraction() * sg->vreq, axl.V);
         tpnLimitsJ(&ax, &G, &G1, &G2, &tpn.jl, &jb, vmax, sg->vreq, &sg->lim_int);
         tpnLimitsJ(&ax, &G, &G1, &G2, &tpn.jl, &jb, vmax, vmax, &sg->lim_int_hi);
         singularFloor(&sg->lim_int, &axl, vfloor);
@@ -1440,6 +1447,12 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
                 if (jbp[low].G[j] * tpn.jl.vel[jw] > jbp[low].G[jw] * tpn.jl.vel[j]) {
                     jw = j;
                 }
+            }
+            if (floored && tpn.emcmotConfig->singularStop) {
+                rtapi_print_msg(RTAPI_MSG_ERR,
+                        "tpnext: move %d passes a singular pose: joint %d cannot follow it at %g of its feed, the move is refused\n",
+                        sg->id, jw, singularFraction());
+                return TP_ERR_FAIL;
             }
             if (floored) {
                 rtapi_print_msg(RTAPI_MSG_ERR,
