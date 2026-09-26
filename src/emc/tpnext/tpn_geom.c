@@ -662,6 +662,28 @@ double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, doubl
  * velocity no higher than vt with zero acceleration, under tangential
  * limits A and J. Zero if the state never exceeds vt anyway.
  */
+/* The speed change a jerk limited ramp from speed V and zero
+ * acceleration makes over D under A and J */
+double tpnRampReach(double V, double A, double J, double D)
+{
+    /* A jerk limited ramp by dv = x^2 covers
+     * (2 V x + x^3) / sqrt(J), so x solves x^3 + 2 V x = D sqrt(J), whose
+     * one real root is Cardano's; past dv = A^2 / J the ramp holds A and
+     * covers (V + dv / 2) (dv / A + A / J), a quadratic in dv. */
+    double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
+    double disc = sqrt(0.25 * q * q + p3 * p3 * p3);
+    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = pow(fmax(disc - 0.5 * q, 0.0), 1.0 / 3.0);
+    /* ca - cb without the cancellation: ca^3 - cb^3 = q */
+    double x = q / (ca * ca + ca * cb + cb * cb);
+    double dv = x * x;
+    if (dv * J > A * A) {
+        /* dv^2 / (2A) + dv (V / A + A / (2J)) - (D - V A / J) = 0 */
+        double a2 = 0.5 / A, b2 = V / A + 0.5 * A / J, c2 = D - V * A / J;
+        dv = 2.0 * c2 / (b2 + sqrt(b2 * b2 + 4.0 * a2 * c2));
+    }
+    return dv;
+}
+
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J)
 {
     if (vt < 0.0) {
