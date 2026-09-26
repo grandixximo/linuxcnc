@@ -445,6 +445,7 @@ void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
     double fa = caps->curved ? 0.5 : 0.0;
     double fj2 = caps->curved ? 0.25 : 0.0;
     double V2 = TPN_BIG, V3 = TPN_BIG;
+    caps->scale = 1.0;
     caps->Vg = TPN_BIG;
     for (i = 0; i < TPN_NAX; i++) {
         if (G->v[i] > TPN_TINY) {
@@ -474,7 +475,7 @@ double tpnCurveCap(tpn_caps const *caps, double r, double vwant)
     if (vwant > V3) {
         V3 = fmin(vwant, caps->V3max / s3);
     }
-    return fmin(V2, V3);
+    return fmin(V2, V3) * caps->scale;
 }
 
 void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
@@ -533,6 +534,7 @@ void tpnLimitCapsJ(tpn_caps const *axcaps, double r, tpn_jlim const *jl, tpn_jb 
     double fj2 = curved ? 0.25 : 0.0;
     double V2 = TPN_BIG, V3 = TPN_BIG;
     caps->curved = curved;
+    caps->scale = axcaps->scale;
     caps->Vg = axcaps->Vg;
     for (j = 0; j < jl->n; j++) {
         jointAt(jb, j, r, &G, &G1, &G2);
