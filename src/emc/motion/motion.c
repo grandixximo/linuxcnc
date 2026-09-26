@@ -323,6 +323,7 @@ static double tp_joint_jerk_limit(int n) { return joints[n].jerk_limit; }
 static const tp_kins_t tp_kins = {
     tp_kins_identity, tp_kins_joints, tp_kins_inverse, tp_kins_jacobian,
     tp_kins_joint_pos, tp_joint_vel_limit, tp_joint_acc_limit, tp_joint_jerk_limit,
+    motPlannedJoints,
 };
 
 static int module_intfc() {
