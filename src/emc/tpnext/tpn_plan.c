@@ -1040,18 +1040,6 @@ static int reachable(double S, double V)
     return 0;
 }
 
-/* duration of the velocity change dv with zero acceleration at both ends */
-static double rampTime(double dv, double A, double J)
-{
-    if (dv <= 0.0) {
-        return 0.0;
-    }
-    if (dv * J <= A * A) {
-        return 2.0 * sqrt(dv / J);
-    }
-    return dv / A + A / J;
-}
-
 /* Time to cover D from speed V, speeding up to at most vr under A and J */
 static double sideTime(double V, double vr, double A, double J, double D)
 {
@@ -1061,7 +1049,7 @@ static double sideTime(double V, double vr, double A, double J, double D)
     if (V >= vr) {
         return D / vr;
     }
-    double T = rampTime(vr - V, A, J);
+    double T = tpnRampTime(vr - V, A, J);
     double d = 0.5 * (V + vr) * T;
     if (d <= D) {
         return T + (D - d) / vr;
@@ -1081,7 +1069,7 @@ static double sideTime(double V, double vr, double A, double J, double D)
         double a2 = 0.5 / A, b2 = V / A + 0.5 * A / J, c2 = D - V * A / J;
         dv = 2.0 * c2 / (b2 + sqrt(b2 * b2 + 4.0 * a2 * c2));
     }
-    return rampTime(dv, A, J);
+    return tpnRampTime(dv, A, J);
 }
 
 /* Estimated time over the interior before the corner, the blend of half
@@ -1384,6 +1372,11 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     } else {
         sg->syncdio.anychanged = 0;
     }
+
+    /* speed humps shorter than this are flattened, longer ones below
+     * G64 R1 */
+    sg->hump_t = tpn.emcmotStatus->planner_type == 1 && sg->sync != TC_SYNC_POSITION
+        ? fmax(tpn.emcmotConfig->speedHumpTime, 0.0) / cornerScale(tp) : 0.0;
 
     double vmax = sg->vreq * speedFactor(tp);
     if (ini_maxvel > 0.0) {

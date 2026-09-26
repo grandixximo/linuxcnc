@@ -42,6 +42,8 @@ typedef struct {
 
 static tpn_con con[TPN_MAXCON];
 static int ncon;
+/* with those further on that only humpShort() looks at */
+static int ncon_hump;
 static double g_dt = 0.001;
 /* the controller's position along its direction of travel: s, or -s in a
  * reverse run */
@@ -145,6 +147,7 @@ typedef struct {
                          * at their limit */
     double Vs;          /* soft cap there, < 0 for none */
     double Sstop;       /* nearest stop ahead */
+    double hump_t;      /* speed humps shorter than this are flattened */
 } tpn_step;
 
 static void addCon(double S, double Vh, double Vs, double Aentry, double Jentry,
@@ -165,13 +168,14 @@ static void addCon(double S, double Vh, double Vs, double Aentry, double Jentry,
 
 static void stepInit(tpn_step *st)
 {
-    ncon = 0;
+    ncon = ncon_hump = 0;
     st->V = TPN_BIG;
     st->A = TPN_BIG;
     st->J = TPN_BIG;
     st->Jhi = TPN_BIG;
     st->Vs = -1.0;
     st->Sstop = TPN_BIG;
+    st->hump_t = 0.0;
 }
 
 /* beyond the braking distance of the fastest next state every
@@ -185,13 +189,26 @@ static double horizonOf(tpn_step const *st, double Arun, double Jrun, double dt)
         + 2.0 * vhi * dt + 8.0 * st->J * dt * dt * dt + 1e-6;
 }
 
+/* how much further than the braking horizon a speed hump short enough to
+ * be flattened may reach */
+static double humpReach(tpn_step const *st)
+{
+    if (st->hump_t <= 0.0) {
+        return 0.0;
+    }
+    double vtop = st->Vs >= 0.0 ? fmin(st->Vs, st->V) : st->V;
+    return vtop * st->hump_t + 2.0 * tpnRampDist(tpn.cur_v, vtop, st->A, st->J);
+}
+
 /* Collect the constraints ahead of cur_s up to the braking horizon of the
- * fastest state reachable this cycle. */
+ * fastest state reachable this cycle, and on as far as a speed hump
+ * reaches for humpShort(): beyond the horizon the controller would check
+ * them with the lowest limits on the way, which the envelopes do better. */
 static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st)
 {
     double dt = tp->cycleTime;
     double Arun = TPN_BIG, Jrun = TPN_BIG;
-    int i;
+    int i, nrun = -1;
     stepInit(st);
 
     for (i = 0; i < tpn.q_len; i++) {
@@ -228,6 +245,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 E = E_hi;
             }
             if (Pa <= tpn.cur_s) {
+                st->hump_t = fmax(st->hump_t, sg->hump_t);
                 st->V = fmin(st->V, lim->V);
                 st->A = fmin(st->A, lim->A);
                 st->J = fmin(st->J, lim->J);
@@ -258,9 +276,22 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             addCon(segEnd(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
             st->Sstop = fmin(st->Sstop, segEnd(sg));
         }
-        if (ownedEnd(sg) - tpn.cur_s > horizonOf(st, Arun, Jrun, dt) || ncon >= TPN_MAXCON) {
+        if (ncon >= TPN_MAXCON) {
             break;
         }
+        double past = ownedEnd(sg) - tpn.cur_s - horizonOf(st, Arun, Jrun, dt);
+        if (past > 0.0) {
+            if (nrun < 0) {
+                nrun = ncon;
+            }
+            if (past > humpReach(st)) {
+                break;
+            }
+        }
+    }
+    ncon_hump = ncon;
+    if (nrun >= 0) {
+        ncon = nrun;
     }
 }
 
@@ -492,6 +523,53 @@ static double jerkAhead(tpn_step const *st, double dt)
         J = Jn;
     }
     return J;
+}
+
+/*
+ * A speed-up that has to turn into braking within [TRAJ]SPEED_HUMP_TIME
+ * (over G64 R) is only a burst of jerk, as good as a vibration. While
+ * speeding up the controller looks at the caps ahead, up to the first
+ * one no higher than the speed it gets to, v, once its acceleration is
+ * ramped out: that cap is an envelope of all those after it. Where the
+ * speed hump above a cap, or above v, on the way there would be shorter,
+ * it rises no further than that, for a single speed change. A stop ends
+ * the look: a short move from rest is not a hump. Nonzero with the speed
+ * to hold in Vhold.
+ */
+static int humpShort(tpn_step const *st, double *Vhold)
+{
+    double v = tpn.cur_v + 0.5 * tpn.cur_a * fabs(tpn.cur_a) / st->J;
+    double vtop = st->Vs >= 0.0 ? fmin(st->Vs, st->V) : st->V;
+    double hold = TPN_BIG;
+    int k;
+    if (v >= vtop) {
+        return 0;
+    }
+    for (k = 0; k < ncon_hump; k++) {
+        tpn_con const *c = &con[k];
+        double Vk = c->Vs >= 0.0 ? fmin(c->Vh, c->Vs) : c->Vh;
+        double d = c->S - cx;
+        if (Vk <= 0.0) {
+            break;
+        }
+        if (d <= 0.0 || Vk >= vtop) {
+            continue;
+        }
+        /* up under the limits here, down under the lowest on the way */
+        double t = tpnHumpTime(v, Vk, vtop, d, st->A, st->J,
+                fmin(c->Arun, st->A), fmin(c->Jrun, st->J));
+        if (t < st->hump_t) {
+            hold = fmin(hold, fmax(v, Vk));
+        }
+        if (Vk <= v) {
+            break;
+        }
+    }
+    if (hold >= vtop) {
+        return 0;
+    }
+    *Vhold = hold;
+    return 1;
 }
 
 static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
@@ -997,6 +1075,13 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     }
     double j = chooseJerk(tp, &st);
     double jf;
+    if (!rev && !tpn.track && st.hump_t > 0.0 && tpn.cur_a + j * dt > 0.0) {
+        double Vh;
+        if (humpShort(&st, &Vh)) {
+            st.Vs = st.Vs < 0.0 ? Vh : fmin(st.Vs, Vh);
+            j = chooseJerk(tp, &st);
+        }
+    }
     if (tpn.track) {
         j = syncJerk(tp, &st, j);
     }

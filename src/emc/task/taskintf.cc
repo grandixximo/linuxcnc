@@ -2329,10 +2329,11 @@ int emcSetupArcBlends(int arcBlendEnable,
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
-int emcSetupTpOptions(int singularStop, double singularFloor) {
+int emcSetupTpOptions(int singularStop, double singularFloor, double speedHumpTime) {
     emcmotCommand.command = EMCMOT_SETUP_TP_OPTIONS;
     emcmotCommand.singularStop = singularStop;
     emcmotCommand.singularFloor = singularFloor;
+    emcmotCommand.speedHumpTime = speedHumpTime;
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
