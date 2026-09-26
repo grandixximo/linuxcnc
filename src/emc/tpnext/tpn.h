@@ -83,7 +83,7 @@ typedef struct {
 #define TPN_NSUB 6
 
 /* at most this many parts of the interior of a move with joints */
-#define TPN_NINT 8
+#define TPN_NINT 16
 
 /* quintic blend, power basis in tau = sigma / H, sigma in [0, H] */
 typedef struct {
