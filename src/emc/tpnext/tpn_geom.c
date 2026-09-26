@@ -492,7 +492,7 @@ void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
             A = fmin(A, ra / G->v[i]);
             J = fmin(J, fj * rj / G->v[i]);
         }
-        if (g1 > TPN_TINY && V > TPN_TINY) {
+        if (fj < 1.0 && g1 > TPN_TINY && V > TPN_TINY) {
             A = fmin(A, (1.0 - fj) * rj / (3.0 * V * g1));
         }
     }
@@ -568,7 +568,7 @@ void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, 
             lim->A = fmin(lim->A, ra / G);
             lim->J = fmin(lim->J, fj * rj / G);
         }
-        if (G1 > TPN_TINY && V > TPN_TINY) {
+        if (fj < 1.0 && G1 > TPN_TINY && V > TPN_TINY) {
             lim->A = fmin(lim->A, (1.0 - fj) * rj / (3.0 * V * G1));
         }
     }
