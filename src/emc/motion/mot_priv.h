@@ -245,6 +245,7 @@ extern struct emcmot_error_t *emcmotError;
 
 /* function definitions */
 extern void emcmotCommandHandler(void *arg, long period);
+extern int motPlannedJoints(EmcPose const *pos, double *joints_out);
 extern void emcmotController(void *arg, long period);
 extern void emcmotSetCycleTime(unsigned long nsec);
 
