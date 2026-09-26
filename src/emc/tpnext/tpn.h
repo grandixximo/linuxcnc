@@ -126,6 +126,7 @@ typedef struct {
     double E_sub[TPN_NSUB], E_int;  /* backward envelope at the entry of each piece */
     double E_sub_hi[TPN_NSUB], E_int_hi;
     int active;
+    int rev_ok;             /* may be run backwards: no tap, sync or indexer */
 } tpn_seg;
 
 /* geometry */
@@ -185,6 +186,8 @@ double tpnBrakeDist(double v0, double a0, double vt, double A, double J);
  * build) and tpn_run.c (per cycle controller) */
 
 #define TPN_QSIZE DEFAULT_TC_QUEUE_SIZE
+/* moves already run that the queue keeps for a reverse run */
+#define TPN_HIST 200
 #define TPN_BIG 1e30
 /* braking is planned with this fraction of the tangential limits so the
  * cycle by cycle controller has headroom to follow the curve */
@@ -203,6 +206,8 @@ typedef struct {
 
     tpn_seg queue[TPN_QSIZE];
     int q_start, q_len;
+    /* moves already run, kept before q_start for a reverse run */
+    int h_len;
     /* G64 E for the moves queued next */
     double ang_tolerance;
     /* axes of each type, bit n = axis n, from [AXIS_n]TYPE */
@@ -238,7 +243,8 @@ extern tpn_state tpn;
 
 static inline tpn_seg *seg(int i)
 {
-    return &tpn.queue[(tpn.q_start + i) % TPN_QSIZE];
+    /* i < 0 for the moves already run */
+    return &tpn.queue[(tpn.q_start + i + TPN_QSIZE) % TPN_QSIZE];
 }
 
 static inline double segEnd(tpn_seg const *sg)
@@ -287,7 +293,9 @@ int tpnTapMoving(void);
 
 /* per cycle controller, tpn_run.c */
 void tpnRunReset(void);
-/* advance cur_s, cur_v, cur_a and cur_j by one cycle */
+/* advance cur_s, cur_v, cur_a and cur_j by one cycle, backwards along
+ * the path while tp->reverse_run is set; cur_v and cur_a are then along
+ * the direction of travel */
 void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping);
 /* advance the signed state (s, v, a) of a rigid tap by one cycle,
  * following the spindle reference within the limits lim */

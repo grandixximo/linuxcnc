@@ -42,6 +42,9 @@ typedef struct {
 static tpn_con con[TPN_MAXCON];
 static int ncon;
 static double g_dt = 0.001;
+/* the controller's position along its direction of travel: s, or -s in a
+ * reverse run */
+static double cx;
 
 /* Hard feasibility of a single constraint at distance d with the brake
  * to its cap; d < 0 means the constraint starts inside this step. */
@@ -157,13 +160,36 @@ static void addCon(double S, double Vh, double Vs, double Aentry, double Arun, d
     ncon++;
 }
 
-/* Collect the constraints ahead of cur_s up to the braking horizon of the
- * fastest state reachable this cycle. */
-static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st)
+/* Piece k of move sg: a part of the blend (k < TPN_NSUB) or the interior
+ * (k == TPN_NSUB), from Pa to Pb along the path, with its limits, the
+ * opened ones and their envelopes. Zero if the move has no such piece. */
+static int pieceOf(tpn_seg const *sg, int k, double *Pa, double *Pb,
+        tpn_lim const **lim, tpn_lim const **hi, double *E, double *E_hi)
 {
-    double dt = tp->cycleTime;
-    double Arun = TPN_BIG, Jrun = TPN_BIG;
-    int i;
+    if (k < TPN_NSUB) {
+        if (sg->h_in <= 0.0) {
+            return 0;
+        }
+        *Pa = ownedStart(sg) + 2.0 * sg->h_in * k / TPN_NSUB;
+        *Pb = k == TPN_NSUB - 1 ? sg->S0 + sg->h_in
+            : ownedStart(sg) + 2.0 * sg->h_in * (k + 1) / TPN_NSUB;
+        *lim = &sg->lim_sub[k];
+        *hi = &sg->lim_sub_hi[k];
+        *E = sg->E_sub[k];
+        *E_hi = sg->E_sub_hi[k];
+    } else {
+        *Pa = sg->S0 + sg->h_in;
+        *Pb = ownedEnd(sg);
+        *lim = &sg->lim_int;
+        *hi = &sg->lim_int_hi;
+        *E = sg->E_int;
+        *E_hi = sg->E_int_hi;
+    }
+    return 1;
+}
+
+static void stepInit(tpn_step *st)
+{
     ncon = 0;
     st->V = TPN_BIG;
     st->A = TPN_BIG;
@@ -171,6 +197,27 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
     st->Jhi = TPN_BIG;
     st->Vs = -1.0;
     st->Sstop = TPN_BIG;
+}
+
+/* beyond the braking distance of the fastest next state every
+ * constraint can be met by stopping */
+static double horizonOf(tpn_step const *st, double Arun, double Jrun, double dt)
+{
+    double vhi = tpn.cur_v + fmax(tpn.cur_a, 0.0) * dt + 0.5 * st->J * dt * dt;
+    double ahi = fmax(tpn.cur_a, 0.0) + st->J * dt;
+    return tpnBrakeDist(vhi, ahi, 0.0, TPN_BRAKE_SCALE * fmin(Arun, st->A),
+            TPN_BRAKE_SCALE * fmin(Jrun, st->J))
+        + 2.0 * vhi * dt + 8.0 * st->J * dt * dt * dt + 1e-6;
+}
+
+/* Collect the constraints ahead of cur_s up to the braking horizon of the
+ * fastest state reachable this cycle. */
+static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st)
+{
+    double dt = tp->cycleTime;
+    double Arun = TPN_BIG, Jrun = TPN_BIG;
+    int i;
+    stepInit(st);
 
     for (i = 0; i < tpn.q_len; i++) {
         tpn_seg *sg = seg(i);
@@ -185,24 +232,8 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             tpn_lim const *lim;
             tpn_lim const *hi;
             double E_hi;
-            if (piece < TPN_NSUB) {
-                if (sg->h_in <= 0.0) {
-                    continue;
-                }
-                Pa = ownedStart(sg) + 2.0 * sg->h_in * piece / TPN_NSUB;
-                Pb = piece == TPN_NSUB - 1 ? sg->S0 + sg->h_in
-                    : ownedStart(sg) + 2.0 * sg->h_in * (piece + 1) / TPN_NSUB;
-                lim = &sg->lim_sub[piece];
-                hi = &sg->lim_sub_hi[piece];
-                E = sg->E_sub[piece];
-                E_hi = sg->E_sub_hi[piece];
-            } else {
-                Pa = sg->S0 + sg->h_in;
-                Pb = ownedEnd(sg);
-                lim = &sg->lim_int;
-                hi = &sg->lim_int_hi;
-                E = sg->E_int;
-                E_hi = sg->E_int_hi;
+            if (!pieceOf(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi)) {
+                continue;
             }
             if (Pb <= tpn.cur_s && !(i == tpn.q_len - 1 && piece == TPN_NSUB)) {
                 continue;
@@ -252,16 +283,100 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             addCon(segEnd(sg), 0.0, -1.0, TPN_BIG, Arun, Jrun);
             st->Sstop = fmin(st->Sstop, segEnd(sg));
         }
-        /* beyond the braking distance of the fastest next state every
-         * constraint can be met by stopping */
-        double vhi = tpn.cur_v + fmax(tpn.cur_a, 0.0) * dt + 0.5 * st->J * dt * dt;
-        double ahi = fmax(tpn.cur_a, 0.0) + st->J * dt;
-        double horizon = tpnBrakeDist(vhi, ahi, 0.0, TPN_BRAKE_SCALE * fmin(Arun, st->A),
-                TPN_BRAKE_SCALE * fmin(Jrun, st->J))
-            + 2.0 * vhi * dt + 8.0 * st->J * dt * dt * dt + 1e-6;
-        if (ownedEnd(sg) - tpn.cur_s > horizon || ncon >= TPN_MAXCON) {
+        if (ownedEnd(sg) - tpn.cur_s > horizonOf(st, Arun, Jrun, dt) || ncon >= TPN_MAXCON) {
             break;
         }
+    }
+}
+
+/*
+ * gather() for a reverse run, in x = -s: the pieces from the one the
+ * motion is in back to the start of the oldest move kept that may be run
+ * backwards. The planner's backward envelopes hold for the forward
+ * direction only, so the envelope is built here over the constraints up
+ * to the braking horizon; where the table fills up the motion stops.
+ */
+static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st)
+{
+    double dt = tp->cycleTime;
+    double s = tpn.cur_s;
+    double Arun = TPN_BIG, Jrun = TPN_BIG;
+    int i;
+    stepInit(st);
+
+    for (i = 0; ; i--) {
+        tpn_seg *sg = seg(i);
+        int piece;
+        if (ncon + TPN_NSUB + 3 > TPN_MAXCON) {
+            addCon(-ownedEnd(sg), 0.0, -1.0, TPN_BIG, Arun, Jrun);
+            st->Sstop = fmin(st->Sstop, -ownedEnd(sg));
+            break;
+        }
+        /* the interior, then the parts of the blend, last first */
+        for (piece = TPN_NSUB; piece >= 0; piece--) {
+            double Pa, Pb, E, E_hi, soft;
+            tpn_lim const *lim, *hi;
+            if (!pieceOf(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi) || Pa >= s) {
+                continue;
+            }
+            soft = pieceSoft(tp, sg, piece < TPN_NSUB, scale);
+            /* the opened caps as in gather() */
+            if (soft >= 0.0 && hi->V > lim->V && (Pb >= s ? tpn.cur_v > lim->V
+                        || (soft > lim->V && tpn.cur_v
+                            + 0.5 * tpn.cur_a * fabs(tpn.cur_a) / lim->J
+                            >= TPN_CAP_NEAR * lim->V)
+                    : soft > lim->V)) {
+                lim = hi;
+            }
+            if (Pb >= s) {
+                st->V = fmin(st->V, lim->V);
+                st->A = fmin(st->A, lim->A);
+                st->J = fmin(st->J, lim->J);
+                if (soft >= 0.0) {
+                    st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
+                }
+            } else {
+                double jstar = (-Pb - cx - tpn.cur_v * dt - 0.5 * tpn.cur_a * dt * dt)
+                    * 6.0 / (dt * dt * dt);
+                if (jstar < -lim->J) {
+                    st->J = fmin(st->J, lim->J);
+                } else {
+                    st->Jhi = fmin(st->Jhi, fmax(jstar, lim->J));
+                }
+                addCon(-Pb, lim->V, soft, lim->A, Arun, Jrun);
+            }
+            Arun = fmin(Arun, lim->A);
+            Jrun = fmin(Jrun, lim->J);
+        }
+        /* a corner without a blend, the end of the history, the start of
+         * the move when stepping */
+        int last = i == -tpn.h_len || !sg->rev_ok || !seg(i - 1)->rev_ok;
+        if ((sg->stop_in && sg->S0 < s) || last || (stepping && i == 0 && ownedStart(sg) < s)) {
+            addCon(-ownedStart(sg), 0.0, -1.0, TPN_BIG, Arun, Jrun);
+            st->Sstop = fmin(st->Sstop, -ownedStart(sg));
+        }
+        if (last || s - ownedStart(sg) > horizonOf(st, Arun, Jrun, dt)) {
+            break;
+        }
+    }
+    /* the backward envelope of what was gathered, as the planner's
+     * backwardPass() builds it forward */
+    for (i = ncon - 2; i >= 0; i--) {
+        if (con[i].Aentry < TPN_BIG) {
+            con[i].Vh = fmin(con[i].Vh, sqrt(con[i + 1].Vh * con[i + 1].Vh
+                        + con[i].Aentry * (con[i + 1].S - con[i].S)));
+        }
+    }
+    if (st->J >= TPN_BIG) {
+        /* at the start of the move, which is the end of the reverse run:
+         * the limits of the piece the move starts with */
+        double Pa, Pb, E, E_hi;
+        tpn_lim const *lim, *hi;
+        tpn_seg const *sg = seg(0);
+        pieceOf(sg, sg->h_in > 0.0 ? 0 : TPN_NSUB, &Pa, &Pb, &lim, &hi, &E, &E_hi);
+        st->V = lim->V;
+        st->A = lim->A;
+        st->J = lim->J;
     }
 }
 
@@ -278,7 +393,7 @@ static void stepFrom(double s, double v, double a, double j, double dt, tpn_next
 
 static void stepState(double j, double dt, tpn_next *n)
 {
-    stepFrom(tpn.cur_s, tpn.cur_v, tpn.cur_a, j, dt, n);
+    stepFrom(cx, tpn.cur_v, tpn.cur_a, j, dt, n);
 }
 
 /* CHK_SPEED: the speed part of a hard constraint alone */
@@ -803,7 +918,7 @@ static int deadbeatOk(int N, double dt, double A)
 static int finishStop(TP_STRUCT const *tp, tpn_step const *st, double *j)
 {
     double dt = tp->cycleTime;
-    double d = st->Sstop - tpn.cur_s;
+    double d = st->Sstop - cx;
     double pj[3], pt[3];
     int nph, N, k;
     if (db_i < db_n && db_S == st->Sstop) {
@@ -855,10 +970,16 @@ void tpnRunReset(void)
 void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
 {
     double dt = tp->cycleTime;
+    int rev = tp->reverse_run == TC_DIR_REVERSE;
     g_dt = dt;
+    cx = rev ? -tpn.cur_s : tpn.cur_s;
 
     tpn_step st;
-    gather(tp, scale, stepping, &st);
+    if (rev) {
+        gatherReverse(tp, scale, stepping, &st);
+    } else {
+        gather(tp, scale, stepping, &st);
+    }
     double j = chooseJerk(tp, &st);
     double jf;
     if (tpn.track) {
@@ -903,7 +1024,7 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     }
 #endif
     tpn.cur_j = (n.a1 - tpn.cur_a) / dt;
-    tpn.cur_s = n.s1;
+    tpn.cur_s = rev ? -n.s1 : n.s1;
     tpn.cur_v = n.v1;
     tpn.cur_a = n.a1;
 }
