@@ -292,6 +292,18 @@ static int jointAnchors(tpn_seg const *sg, tpn_jb *jb, tpn_jend *tail, double *q
         tpnGeomEval(g, k == K ? g->L : du * k, &p, &d1, 0);
         if (k == 0 && tpn.jseed_valid && tpn.q_len > 0) {
             /* the previous move ended here */
+        } else if (k == K && tpn.kins.end_joints) {
+            /* motion checked this endpoint against the joint limits and
+             * kept the joints, seeded from the queue end as here */
+            double qm[TP_KINS_MAX_JOINTS];
+            tpnPoseFromVec(&pose, &p);
+            if (tpn.kins.end_joints(&pose, qm)) {
+                for (j = 0; j < n; j++) {
+                    q[j] = qm[j];
+                }
+            } else if (tpn.kins.inverse(&pose, q) != 0) {
+                return -1;
+            }
         } else if (k > 0 && k < K) {
             /* between the ends q only places the Jacobian: carry it along
              * the path instead of paying an inverse, which may iterate */
@@ -308,7 +320,14 @@ static int jointAnchors(tpn_seg const *sg, tpn_jb *jb, tpn_jend *tail, double *q
                 return -1;
             }
         }
-        if (jacobianAt(q, &p, Jk) != 0) {
+        if (k == 0 && tpn.jseed_valid && tpn.q_len > 0 && tpn.jtail.valid) {
+            /* and left its Jacobian there */
+            for (j = 0; j < n; j++) {
+                for (a = 0; a < TPN_NAX; a++) {
+                    Jk[j][a] = tpn.jtail.J[j][a];
+                }
+            }
+        } else if (jacobianAt(q, &p, Jk) != 0) {
             return -1;
         }
         pprev = p;
