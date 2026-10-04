@@ -586,7 +586,8 @@ FUNCTION(_) {
                 lead = lead_angle / 360.0;
             }
             lagcomped_counts = long_rawcounts + ((long_rawcounts - old_long_rawcounts)/2);
-            rotor_angle_set((double)((lagcomped_counts - offset_measured
+            rotor_angle_set((double)((lagcomped_counts
+                                    - ((personality & 0x04) ? offset_measured : 0)
                                     - encoder_offset)* poles/2)/scale);
             rotor_angle_set(rotor_angle - floor(rotor_angle));
             phase_angle_set(rotor_angle + lead);
