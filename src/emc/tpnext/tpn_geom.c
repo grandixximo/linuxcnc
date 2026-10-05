@@ -665,10 +665,18 @@ double tpnRampReach(double V, double A, double J, double D)
      * (2 V x + x^3) / sqrt(J), so x solves x^3 + 2 V x = D sqrt(J), whose
      * one real root is Cardano's; past dv = A^2 / J the ramp holds A and
      * covers (V + dv / 2) (dv / A + A / J), a quadratic in dv. */
-    double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
-    if (q <= 0.0) {
+    if (D <= 0.0 || J <= 0.0) {
         return 0.0;
     }
+    if (V <= 0.0) {
+        /* from rest x^3 = D sqrt(J), and the quadratic past D J^2 = A^3 */
+        if (D * J * J > A * A * A) {
+            double b0 = 0.5 * A / J;
+            return 2.0 * D / (b0 + sqrt(b0 * b0 + 2.0 * D / A));
+        }
+        return pow(D * D * J, 1.0 / 3.0);
+    }
+    double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
     double disc = sqrt(0.25 * q * q + p3 * p3 * p3);
     /* x = ca - cb with ca^3 - cb^3 = q and ca cb = p3, without the
      * cancellation */

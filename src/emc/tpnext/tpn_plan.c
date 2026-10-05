@@ -64,6 +64,25 @@ static double speedFactor(TP_STRUCT const *tp)
     return tpnMax(tpn.emcmotConfig->maxFeedScale, 1.0);
 }
 
+/* x > 0 rounded down to 28 significant bits, for the acceleration and
+ * jerk limits of the ramp to rest at the end of the queue: limits that
+ * differ by rounding alone count as the same, so a move added with a limit
+ * lower by rounding leaves the pieces from the end of the queue as they
+ * are */
+static double limRound(double x)
+{
+    union {
+        double d;
+        unsigned long long u;
+    } v;
+    v.d = x;
+    v.u &= ~0xffffffULL;
+    return v.d;
+}
+
+/* where the queue ends, which the ramp to rest there ends at */
+static double g_end;
+
 /* Ramps the backward envelope keeps besides the one from the next piece */
 #define TPN_ENV_RAMPS 3
 /* the ramps are worked out again once this fraction of the longest is
@@ -72,25 +91,30 @@ static double speedFactor(TP_STRUCT const *tp)
 
 typedef struct {
     tpn_ramp r[TPN_ENV_RAMPS + 1];
+    /* the ramp starts from an envelope that came from the end of the queue */
+    int dep[TPN_ENV_RAMPS + 1];
     int nr;
     int capped;     /* the last piece took its own speed cap */
     double P, E;    /* where the ramps were last worked out, and to what */
     double Smax;    /* the furthest end of the ramps */
     tpn_lim m;      /* limits of the pieces since, not yet in the ramps */
     tpn_ramp def;   /* the ramp the last envelope comes from, J = 0: own cap */
+    int ddep;       /* and whether it starts from the end of the queue */
 } tpn_env;
 
-static void envStart(tpn_env *ev, double S, double E)
+static void envStart(tpn_env *ev, double S, double E, int dep)
 {
     ev->r[0].S = S;
     ev->r[0].E = E;
     ev->r[0].A = ev->r[0].J = ev->r[0].V = TPN_BIG;
+    ev->dep[0] = dep;
     ev->nr = 1;
     ev->P = S;
     ev->E = E;
     ev->Smax = S;
     ev->m.V = ev->m.A = ev->m.J = TPN_BIG;
     ev->def.J = 0.0;
+    ev->ddep = dep;
 }
 
 /* Envelope at the entry Pa of a piece with limits lim: the fastest start
@@ -113,8 +137,9 @@ static double envPiece(tpn_env *ev, tpn_lim const *lim, double Pa)
         ev->m.J = tpnMin(ev->m.J, lim->J);
         ev->m.V = tpnMin(ev->m.V, lim->V);
         if (ev->def.J > 0.0) {
-            ev->def.A = tpnMin(ev->def.A, lim->A * TPN_BRAKE_SCALE);
-            ev->def.J = tpnMin(ev->def.J, lim->J * TPN_BRAKE_SCALE);
+            int end = ev->def.S == g_end;
+            ev->def.A = tpnMin(ev->def.A, (end ? limRound(lim->A) : lim->A) * TPN_BRAKE_SCALE);
+            ev->def.J = tpnMin(ev->def.J, (end ? limRound(lim->J) : lim->J) * TPN_BRAKE_SCALE);
             ev->def.V = tpnMin(ev->def.V, lim->V);
         }
         return ev->E;
@@ -123,8 +148,9 @@ static double envPiece(tpn_env *ev, tpn_lim const *lim, double Pa)
     double mA = tpnMin(ev->m.A, lim->A), mJ = tpnMin(ev->m.J, lim->J);
     for (k = 0; k < ev->nr; k++) {
         tpn_ramp *r = &ev->r[k];
-        r->A = tpnMin(r->A, mA);
-        r->J = tpnMin(r->J, mJ);
+        int end = r->S == g_end;
+        r->A = tpnMin(r->A, end ? limRound(mA) : mA);
+        r->J = tpnMin(r->J, end ? limRound(mJ) : mJ);
         r->V = tpnMin(r->V, ev->m.V);
         c[k] = tpnMin(r->V, r->E + tpnRampReach(r->E, r->A * TPN_BRAKE_SCALE,
                     r->J * TPN_BRAKE_SCALE, tpnMax(r->S - Pa, 0.0)));
@@ -138,7 +164,7 @@ static double envPiece(tpn_env *ev, tpn_lim const *lim, double Pa)
     if (ev->capped) {
         /* no ramp: J = 0, with S where the one that allows the cap ends */
         double S = ev->r[best].S;
-        envStart(ev, Pa, lim->V);
+        envStart(ev, Pa, lim->V, ev->dep[best]);
         ev->def.S = S;
         return lim->V;
     }
@@ -146,6 +172,7 @@ static double envPiece(tpn_env *ev, tpn_lim const *lim, double Pa)
     ev->def.A *= TPN_BRAKE_SCALE;
     ev->def.J *= TPN_BRAKE_SCALE;
     ev->def.V = tpnMin(ev->def.V, lim->V);
+    ev->ddep = ev->dep[best];
     /* Keep the best, then start one here. A ramp started further on is
      * already speeding up where a new one starts from no acceleration:
      * the furthest is always kept, and of two close ones the further. */
@@ -171,25 +198,37 @@ static double envPiece(tpn_env *ev, tpn_lim const *lim, double Pa)
         }
         c[w] = c[m];
         ev->r[w] = ev->r[m];
+        ev->dep[w] = ev->dep[m];
     }
     ev->r[m].S = Pa;
     ev->r[m].E = E;
     ev->r[m].A = ev->r[m].J = ev->r[m].V = TPN_BIG;
+    ev->dep[m] = ev->ddep;
     ev->nr = m + 1;
     ev->P = Pa;
     ev->E = E;
     return E;
 }
 
-/* the envelope at Pa came out higher than the ramps gave: start from it */
-static void envRaise(tpn_env *ev, double Pa, double E)
+/* the envelope at Pa came out as E from dep instead: start from that */
+static void envRaise(tpn_env *ev, double Pa, double E, int dep)
 {
     tpn_ramp *r = &ev->r[ev->nr - 1];
     if (r->S == Pa && r->E < E) {
         r->E = E;
+        ev->dep[ev->nr - 1] = dep;
     }
     if (ev->P == Pa && ev->E < E) {
         ev->E = E;
+    }
+}
+
+/* the envelope at Pa is the one from the end of the queue: so is what
+ * starts from it */
+static void envFromEnd(tpn_env *ev, double Pa)
+{
+    if (ev->r[ev->nr - 1].S == Pa) {
+        ev->dep[ev->nr - 1] = 1;
     }
 }
 
@@ -197,28 +236,259 @@ static void envRaise(tpn_env *ev, double Pa, double E)
  * changed, and a ramp across them no longer holds */
 static double g_chg;
 /* the nearest piece start this pass has lowered the envelope of, or
- * g_chg: a ramp that ends there or further on no longer holds either */
-static double g_low;
+ * g_chg: a ramp that ends there or further on no longer holds either;
+ * the same without the envelopes from the end of the queue */
+static double g_low, g_lowfix;
+/* the start of the interior of the last move, and the nearest own cap or
+ * stop the envelope started over at */
+static double g_cut, g_rst;
+/* the furthest piece start back with a ramp from the interior of the last
+ * move, which the next move cuts the end of: this pass's, and the last */
+static double g_tail = TPN_BIG, g_tail_last;
+/* the furthest piece start back with a ramp that starts from an envelope
+ * from the end of the queue, which may come out lower: this pass's, and
+ * the last */
+static double g_dep = TPN_BIG, g_dep_last;
+/* how many of the envelopes of a piece came out as before from the ramp to
+ * rest at the end of the queue */
+static int g_same_end;
+/* the smallest limits from the end of the queue to the piece, while no
+ * stop or own cap of a piece stored as such lies between (g_eok), and of
+ * the move just added; whether this pass has noted those as lowering the
+ * end of the queue */
+static tpn_lim g_em[2], g_new[2];
+static int g_eok, g_gen, g_drops;
+/* an envelope from the end of the queue may have come out lower, for
+ * what starts from it */
+static int g_lzdrop;
+/* envelopes from the end of the queue worked out again for lower limits
+ * before the limits go to tpn.gen */
+#define TPN_GEN_AFTER 64
 
-/* Store the envelope of a piece starting at Pa, counting it unchanged. A
- * move further back than the last two keeps the higher of the old and new
- * values while the ramp of the old one still holds: the ramps kept are
- * picked from where the queue ends, so the new value may come out lower
- * where the controller has already gone by the old one. A blend added
- * with lower limits than the end of the queue had lowers it for real. */
-static double envStore(double *dst, tpn_ramp *rdst, double E, tpn_ramp const *r,
-        double Pa, int keep, int *same)
+/* set or clear dependency bit of piece k in envelope h, counting them */
+static void depSet(tpn_seg *sg, int h, int k, int on)
 {
-    if (keep && *dst >= E && rdst->S < g_low) {
-        return *dst;
+    unsigned bit = 1u << k;
+    if (on && !(sg->dep[h] & bit)) {
+        sg->dep[h] |= bit;
+        tpn.ndep++;
+    } else if (!on && (sg->dep[h] & bit)) {
+        sg->dep[h] &= ~bit;
+        tpn.ndep--;
     }
-    if (E < *dst && Pa < g_low) {
-        g_low = Pa;
+}
+
+static double *envSlot(tpn_seg *sg, int k, int hi)
+{
+    if (k < TPN_NSUB) {
+        return hi ? &sg->E_sub_hi[k] : &sg->E_sub[k];
+    }
+    if (sg->nint == 1) {
+        return hi ? &sg->E_int_hi : &sg->E_int;
+    }
+    return hi ? &sg->E_ip_hi[k - TPN_NSUB] : &sg->E_ip[k - TPN_NSUB];
+}
+
+/* the limits of the moves since are lower than the end of the queue had */
+static void genAdd(void)
+{
+    int h;
+    if (tpn.ngen == TPN_GENS) {
+        /* the oldest two as one: the older stays lower than it was */
+        int k;
+        for (h = 0; h < 2; h++) {
+            tpn.gen[1].A[h] = tpnMin(tpn.gen[1].A[h], tpn.gen[0].A[h]);
+            tpn.gen[1].J[h] = tpnMin(tpn.gen[1].J[h], tpn.gen[0].J[h]);
+            tpn.gen[1].V[h] = tpnMin(tpn.gen[1].V[h], tpn.gen[0].V[h]);
+        }
+        for (k = 1; k < tpn.ngen; k++) {
+            tpn.gen[k - 1] = tpn.gen[k];
+        }
+        tpn.ngen--;
+    }
+    tpn.gen[tpn.ngen].s = tpn.epoch;
+    for (h = 0; h < 2; h++) {
+        tpn.gen[tpn.ngen].A[h] = g_new[h].A * TPN_BRAKE_SCALE;
+        tpn.gen[tpn.ngen].J[h] = g_new[h].J * TPN_BRAKE_SCALE;
+        tpn.gen[tpn.ngen].V[h] = g_new[h].V;
+    }
+    tpn.ngen++;
+    g_gen = 1;
+    g_lzdrop = 1;
+}
+
+/* Store envelope h of piece k of sg, starting at Pa, from ev, counting it
+ * unchanged; *dep tells whether the value stored comes from the end of the
+ * queue. A move further back than the last two keeps the higher of the
+ * old and new values while the ramp of the old one still holds: the ramps
+ * kept are picked from where the queue ends, so the new value may come
+ * out lower where the controller has already gone by the old one. A
+ * blend added with lower limits than the end of the queue had lowers it
+ * for real. The ramp to rest at the end of the queue is stored as such,
+ * also where it gives no less than the others, and the runtime works it
+ * out where the queue ends then: with the same limits as before, the
+ * piece is left as it is. Returns nonzero if stored from the end. */
+static int envStore(tpn_seg *sg, int k, int h, double *E, tpn_env const *ev, double Pa,
+        int keep, int *same, int *dep)
+{
+    double *dst = envSlot(sg, k, h);
+    tpn_ramp *rdst = h ? &sg->R_hi[k] : &sg->R[k];
+    tpn_ramp const *r = &ev->def;
+    unsigned bit = 1u << k;
+    tpn_ramp lz;
+    int end = r->J > 0.0 && r->S == g_end;
+    if (end) {
+        lz = *r;
+    } else if (g_eok && ev->ddep && *E <= g_em[h].V) {
+        lz.A = g_em[h].A * TPN_BRAKE_SCALE;
+        lz.J = g_em[h].J * TPN_BRAKE_SCALE;
+        lz.V = g_em[h].V;
+        end = tpnMin(lz.V, tpnRampReach(0.0, lz.A, lz.J, g_end - Pa)) >= *E;
+    }
+    if (end && keep && tpnRampToEnd(rdst)) {
+        tpn_ramp now;
+        tpnEndRamp(rdst, h, g_end, &now);
+        /* the move added lowered the limits: past a few pieces worked out
+         * again, the rest takes them from tpn.gen */
+        if (!g_gen && (lz.A < now.A || lz.J < now.J || lz.V < now.V)
+                && ++g_drops > TPN_GEN_AFTER) {
+            genAdd();
+            tpnEndRamp(rdst, h, g_end, &now);
+        }
+        if (now.A == lz.A && now.J == lz.J && now.V == lz.V) {
+            /* the highest value what starts from it may count on, but
+             * where the limits came down for every older piece */
+            if (*E >= *dst) {
+                *dst = *E;
+            } else if (g_gen) {
+                g_low = tpnMin(g_low, Pa);
+                *dst = *E;
+            }
+            *dep = 1;
+            g_same_end++;
+            return 1;
+        }
+    }
+    /* a ramp from the end of the queue across an own cap or a stop is not
+     * kept: the pass may end at that cap, and what is behind it starts
+     * from there */
+    if (keep && *dst >= *E && rdst->S < g_low && !tpnRampToEnd(rdst)
+            && !((sg->dep[h] & bit) && rdst->S > g_rst)) {
+        *E = *dst;
+        *dep = (sg->dep[h] & bit) != 0;
+        if (*dep && Pa < g_dep) {
+            g_dep = Pa;
+        }
+        return 0;
+    }
+    if (*E < *dst) {
+        if (Pa < g_low) {
+            g_low = Pa;
+        }
+        if (Pa < g_lowfix) {
+            g_lowfix = Pa;
+        }
+        if (keep && tpnRampToEnd(rdst)) {
+            g_lzdrop = 1;
+        }
+    }
+    if (end && keep && !tpnRampToEnd(rdst) && !(sg->dep[h] & bit) && Pa < g_lowfix) {
+        /* what starts from it counted it as not from the end of the queue */
+        g_low = tpnMin(g_low, Pa);
+        g_lowfix = Pa;
     }
     *same = 0;
-    *dst = E;
+    *dst = *E;
+    if (end) {
+        *rdst = lz;
+        rdst->S = tpn.epoch;
+        rdst->E = -1.0;
+        depSet(sg, h, k, 0);
+        *dep = 1;
+        return 1;
+    }
     *rdst = *r;
-    return E;
+    *dep = ev->ddep;
+    depSet(sg, h, k, *dep);
+    if (*dep && Pa < g_dep) {
+        g_dep = Pa;
+    }
+    if (r->S >= g_cut && r->S != g_end && Pa < g_tail) {
+        g_tail = Pa;
+    }
+    return 0;
+}
+
+static void tpnEnvFix(tpn_seg *sg)
+{
+    double S = tpnQueueEnd();
+    int k, h;
+    for (k = 0; k < tpnPieces(sg); k++) {
+        double Pa, Pb, E, E_hi;
+        tpn_lim const *lim, *hi;
+        if (!tpnPiece(sg, k, &Pa, &Pb, &lim, &hi, &E, &E_hi)) {
+            continue;
+        }
+        for (h = 0; h < 2; h++) {
+            tpn_ramp *r = h ? &sg->R_hi[k] : &sg->R[k];
+            if (tpnRampToEnd(r)) {
+                tpnEndRamp(r, h, S, r);
+                *envSlot(sg, k, h) = tpnEndAt(r, Pa);
+            }
+        }
+    }
+}
+
+/* the move sg leaves the queue: the queue builds before the one that
+ * added the next no longer matter */
+static void genTrim(void)
+{
+    int k, n = 0;
+    if (tpn.q_len <= 1) {
+        return;
+    }
+    while (n < tpn.ngen && tpn.gen[n].s <= seg(1)->epoch) {
+        n++;
+    }
+    for (k = n; k < tpn.ngen; k++) {
+        tpn.gen[k - n] = tpn.gen[k];
+    }
+    tpn.ngen -= n;
+}
+
+static int depCount(tpn_seg const *sg)
+{
+    return __builtin_popcount(sg->dep[0]) + __builtin_popcount(sg->dep[1]);
+}
+
+void tpnEnvLeave(tpn_seg *sg)
+{
+    tpnEnvFix(sg);
+    genTrim();
+    /* the dependent piece furthest back may leave: the next one is no
+     * nearer than the end of the move */
+    tpn.ndep -= depCount(sg);
+    if (tpn.ndep <= 0) {
+        tpn.ndep = 0;
+        g_dep = TPN_BIG;
+    } else if (g_dep < ownedEnd(sg)) {
+        g_dep = ownedEnd(sg);
+    }
+}
+
+void tpnEnvBack(tpn_seg *sg)
+{
+    if (depCount(sg)) {
+        tpn.ndep += depCount(sg);
+        g_dep = tpnMin(g_dep, ownedStart(sg));
+    }
+}
+
+void tpnEnvReset(void)
+{
+    g_dep = g_tail = TPN_BIG;
+    tpn.ndep = 0;
+    tpn.ngen = 0;
 }
 
 /* Backward envelope from zero speed at the end of the queue and at every
@@ -231,16 +501,44 @@ static double envStore(double *dst, tpn_ramp *rdst, double E, tpn_ramp const *r,
 static void backwardPass(void)
 {
     tpn_env lo, hi;
-    int i;
+    int i, h;
     /* while the opened caps are the caps, one envelope serves both */
     int one = 1;
     if (tpn.q_len == 0) {
         return;
     }
-    envStart(&lo, ownedEnd(seg(tpn.q_len - 1)), 0.0);
-    envStart(&hi, ownedEnd(seg(tpn.q_len - 1)), 0.0);
+    tpn_seg *last = seg(tpn.q_len - 1);
+    tpn.epoch += 1.0;
+    last->epoch = tpn.epoch;
+    last->dep[0] = last->dep[1] = 0;
+    g_end = tpnQueueEnd();
+    g_cut = last->S0 + last->h_in;
+    g_tail_last = g_tail;
+    g_tail = TPN_BIG;
+    g_dep_last = g_dep;
+    g_dep = TPN_BIG;
+    envStart(&lo, g_end, 0.0, 1);
+    envStart(&hi, g_end, 0.0, 1);
     g_chg = tpn.q_len > 1 ? ownedEnd(seg(tpn.q_len - 2)) : TPN_BIG;
-    g_low = g_chg;
+    g_low = g_lowfix = g_chg;
+    g_eok = 1;
+    g_gen = g_drops = g_lzdrop = 0;
+    g_rst = TPN_BIG;
+    for (h = 0; h < 2; h++) {
+        g_em[h].A = g_em[h].J = g_em[h].V = TPN_BIG;
+        g_new[h] = g_em[h];
+    }
+    for (i = 0; i < tpnPieces(last); i++) {
+        double Pa, Pb, e, e_hi;
+        tpn_lim const *L[2];
+        if (tpnPiece(last, i, &Pa, &Pb, &L[0], &L[1], &e, &e_hi)) {
+            for (h = 0; h < 2; h++) {
+                g_new[h].A = tpnMin(g_new[h].A, limRound(L[h]->A));
+                g_new[h].J = tpnMin(g_new[h].J, limRound(L[h]->J));
+                g_new[h].V = tpnMin(g_new[h].V, L[h]->V);
+            }
+        }
+    }
     for (i = tpn.q_len - 1; i >= 0; i--) {
         tpn_seg *sg = seg(i);
         int k;
@@ -255,41 +553,72 @@ static void backwardPass(void)
                 hi = lo;
                 one = 0;
             }
+            g_em[0].A = tpnMin(g_em[0].A, limRound(lim->A));
+            g_em[0].J = tpnMin(g_em[0].J, limRound(lim->J));
+            g_em[0].V = tpnMin(g_em[0].V, lim->V);
+            g_em[1].A = tpnMin(g_em[1].A, limRound(lh->A));
+            g_em[1].J = tpnMin(g_em[1].J, limRound(lh->J));
+            g_em[1].V = tpnMin(g_em[1].V, lh->V);
             double E = envPiece(&lo, lim, Pa);
             double E_hi = one ? E : envPiece(&hi, lh, Pa);
             if (one) {
                 hi.capped = lo.capped;
             }
             int keep = i < tpn.q_len - 2;
-            tpn_ramp const *rh = one ? &lo.def : &hi.def;
-            if (k < TPN_NSUB) {
-                E = envStore(&sg->E_sub[k], &sg->R[k], E, &lo.def, Pa, keep, &same);
-                E_hi = envStore(&sg->E_sub_hi[k], &sg->R_hi[k], E_hi, rh, Pa, keep, &same);
-            } else if (sg->nint == 1) {
-                E = envStore(&sg->E_int, &sg->R[k], E, &lo.def, Pa, keep, &same);
-                E_hi = envStore(&sg->E_int_hi, &sg->R_hi[k], E_hi, rh, Pa, keep, &same);
-            } else {
-                E = envStore(&sg->E_ip[k - TPN_NSUB], &sg->R[k], E, &lo.def, Pa, keep, &same);
-                E_hi = envStore(&sg->E_ip_hi[k - TPN_NSUB], &sg->R_hi[k], E_hi, rh, Pa, keep, &same);
-            }
+            int dlo, dhi;
+            g_same_end = 0;
+            int zlo = envStore(sg, k, 0, &E, &lo, Pa, keep, &same, &dlo);
+            int zhi = envStore(sg, k, 1, &E_hi, one ? &lo : &hi, Pa, keep, &same, &dhi);
             if (keep) {
                 if (one && E_hi != E) {
                     hi = lo;
                     one = 0;
                 }
-                envRaise(&lo, Pa, E);
+                envRaise(&lo, Pa, E, dlo);
                 if (!one) {
-                    envRaise(&hi, Pa, E_hi);
+                    envRaise(&hi, Pa, E_hi, dhi);
                 }
             }
-            if (same && lo.capped && hi.capped) {
+            if (zlo) {
+                envFromEnd(&lo, Pa);
+            }
+            if (zhi && !one) {
+                envFromEnd(&hi, Pa);
+            }
+            /* behind an own cap stored as such the queue end no longer
+             * counts for itself */
+            if ((lo.capped && !zlo) || (hi.capped && !zhi)) {
+                g_eok = 0;
+            }
+            if (lo.capped || hi.capped) {
+                g_rst = Pa;
+            }
+            /* The pass ends at an own cap stored and left as it was, or
+             * where both come from the ramp to rest at the end of the queue
+             * as before: so do the pieces before that did, and the others
+             * hold as they are while nothing they start from was lowered
+             * and none of their ramps starts where the last move was cut.
+             * What starts from an envelope from the end of the queue holds
+             * while none came out lower, else the pass goes on past it. */
+            int dep_ok = !g_lzdrop || Pa < g_dep_last;
+            int cap = lo.capped && hi.capped && !zlo && !zhi;
+            if (same && ((lo.capped && hi.capped && (cap || dep_ok))
+                        || (g_same_end == 2 && g_lowfix == g_chg && Pa < g_tail_last
+                            && dep_ok))) {
+                /* those further back stay as they are, but behind an own
+                 * cap stored as such, which they all start from */
+                if (!cap && g_dep_last <= Pa) {
+                    g_dep = tpnMin(g_dep, g_dep_last);
+                }
                 return;
             }
         }
         if (sg->stop_in) {
-            envStart(&lo, sg->S0, 0.0);
-            envStart(&hi, sg->S0, 0.0);
+            envStart(&lo, sg->S0, 0.0, 0);
+            envStart(&hi, sg->S0, 0.0, 0);
             one = 1;
+            g_eok = 0;
+            g_rst = sg->S0;
         }
     }
 }
