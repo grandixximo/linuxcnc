@@ -151,6 +151,7 @@ static void queueReset(TP_STRUCT * const tp)
     tpn.jtail.valid = 0;
     tpnSyncReset();
     tpnRunReset();
+    tpnEnvReset();
     tp->goalPos = tp->currentPos;
     tp->done = 1;
     tp->depth = tp->activeDepth = 0;
@@ -665,6 +666,8 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
 
 static void popFront(TP_STRUCT * const tp)
 {
+    tpn_seg *sg = seg(0);
+    tpnEnvLeave(sg);
     tpn.q_start = (tpn.q_start + 1) % TPN_QSIZE;
     tpn.q_len--;
     if (tpn.h_len < TPN_QSIZE - tpn.q_len) {
@@ -681,6 +684,7 @@ static void pushFront(TP_STRUCT * const tp)
     tpn.q_start = (tpn.q_start + TPN_QSIZE - 1) % TPN_QSIZE;
     tpn.q_len++;
     tpn.h_len--;
+    tpnEnvBack(seg(0));
     tp->queue._len = tpn.q_len;
     tp->depth = tpn.q_len;
     tpn.emcmotStatus->tcqlen = tpn.q_len;
