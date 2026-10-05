@@ -202,7 +202,7 @@ void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
     }
     double k = g->angle / g->L;
     double R = g->radius;
-    double rmax = R + fmax(0.0, g->spiral);
+    double rmax = R + tpnMax(0.0, g->spiral);
     double rp = fabs(g->spiral / g->angle);
     double const *rt = &g->rTan.x;
     double const *rq = &g->rPerp.x;
@@ -243,7 +243,7 @@ static double refineDist2(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w,
         if (f2 <= TPN_TINY) {
             break;
         }
-        double un = fmin(g->L, fmax(0.0, u - f1 / f2));
+        double un = tpnMin(g->L, tpnMax(0.0, u - f1 / f2));
         if (fabs(un - u) < 1e-12 * g->L) {
             u = un;
             break;
@@ -256,7 +256,7 @@ static double refineDist2(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w,
 
 double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
 {
-    double best = fmin(weightedDist2(&g->p0, q, w), weightedDist2(&g->p1, q, w));
+    double best = tpnMin(weightedDist2(&g->p0, q, w), weightedDist2(&g->p1, q, w));
     int i;
     if (g->type == TPN_LINE) {
         /* the line is linear in every axis, so is its weighted projection */
@@ -268,8 +268,8 @@ double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
         }
         if (L2 > TPN_TINY) {
             tpn_vec p;
-            tpnGeomEval(g, fmin(g->L, fmax(0.0, t / L2)), &p, 0, 0);
-            best = fmin(best, weightedDist2(&p, q, w));
+            tpnGeomEval(g, tpnMin(g->L, tpnMax(0.0, t / L2)), &p, 0, 0);
+            best = tpnMin(best, weightedDist2(&p, q, w));
         }
         return sqrt(best);
     }
@@ -295,18 +295,18 @@ double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
             double R = g->radius;
             double rho2 = (x * x + y * y) / (R * R);
             double rho = sqrt(rho2);
-            double e = (rho - R) * (rho - R) + fmax(d2 - rho2, 0.0);
+            double e = (rho - R) * (rho - R) + tpnMax(d2 - rho2, 0.0);
             double s = e * w->v[0] * w->v[0];
             for (i = 3; i < TPN_NAX; i++) {
                 double f = (q->v[i] - g->p0.v[i]) * w->v[i];
                 s += f * f;
             }
-            best = fmin(best, s);
+            best = tpnMin(best, s);
         }
         return sqrt(best);
     }
     for (; phi <= g->angle + M_PI; phi += 2.0 * M_PI) {
-        best = fmin(best, refineDist2(g, q, w, fmin(g->L, phi * g->L / g->angle)));
+        best = tpnMin(best, refineDist2(g, q, w, tpnMin(g->L, phi * g->L / g->angle)));
     }
     return sqrt(best);
 }
@@ -375,13 +375,13 @@ void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
         bz[5] = c0 + c1 + c2 + c3 + c4 + c5;
         double m1 = 0.0, m2 = 0.0, m3 = 0.0;
         for (k = 0; k < 5; k++) {
-            m1 = fmax(m1, fabs(5.0 * (bz[k + 1] - bz[k])));
+            m1 = tpnMax(m1, fabs(5.0 * (bz[k + 1] - bz[k])));
         }
         for (k = 0; k < 4; k++) {
-            m2 = fmax(m2, fabs(20.0 * (bz[k + 2] - 2.0 * bz[k + 1] + bz[k])));
+            m2 = tpnMax(m2, fabs(20.0 * (bz[k + 2] - 2.0 * bz[k + 1] + bz[k])));
         }
         for (k = 0; k < 3; k++) {
-            m3 = fmax(m3, fabs(60.0 * (bz[k + 3] - 3.0 * bz[k + 2] + 3.0 * bz[k + 1] - bz[k])));
+            m3 = tpnMax(m3, fabs(60.0 * (bz[k + 3] - 3.0 * bz[k + 2] + 3.0 * bz[k + 1] - bz[k])));
         }
         G->v[i] = m1 / H;
         G1->v[i] = m2 / (H * H);
@@ -462,13 +462,13 @@ void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
     caps->Vg = TPN_BIG;
     for (i = 0; i < TPN_NAX; i++) {
         if (G->v[i] > TPN_TINY) {
-            caps->Vg = fmin(caps->Vg, ax->vel[i] / G->v[i]);
+            caps->Vg = tpnMin(caps->Vg, ax->vel[i] / G->v[i]);
         }
         if (G1->v[i] > TPN_TINY) {
-            V2 = fmin(V2, fa * ax->acc[i] / G1->v[i]);
+            V2 = tpnMin(V2, fa * ax->acc[i] / G1->v[i]);
         }
         if (G2->v[i] > TPN_TINY) {
-            V3 = fmin(V3, fj2 * ax->jerk[i] / G2->v[i]);
+            V3 = tpnMin(V3, fj2 * ax->jerk[i] / G2->v[i]);
         }
     }
     caps->V2 = V2 < TPN_BIG ? sqrt(V2) : TPN_BIG;
@@ -483,12 +483,12 @@ double tpnCurveCap(tpn_caps const *caps, double r, double vwant)
     double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
     double V2 = caps->V2 / s2, V3 = caps->V3 / s3;
     if (vwant > V2) {
-        V2 = fmin(vwant, caps->V2max / s2);
+        V2 = tpnMin(vwant, caps->V2max / s2);
     }
     if (vwant > V3) {
-        V3 = fmin(vwant, caps->V3max / s3);
+        V3 = tpnMin(vwant, caps->V3max / s3);
     }
-    return fmin(V2, V3) * caps->scale;
+    return tpnMin(V2, V3) * caps->scale;
 }
 
 void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
@@ -502,11 +502,11 @@ void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
         double ra = ax->acc[i] - V * V * g1;
         double rj = ax->jerk[i] - V * V * V * g2;
         if (G->v[i] > TPN_TINY) {
-            A = fmin(A, ra / G->v[i]);
-            J = fmin(J, fj * rj / G->v[i]);
+            A = tpnMin(A, ra / G->v[i]);
+            J = tpnMin(J, fj * rj / G->v[i]);
         }
         if (fj < 1.0 && g1 > TPN_TINY && V > TPN_TINY) {
-            A = fmin(A, (1.0 - fj) * rj / (3.0 * V * g1));
+            A = tpnMin(A, (1.0 - fj) * rj / (3.0 * V * g1));
         }
     }
     lim->V = V;
@@ -519,7 +519,7 @@ void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
 {
     tpn_caps caps;
     tpnLimitCaps(ax, G, G1, G2, &caps);
-    double V = fmin(fmin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
+    double V = tpnMin(tpnMin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
     tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
 }
 
@@ -552,19 +552,19 @@ void tpnLimitCapsJ(tpn_caps const *axcaps, double r, tpn_jlim const *jl, tpn_jb 
     for (j = 0; j < jl->n; j++) {
         jointAt(jb, j, r, &G, &G1, &G2);
         if (G > TPN_TINY) {
-            caps->Vg = fmin(caps->Vg, jl->vel[j] / G);
+            caps->Vg = tpnMin(caps->Vg, jl->vel[j] / G);
         }
         if (G1 > TPN_TINY) {
-            V2 = fmin(V2, fa * jl->acc[j] / G1);
+            V2 = tpnMin(V2, fa * jl->acc[j] / G1);
         }
         if (G2 > TPN_TINY) {
-            V3 = fmin(V3, fj2 * jl->jerk[j] / G2);
+            V3 = tpnMin(V3, fj2 * jl->jerk[j] / G2);
         }
     }
-    caps->V2 = fmin(axcaps->V2 / s2, V2 < TPN_BIG ? sqrt(V2) : TPN_BIG);
-    caps->V3 = fmin(axcaps->V3 / s3, V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG);
-    caps->V2max = fmin(axcaps->V2max / s2, V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG);
-    caps->V3max = fmin(axcaps->V3max / s3, V3 < TPN_BIG ? cbrt_pos(V3 * TPN_JCURVE_JMAX / fj2) : TPN_BIG);
+    caps->V2 = tpnMin(axcaps->V2 / s2, V2 < TPN_BIG ? sqrt(V2) : TPN_BIG);
+    caps->V3 = tpnMin(axcaps->V3 / s3, V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG);
+    caps->V2max = tpnMin(axcaps->V2max / s2, V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG);
+    caps->V3max = tpnMin(axcaps->V3max / s3, V3 < TPN_BIG ? cbrt_pos(V3 * TPN_JCURVE_JMAX / fj2) : TPN_BIG);
 }
 
 void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, int curved,
@@ -578,11 +578,11 @@ void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, 
         double ra = jl->acc[j] - V * V * G1;
         double rj = jl->jerk[j] - V * V * V * G2;
         if (G > TPN_TINY) {
-            lim->A = fmin(lim->A, ra / G);
-            lim->J = fmin(lim->J, fj * rj / G);
+            lim->A = tpnMin(lim->A, ra / G);
+            lim->J = tpnMin(lim->J, fj * rj / G);
         }
         if (fj < 1.0 && G1 > TPN_TINY && V > TPN_TINY) {
-            lim->A = fmin(lim->A, (1.0 - fj) * rj / (3.0 * V * G1));
+            lim->A = tpnMin(lim->A, (1.0 - fj) * rj / (3.0 * V * G1));
         }
     }
 }
@@ -593,7 +593,7 @@ void tpnLimitsJ(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1, tpn_ve
     tpn_caps axcaps, caps;
     tpnLimitCaps(ax, G, G1, G2, &axcaps);
     tpnLimitCapsJ(&axcaps, 1.0, jl, jb, &caps);
-    double V = fmin(fmin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
+    double V = tpnMin(tpnMin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
     tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
     tpnJointLimitsAt(jl, jb, 1.0, V, caps.curved, lim);
 }
@@ -634,7 +634,7 @@ double tpnRampDist(double v0, double v1, double A, double J)
 double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, double Ja,
         double Ab, double Jb)
 {
-    double vhi = fmax(va, vb);
+    double vhi = tpnMax(va, vb);
     double Dh = D - tpnRampDist(va, vhi, Aa, Ja) - tpnRampDist(vb, vhi, Ab, Jb);
     int k;
     if (Dh <= 0.0 || vtop <= vhi) {
@@ -672,7 +672,7 @@ double tpnRampReach(double V, double A, double J, double D)
      * covers (V + dv / 2) (dv / A + A / J), a quadratic in dv. */
     double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
     double disc = sqrt(0.25 * q * q + p3 * p3 * p3);
-    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = pow(fmax(disc - 0.5 * q, 0.0), 1.0 / 3.0);
+    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = pow(tpnMax(disc - 0.5 * q, 0.0), 1.0 / 3.0);
     /* ca - cb without the cancellation: ca^3 - cb^3 = q */
     double x = q / (ca * ca + ca * cb + cb * cb);
     double dv = x * x;
@@ -705,13 +705,13 @@ double tpnBrakeDist(double v0, double a0, double vt, double A, double J)
     if (vz <= vt) {
         /* ramping the deceleration out right away already reaches vt */
         double disc = a0 * a0 - 2.0 * J * (v0 - vt);
-        double t = (-a0 - sqrt(fmax(disc, 0.0))) / J;
+        double t = (-a0 - sqrt(tpnMax(disc, 0.0))) / J;
         return v0 * t + 0.5 * a0 * t * t + J * t * t * t / 6.0;
     }
     /* continue a profile that started at (vv, 0) and ramped down to a0 */
-    double Aeff = fmax(A, -a0);
+    double Aeff = tpnMax(A, -a0);
     double t0 = -a0 / J;
     double vv = v0 + 0.5 * a0 * a0 / J;
     double dpre = vv * t0 - J * t0 * t0 * t0 / 6.0;
-    return fmax(0.0, symDist(vv, vt, Aeff, J) - dpre);
+    return tpnMax(0.0, symDist(vv, vt, Aeff, J) - dpre);
 }

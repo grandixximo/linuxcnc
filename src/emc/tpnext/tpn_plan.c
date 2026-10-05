@@ -44,7 +44,7 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
         /* acceleration may change within two cycles, and no faster:
          * a higher jerk cannot be shaped at this cycle time */
         double jtrap = ax->acc[i] / (2.0 * tp->cycleTime);
-        ax->jerk[i] = trapezoid || j <= 0.0 ? jtrap : fmin(j * TPN_LIMIT_SCALE, jtrap);
+        ax->jerk[i] = trapezoid || j <= 0.0 ? jtrap : tpnMin(j * TPN_LIMIT_SCALE, jtrap);
     }
     if (tpn.axis_is_angular) {
         tpn.lin_mask = tpn.ang_mask = 0;
@@ -61,13 +61,13 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
 static double speedFactor(TP_STRUCT const *tp)
 {
     (void)tp;
-    return fmax(tpn.emcmotConfig->maxFeedScale, 1.0);
+    return tpnMax(tpn.emcmotConfig->maxFeedScale, 1.0);
 }
 
 /* envelope at the entry of a piece of length len from Enext at its end */
 static double envelopeIn(tpn_lim const *lim, double Enext, double len, double *E, int *same)
 {
-    double e = fmin(lim->V, sqrt(Enext * Enext + lim->A * len));
+    double e = tpnMin(lim->V, sqrt(Enext * Enext + lim->A * len));
     *same = *same && e == *E;
     *E = e;
     return e;
@@ -87,7 +87,7 @@ static void backwardPass(void)
         double E, E_hi;
         int k;
         if (sg->nint == 1) {
-            double len = fmax(0.0, sg->geom.L - sg->h_in - sg->h_out);
+            double len = tpnMax(0.0, sg->geom.L - sg->h_in - sg->h_out);
             E = envelopeIn(&sg->lim_int, Enext, len, &sg->E_int, &same);
             E_hi = envelopeIn(&sg->lim_int_hi, Enext_hi, len, &sg->E_int_hi, &same);
         } else {
@@ -140,7 +140,7 @@ static double blendDevAt(tpn_seg const *prev, tpn_seg const *sg, tpn_blend const
     if (d <= floor) {
         return d;
     }
-    return fmin(d, tpnGeomDist(first_prev ? &sg->geom : &prev->geom, &p, w));
+    return tpnMin(d, tpnGeomDist(first_prev ? &sg->geom : &prev->geom, &p, w));
 }
 
 /* Largest distance of the blend from the programmed path, the linear
@@ -180,7 +180,7 @@ static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend c
             d2 = blendDevAt(prev, sg, b, m2, w, -1.0);
         }
     }
-    return fmax(dev, fmax(d1, d2));
+    return tpnMax(dev, tpnMax(d1, d2));
 }
 
 /* ---------------------------------------------------------------- joints
@@ -229,7 +229,7 @@ static void readJointLimits(TP_STRUCT const *tp, tpn_jlim *jl)
         jl->vel[j] = v > 0.0 ? v * TPN_LIMIT_SCALE : TPN_BIG;
         jl->acc[j] = a > 0.0 ? a * TPN_LIMIT_SCALE : TPN_BIG;
         double jtrap = jl->acc[j] / (2.0 * tp->cycleTime);
-        jl->jerk[j] = trapezoid || k <= 0.0 ? jtrap : fmin(k * TPN_LIMIT_SCALE, jtrap);
+        jl->jerk[j] = trapezoid || k <= 0.0 ? jtrap : tpnMin(k * TPN_LIMIT_SCALE, jtrap);
     }
 }
 
@@ -348,7 +348,7 @@ static int jointFast(double const *a, double const *b, double du, double vmax)
     double const *c = jp.n > 1 ? jp.qd[jp.n - 2] : 0;
     double dc = jp.n > 1 ? jp.u[jp.n - 1] - jp.u[jp.n - 2] : 0.0;
     for (j = 0; j < tpn.jl.n; j++) {
-        double m = fmax(fabs(a[j]), fabs(b[j]));
+        double m = tpnMax(fabs(a[j]), fabs(b[j]));
         if (m * vmax < 0.5 * tpn.jl.vel[j]) {
             continue;
         }
@@ -409,11 +409,11 @@ static void jointParts(tpn_seg const *sg, double vmax, tpn_jb *jb, tpn_jb *jbp, 
              * of its curvature, and away from zero only where it bends
              * that way: q''' from the points at both ends */
             double h = jp.u[i + 1] - jp.u[i];
-            double c3 = fmax(fabs(d3[i]), fabs(d3[i + 1])) * TPN_JMARGIN;
+            double c3 = tpnMax(fabs(d3[i]), fabs(d3[i + 1])) * TPN_JMARGIN;
             double sg = jp.qd[i][j] + jp.qd[i + 1][j] >= 0.0 ? -1.0 : 1.0;
-            double out = fmax(0.0, fmax(sg * d3[i], sg * d3[i + 1])) * TPN_JMARGIN;
+            double out = tpnMax(0.0, tpnMax(sg * d3[i], sg * d3[i + 1])) * TPN_JMARGIN;
             m3[i][j] = c3;
-            m1[i][j] = fmax(fabs(jp.qd[i][j]), fabs(jp.qd[i + 1][j])) + 0.125 * h * h * out;
+            m1[i][j] = tpnMax(fabs(jp.qd[i][j]), fabs(jp.qd[i + 1][j])) + 0.125 * h * h * out;
             m2[i][j] = fabs(jp.qd[i + 1][j] - jp.qd[i][j]) / h + 0.5 * h * c3;
         }
     }
@@ -422,16 +422,16 @@ static void jointParts(tpn_seg const *sg, double vmax, tpn_jb *jb, tpn_jb *jbp, 
         double vi = vmax;
         for (j = 0; j < n; j++) {
             if (m1[i][j] > TPN_TINY) {
-                vi = fmin(vi, tpn.jl.vel[j] / m1[i][j]);
+                vi = tpnMin(vi, tpn.jl.vel[j] / m1[i][j]);
             }
             if (m2[i][j] > TPN_TINY) {
-                vi = fmin(vi, sqrt(0.5 * tpn.jl.acc[j] / m2[i][j]));
+                vi = tpnMin(vi, sqrt(0.5 * tpn.jl.acc[j] / m2[i][j]));
             }
             if (m3[i][j] > TPN_TINY) {
-                vi = fmin(vi, cbrt(0.25 * tpn.jl.jerk[j] / m3[i][j]));
+                vi = tpnMin(vi, cbrt(0.25 * tpn.jl.jerk[j] / m3[i][j]));
             }
         }
-        v[i] = fmax(vi, TPN_TINY);
+        v[i] = tpnMax(vi, TPN_TINY);
         t[i] = (jp.u[i + 1] - jp.u[i]) / v[i];
         ttot += t[i];
         end[i] = i + 1;
@@ -446,7 +446,7 @@ static void jointParts(tpn_seg const *sg, double vmax, tpn_jb *jb, tpn_jb *jbp, 
         double dbest = TPN_BIG;
         for (i = 0; nxt[i] < N; i = nxt[i]) {
             int b = nxt[i];
-            double d = (jp.u[end[b]] - jp.u[i]) / fmin(v[i], v[b]) - t[i] - t[b];
+            double d = (jp.u[end[b]] - jp.u[i]) / tpnMin(v[i], v[b]) - t[i] - t[b];
             if (d < dbest) {
                 dbest = d;
                 best = i;
@@ -456,7 +456,7 @@ static void jointParts(tpn_seg const *sg, double vmax, tpn_jb *jb, tpn_jb *jbp, 
             break;
         }
         int b = nxt[best];
-        v[best] = fmin(v[best], v[b]);
+        v[best] = tpnMin(v[best], v[b]);
         t[best] = (jp.u[end[b]] - jp.u[best]) / v[best];
         end[best] = end[b];
         nxt[best] = nxt[b];
@@ -474,15 +474,15 @@ static void jointParts(tpn_seg const *sg, double vmax, tpn_jb *jb, tpn_jb *jbp, 
         }
         for (k = i; k < end[i]; k++) {
             for (j = 0; j < n; j++) {
-                b->G[j] = fmax(b->G[j], m1[k][j]);
-                b->G1s[j] = fmax(b->G1s[j], m2[k][j]);
-                b->G2s[j] = fmax(b->G2s[j], m3[k][j]);
+                b->G[j] = tpnMax(b->G[j], m1[k][j]);
+                b->G1s[j] = tpnMax(b->G1s[j], m2[k][j]);
+                b->G2s[j] = tpnMax(b->G2s[j], m3[k][j]);
             }
         }
         for (j = 0; j < n; j++) {
-            jb->G[j] = fmax(jb->G[j], b->G[j]);
-            jb->G1s[j] = fmax(jb->G1s[j], b->G1s[j]);
-            jb->G2s[j] = fmax(jb->G2s[j], b->G2s[j]);
+            jb->G[j] = tpnMax(jb->G[j], b->G[j]);
+            jb->G1s[j] = tpnMax(jb->G1s[j], b->G1s[j]);
+            jb->G2s[j] = tpnMax(jb->G2s[j], b->G2s[j]);
         }
         (*nint)++;
     }
@@ -504,7 +504,7 @@ static void jointReach(tpn_geom const *g, tpn_jend const *head, tpn_jend const *
     for (j = 0; j < n; j++) {
         sc[j] = 0.0;
         for (i = 0; i <= N; i++) {
-            sc[j] = fmax(sc[j], fabs(jp.qd[i][j]));
+            sc[j] = tpnMax(sc[j], fabs(jp.qd[i][j]));
         }
         /* joints that stay far from their limit at the feed do not count */
         if (4.0 * sc[j] * vmax < tpn.jl.vel[j]) {
@@ -563,7 +563,7 @@ static int jointAnchors(tpn_seg const *sg, double vmax, tpn_jb *jb, tpn_jb *jbp,
 
     for (a = 0; a < TPN_NAX; a++) {
         if (tpn.ang_mask & (1u << a)) {
-            rot = fmax(rot, fabs(g->p1.v[a] - g->p0.v[a]));
+            rot = tpnMax(rot, fabs(g->p1.v[a] - g->p0.v[a]));
         }
     }
     K = 3 + (int)ceil(rot * TPN_JANCH_DEG + g->L * TPN_JANCH_LEN);
@@ -753,7 +753,7 @@ static void jointBlendParts(tpn_blend const *b, tpn_jend const *in, tpn_jend con
         for (j = 0; j < n; j++) {
             jb[k].G[j] = jb[k].G1s[j] = jb[k].G1u[j] = 0.0;
             jb[k].G2s[j] = jb[k].G2m[j] = 0.0;
-            jb[k].G2u[j] = fmax(in->G2[j], out->G2[j]);
+            jb[k].G2u[j] = tpnMax(in->G2[j], out->G2[j]);
         }
     }
     /* the samples of each part, the ends shared with its neighbours */
@@ -794,11 +794,11 @@ static void jointBlendParts(tpn_blend const *b, tpn_jend const *in, tpn_jend con
                 m2 += 2.0 * J1 * d2[c] + J2 * d1[c];
             }
             for (k = k0; k <= k1; k++) {
-                jb[k].G[j] = fmax(jb[k].G[j], fabs(jp));
-                jb[k].G1s[j] = fmax(jb[k].G1s[j], fabs(s1));
-                jb[k].G1u[j] = fmax(jb[k].G1u[j], fabs(u1));
-                jb[k].G2s[j] = fmax(jb[k].G2s[j], fabs(s2));
-                jb[k].G2m[j] = fmax(jb[k].G2m[j], fabs(m2));
+                jb[k].G[j] = tpnMax(jb[k].G[j], fabs(jp));
+                jb[k].G1s[j] = tpnMax(jb[k].G1s[j], fabs(s1));
+                jb[k].G1u[j] = tpnMax(jb[k].G1u[j], fabs(u1));
+                jb[k].G2s[j] = tpnMax(jb[k].G2s[j], fabs(s2));
+                jb[k].G2m[j] = tpnMax(jb[k].G2m[j], fabs(m2));
             }
         }
     }
@@ -840,22 +840,22 @@ static double cornerScale(TP_STRUCT const *tp)
 static void blendParts(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg const *prev,
         tpn_seg const *sg, tpn_blend const *b, tpn_parts *pt)
 {
-    double vcap = fmin(prev->vreq, sg->vreq) * speedFactor(tp);
+    double vcap = tpnMin(prev->vreq, sg->vreq) * speedFactor(tp);
     int k;
-    pt->vwant = fmin(prev->vreq, sg->vreq);
+    pt->vwant = tpnMin(prev->vreq, sg->vreq);
     /* a blend part between two arcs may bound the curvature closer than
      * the arcs do, but a speed above both only makes the S-curve
      * controller speed up and slow down again */
     pt->vtop = tpn.emcmotStatus->planner_type == 1
         && prev->geom.type == TPN_ARC && sg->geom.type == TPN_ARC
-        ? fmax(tpnEndLim(prev, 1, 0)->V, tpnEndLim(sg, 0, 0)->V) : TPN_BIG;
+        ? tpnMax(tpnEndLim(prev, 1, 0)->V, tpnEndLim(sg, 0, 0)->V) : TPN_BIG;
     for (k = 0; k < TPN_NSUB; k++) {
         tpn_blend part;
         tpnBlendPart(b, (double)k / TPN_NSUB, (double)(k + 1) / TPN_NSUB, &part);
         tpnBlendBounds(&part, &pt->G[k], &pt->G1[k], &pt->G2[k]);
         tpnLimitCaps(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], &pt->caps[k]);
         pt->caps[k].scale = cornerScale(tp);
-        pt->vcap[k] = fmin(vcap, pt->caps[k].Vg);
+        pt->vcap[k] = tpnMin(vcap, pt->caps[k].Vg);
     }
     pt->jon = tpn.jtail.valid && tpn.jhead.valid;
     if (pt->jon) {
@@ -875,16 +875,16 @@ static void partLimits(tpn_axlim const *ax, tpn_parts const *pt, double r, tpn_l
         if (pt->jon) {
             tpn_caps c;
             tpnLimitCapsJ(&pt->caps[k], r, &tpn.jl, &pt->jb[k], &c);
-            double V = fmin(fmin(fmin(pt->vcap[k], c.Vg), pt->vtop), tpnCurveCap(&c, 1.0, pt->vwant));
+            double V = tpnMin(tpnMin(tpnMin(pt->vcap[k], c.Vg), pt->vtop), tpnCurveCap(&c, 1.0, pt->vwant));
             tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, c.curved, &l);
             tpnJointLimitsAt(&tpn.jl, &pt->jb[k], r, V, c.curved, &l);
         } else {
-            double V = fmin(fmin(pt->vcap[k], pt->vtop), tpnCurveCap(&pt->caps[k], r, pt->vwant));
+            double V = tpnMin(tpnMin(pt->vcap[k], pt->vtop), tpnCurveCap(&pt->caps[k], r, pt->vwant));
             tpnLimitsAt(ax, &pt->G[k], &pt->G1[k], &pt->G2[k], r, V, pt->caps[k].curved, &l);
         }
-        lim->V = fmin(lim->V, l.V);
-        lim->A = fmin(lim->A, l.A);
-        lim->J = fmin(lim->J, l.J);
+        lim->V = tpnMin(lim->V, l.V);
+        lim->A = tpnMin(lim->A, l.A);
+        lim->J = tpnMin(lim->J, l.J);
         if (sub) {
             sub[k] = l;
         }
@@ -907,13 +907,13 @@ static void runLimits(double from, double S, double *A, double *J)
             continue;
         }
         if (sg->h_in > 0.0 && sg->S0 + sg->h_in > from) {
-            *A = fmin(*A, sg->lim_bin.A);
-            *J = fmin(*J, sg->lim_bin.J);
+            *A = tpnMin(*A, sg->lim_bin.A);
+            *J = tpnMin(*J, sg->lim_bin.J);
         }
         if (sg->nint == 1) {
             if (sg->S0 + sg->h_in < S) {
-                *A = fmin(*A, sg->lim_int.A);
-                *J = fmin(*J, sg->lim_int.J);
+                *A = tpnMin(*A, sg->lim_int.A);
+                *J = tpnMin(*J, sg->lim_int.J);
             }
             continue;
         }
@@ -922,8 +922,8 @@ static void runLimits(double from, double S, double *A, double *J)
             tpn_lim const *lim, *hi;
             if (tpnIntPart(sg, k, &Pa, &Pb, &lim, &hi, &E, &E_hi)
                     && Pa < S && Pb > from) {
-                *A = fmin(*A, lim->A);
-                *J = fmin(*J, lim->J);
+                *A = tpnMin(*A, lim->A);
+                *J = tpnMin(*J, lim->J);
             }
         }
     }
@@ -1000,7 +1000,7 @@ static int reachable(double S, double V)
     if (tpn.slow_A < TPN_BIG && tpn.slow_P > tpn.cur_s && tpn.slow_V <= V) {
         A = tpn.slow_A * TPN_BRAKE_SCALE;
         J = tpn.slow_J * TPN_BRAKE_SCALE;
-        double ramp = tpn.slow_V * fmin(tpn.slow_Ap, sqrt(2.0 * J * tpn.slow_V)) / J;
+        double ramp = tpn.slow_V * tpnMin(tpn.slow_Ap, sqrt(2.0 * J * tpn.slow_V)) / J;
         if (ramp + tpnBrakeDist(tpn.slow_V, 0.0, V, A, J) <= S - tpn.slow_P - 1e-9) {
             return 1;
         }
@@ -1012,7 +1012,7 @@ static int reachable(double S, double V)
         double Ab = A, Jb = J;
         A *= TPN_BRAKE_SCALE;
         J *= TPN_BRAKE_SCALE;
-        double ramp = Vp[i] * fmin(Ap[i], sqrt(2.0 * J * Vp[i])) / J;
+        double ramp = Vp[i] * tpnMin(Ap[i], sqrt(2.0 * J * Vp[i])) / J;
         if (ramp + tpnBrakeDist(Vp[i], 0.0, V, A, J) <= S - P[i] - 1e-9) {
             tpn.slow_P = P[i];
             tpn.slow_V = Vp[i];
@@ -1028,11 +1028,11 @@ static int reachable(double S, double V)
     }
     /* the scan may stop short of the last move, later ones will not */
     tpn_seg const *last = seg(tpn.q_len - 1);
-    tpn.A_lo = fmin(A, last->lim_int.A);
-    tpn.J_lo = fmin(J, last->lim_int.J);
+    tpn.A_lo = tpnMin(A, last->lim_int.A);
+    tpn.J_lo = tpnMin(J, last->lim_int.J);
     if (last->h_in > 0.0) {
-        tpn.A_lo = fmin(tpn.A_lo, last->lim_bin.A);
-        tpn.J_lo = fmin(tpn.J_lo, last->lim_bin.J);
+        tpn.A_lo = tpnMin(tpn.A_lo, last->lim_bin.A);
+        tpn.J_lo = tpnMin(tpn.J_lo, last->lim_bin.J);
     }
     if (tpnBrakeDist(tpn.cur_v, tpn.cur_a, V, A * TPN_BRAKE_SCALE, J * TPN_BRAKE_SCALE) <= d) {
         return 1;
@@ -1069,8 +1069,8 @@ static double cornerTime(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_l
         double vr)
 {
     tpn_lim const *li = tpnEndLim(prev, 1, 0), *lo = tpnEndLim(sg, 0, 0);
-    double A = fmin(li->A, lo->A) * TPN_BRAKE_SCALE;
-    double J = fmin(li->J, lo->J) * TPN_BRAKE_SCALE;
+    double A = tpnMin(li->A, lo->A) * TPN_BRAKE_SCALE;
+    double J = tpnMin(li->J, lo->J) * TPN_BRAKE_SCALE;
     double Vin = 0.0, Vout = 0.0, tb = 0.0;
     int k, m;
     if (sub) {
@@ -1078,10 +1078,10 @@ static double cornerTime(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_l
         for (k = 0; k <= TPN_NSUB; k++) {
             vb[k] = vr;
             if (k > 0) {
-                vb[k] = fmin(vb[k], sub[k - 1].V);
+                vb[k] = tpnMin(vb[k], sub[k - 1].V);
             }
             if (k < TPN_NSUB) {
-                vb[k] = fmin(vb[k], sub[k].V);
+                vb[k] = tpnMin(vb[k], sub[k].V);
             }
         }
         /* one ramp from each boundary before, under the lowest limits on
@@ -1089,22 +1089,22 @@ static double cornerTime(tpn_seg const *prev, tpn_seg const *sg, double h, tpn_l
         for (k = 1; k <= TPN_NSUB; k++) {
             double a = A, j = J;
             for (m = k - 1; m >= 0; m--) {
-                a = fmin(a, sub[m].A);
-                j = fmin(j, sub[m].J);
-                vb[k] = fmin(vb[k], vb[m] + tpnRampReach(vb[m], a, j, (k - m) * part));
+                a = tpnMin(a, sub[m].A);
+                j = tpnMin(j, sub[m].J);
+                vb[k] = tpnMin(vb[k], vb[m] + tpnRampReach(vb[m], a, j, (k - m) * part));
             }
         }
         for (k = TPN_NSUB - 1; k >= 0; k--) {
             double a = A, j = J;
             for (m = k + 1; m <= TPN_NSUB; m++) {
-                a = fmin(a, sub[m - 1].A);
-                j = fmin(j, sub[m - 1].J);
-                vb[k] = fmin(vb[k], vb[m] + tpnRampReach(vb[m], a, j, (m - k) * part));
+                a = tpnMin(a, sub[m - 1].A);
+                j = tpnMin(j, sub[m - 1].J);
+                vb[k] = tpnMin(vb[k], vb[m] + tpnRampReach(vb[m], a, j, (m - k) * part));
             }
         }
         /* in a part the speed rises from both ends towards its cap */
         for (k = 0; k < TPN_NSUB; k++) {
-            double a = fmin(A, sub[k].A), j = fmin(J, sub[k].J), v = fmin(sub[k].V, vr);
+            double a = tpnMin(A, sub[k].A), j = tpnMin(J, sub[k].J), v = tpnMin(sub[k].V, vr);
             tb += sideTime(vb[k], v, a, j, 0.5 * part) + sideTime(vb[k + 1], v, a, j, 0.5 * part);
         }
         Vin = vb[0];
@@ -1139,12 +1139,12 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     if (prev->sync != sg->sync || prev->tap || prev->joint || sg->joint) {
         stop = 1;
     }
-    double hmax = fmin(prev->geom.L - prev->h_in, 0.5 * sg->geom.L);
+    double hmax = tpnMin(prev->geom.L - prev->h_in, 0.5 * sg->geom.L);
     /* no further than the joint model of the blend holds */
-    hmax = fmin(hmax, fmin(prev->hj_out, sg->hj_in));
+    hmax = tpnMin(hmax, tpnMin(prev->hj_out, sg->hj_in));
     if (prev == seg(0) || prev->active) {
         /* the blend has to start ahead of the controller */
-        hmax = fmin(hmax, segEnd(prev) - tpn.cur_s - 4.0 * tpn.cur_v * tp->cycleTime - 1e-6);
+        hmax = tpnMin(hmax, segEnd(prev) - tpn.cur_s - 4.0 * tpn.cur_v * tp->cycleTime - 1e-6);
     }
     if (hmax < 1e-6) {
         stop = 1;
@@ -1181,7 +1181,7 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
                 break;
             }
             /* aim a little inside so a nearly linear corner ends here */
-            h *= fmax(0.1, 0.99 / r);
+            h *= tpnMax(0.1, 0.99 / r);
             blendBuild(prev, sg, h, &b);
         }
         if (k == 40) {
@@ -1194,10 +1194,10 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
      * takes longer to cross: a sharp corner is often passed sooner with a
      * shorter blend, or a stop. Take the fastest of a few sizes inside
      * the tolerance and a stop, among those the controller can reach. */
-    double vwant = fmin(prev->vreq, sg->vreq) * speedFactor(tp);
+    double vwant = tpnMin(prev->vreq, sg->vreq) * speedFactor(tp);
     /* judged at the programmed feed */
-    double vr = fmin(fmin(prev->vreq, sg->vreq),
-            fmin(tpnEndLim(prev, 1, 0)->V, tpnEndLim(sg, 0, 0)->V));
+    double vr = tpnMin(tpnMin(prev->vreq, sg->vreq),
+            tpnMin(tpnEndLim(prev, 1, 0)->V, tpnEndLim(sg, 0, 0)->V));
     /* The candidates are judged on the bounds of this blend scaled to
      * their size: exact between two lines, where the blend only scales
      * about the corner, an estimate elsewhere. The one taken gets its own
@@ -1218,7 +1218,7 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
             }
             if (k > 0) {
                 partLimits(ax, &pt, h0 / hc, &lc, subc);
-                if (2.0 * hc < TPN_BLEND_CYCLES * fmin(lc.V, vr) * tp->cycleTime) {
+                if (2.0 * hc < TPN_BLEND_CYCLES * tpnMin(lc.V, vr) * tp->cycleTime) {
                     break;
                 }
             } else {
@@ -1308,14 +1308,14 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
      * two lines is this one scaled about the corner */
     pt.vwant *= speedFactor(tp);
     if (pt.vtop < TPN_BIG) {
-        pt.vtop = fmax(tpnEndLim(prev, 1, 1)->V, tpnEndLim(sg, 0, 1)->V);
+        pt.vtop = tpnMax(tpnEndLim(prev, 1, 1)->V, tpnEndLim(sg, 0, 1)->V);
     }
     partLimits(ax, &pt, h0 / h, &lim, sg->lim_sub_hi);
-    sg->vreq_bin = fmin(prev->vreq, sg->vreq);
+    sg->vreq_bin = tpnMin(prev->vreq, sg->vreq);
     /* the lower of the two caps, where 0 is none */
     sg->vlimit_bin = prev->vlimit_scale <= 0.0 ? sg->vlimit_scale
         : sg->vlimit_scale <= 0.0 ? prev->vlimit_scale
-        : fmin(prev->vlimit_scale, sg->vlimit_scale);
+        : tpnMin(prev->vlimit_scale, sg->vlimit_scale);
 }
 
 /* Near a singular pose a joint may ask for any low speed. Below
@@ -1337,8 +1337,8 @@ static int singularFloor(tpn_lim *lim, tpn_lim const *axl, double vfloor)
         return 0;
     }
     lim->V = vfloor;
-    lim->A = fmax(lim->A, singularFraction() * axl->A);
-    lim->J = fmax(lim->J, singularFraction() * axl->J);
+    lim->A = tpnMax(lim->A, singularFraction() * axl->A);
+    lim->J = tpnMax(lim->J, singularFraction() * axl->J);
     return 1;
 }
 
@@ -1376,7 +1376,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     sg->sync = sg->joint ? TC_SYNC_NONE : tp->synchronized;
     sg->spindle = tp->spindle.spindle_num;
     sg->uu_per_rev = sg->joint ? 0.0 : tp->uu_per_rev;
-    sg->vreq = fmin(vel, ini_maxvel > 0.0 ? ini_maxvel : vel);
+    sg->vreq = tpnMin(vel, ini_maxvel > 0.0 ? ini_maxvel : vel);
     if (sg->vreq <= 0.0 || (sg->sync == TC_SYNC_POSITION && ini_maxvel > 0.0)) {
         /* the spindle sets the speed of a position synchronized move */
         sg->vreq = ini_maxvel;
@@ -1400,11 +1400,11 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     /* speed humps shorter than this are flattened, longer ones below
      * G64 R1 */
     sg->hump_t = tpn.emcmotStatus->planner_type == 1 && sg->sync != TC_SYNC_POSITION
-        ? fmax(tpn.emcmotConfig->speedHumpTime, 0.0) / cornerScale(tp) : 0.0;
+        ? tpnMax(tpn.emcmotConfig->speedHumpTime, 0.0) / cornerScale(tp) : 0.0;
 
     double vmax = sg->vreq * speedFactor(tp);
     if (ini_maxvel > 0.0) {
-        vmax = fmin(vmax, ini_maxvel);
+        vmax = tpnMin(vmax, ini_maxvel);
     }
     jon = !sg->joint && jointsOn(sg);
     sg->nint = 1;
@@ -1445,15 +1445,15 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         double jtrap = A / (2.0 * tp->cycleTime);
         sg->lim_int.A = A;
         sg->lim_int.J = tpn.emcmotStatus->planner_type != 1 || sg->lim_int.J <= 0.0
-            ? jtrap : fmin(sg->lim_int.J * TPN_LIMIT_SCALE, jtrap);
-        sg->lim_int.V = ini_maxvel > 0.0 ? fmin(vmax, ini_maxvel * TPN_LIMIT_SCALE) : vmax;
+            ? jtrap : tpnMin(sg->lim_int.J * TPN_LIMIT_SCALE, jtrap);
+        sg->lim_int.V = ini_maxvel > 0.0 ? tpnMin(vmax, ini_maxvel * TPN_LIMIT_SCALE) : vmax;
         sg->lim_int_hi = sg->lim_int;
     } else if (jon) {
         tpn_lim axl;
         int k, low = 0, floored = 0;
         double vlow = TPN_BIG;
         tpnLimits(&ax, &G, &G1, &G2, vmax, sg->vreq, &axl);
-        double vfloor = fmin(singularFraction() * sg->vreq, axl.V);
+        double vfloor = tpnMin(singularFraction() * sg->vreq, axl.V);
         tpnLimitsJ(&ax, &G, &G1, &G2, &tpn.jl, &jb, vmax, sg->vreq, &sg->lim_int);
         tpnLimitsJ(&ax, &G, &G1, &G2, &tpn.jl, &jb, vmax, vmax, &sg->lim_int_hi);
         singularFloor(&sg->lim_int, &axl, vfloor);
@@ -1522,18 +1522,18 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         tpn.jmoves++;
     }
     if (sg->h_in > 0.0) {
-        tpn.A_lo = fmin(tpn.A_lo, sg->lim_bin.A);
-        tpn.J_lo = fmin(tpn.J_lo, sg->lim_bin.J);
+        tpn.A_lo = tpnMin(tpn.A_lo, sg->lim_bin.A);
+        tpn.J_lo = tpnMin(tpn.J_lo, sg->lim_bin.J);
     }
-    tpn.A_lo = fmin(tpn.A_lo, sg->lim_int.A);
-    tpn.J_lo = fmin(tpn.J_lo, sg->lim_int.J);
+    tpn.A_lo = tpnMin(tpn.A_lo, sg->lim_int.A);
+    tpn.J_lo = tpnMin(tpn.J_lo, sg->lim_int.J);
     if (tpn.slow_A < TPN_BIG) {
         if (sg->h_in > 0.0) {
-            tpn.slow_A = fmin(tpn.slow_A, sg->lim_bin.A);
-            tpn.slow_J = fmin(tpn.slow_J, sg->lim_bin.J);
+            tpn.slow_A = tpnMin(tpn.slow_A, sg->lim_bin.A);
+            tpn.slow_J = tpnMin(tpn.slow_J, sg->lim_bin.J);
         }
-        tpn.slow_A = fmin(tpn.slow_A, sg->lim_int.A);
-        tpn.slow_J = fmin(tpn.slow_J, sg->lim_int.J);
+        tpn.slow_A = tpnMin(tpn.slow_A, sg->lim_int.A);
+        tpn.slow_J = tpnMin(tpn.slow_J, sg->lim_int.J);
     }
 
     tpn.q_len++;
