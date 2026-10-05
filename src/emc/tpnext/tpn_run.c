@@ -1131,8 +1131,9 @@ static double jerkTrack(double Vt, double jlo, double jhi, double J, double dt)
 /* The jerk limit the deceleration is ramped out with: the smallest over
  * the pieces the ramp crosses, up to the first stop, where the motion
  * rests. The hard constraints account for the limits ahead; a requested
- * stop (feed hold, pause, abort) is tracked with this, or it snaps where
- * a piece with a lower jerk limit starts inside the ramp. */
+ * stop (feed hold, pause, abort) or a soft cap out of reach (a lower
+ * override) is tracked with this, or the speed runs on to rest where a
+ * piece with a lower jerk limit starts inside the ramp. */
 static double jerkAhead(tpn_step const *st, double dt)
 {
     double J = st->J, a = tpn.cur_a, v = tpn.cur_v;
@@ -1378,9 +1379,9 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
         j = lo;
     }
     if (Vtrack < TPN_BIG) {
-        /* a requested stop ramps its deceleration out with the jerk
-         * limit ahead */
-        j = tpnMin(j, jerkTrack(Vtrack, jlo, jhi, Vtrack > 0.0 ? J : jerkAhead(st, dt), dt));
+        /* a requested stop or a lower override ramps its deceleration
+         * out with the jerk limit ahead */
+        j = tpnMin(j, jerkTrack(Vtrack, jlo, jhi, jerkAhead(st, dt), dt));
     }
     return j;
 }
