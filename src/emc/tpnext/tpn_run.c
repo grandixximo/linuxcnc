@@ -393,11 +393,12 @@ static double humpReach(tpn_step const *st)
 static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st)
 {
     double dt = tp->cycleTime;
-    double Arun = TPN_BIG, Jrun = TPN_BIG;
+    double Arun = TPN_BIG, Jrun = TPN_BIG, Send = 0.0;
     int i, nrun = -1, want_one = 0;
     stepInit(st);
     if (tpn.q_len > 0) {
         actStart(seg(0)->id, tpn.cur_s);
+        Send = tpnQueueEnd();
     }
 
     for (i = 0; i < tpn.q_len; i++) {
@@ -418,7 +419,8 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             tpn_lim const *lim;
             tpn_lim const *hi;
             double E_hi;
-            tpn_ramp const *rp = &sg->R[piece];
+            tpn_ramp const *rp = &sg->R[piece], *rph = &sg->R_hi[piece];
+            tpn_ramp rl, rlh;
             if (!tpnPiece(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi)) {
                 continue;
             }
@@ -426,6 +428,24 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 continue;
             }
             soft = pieceSoft(tp, sg, piece < TPN_NSUB, scale);
+            /* ramps to rest at the end of the queue, as it ends now, and
+             * their envelopes where they are asked for below */
+            int ask_hi = soft >= 0.0 && (soft > lim->V || (Pa <= tpn.cur_s && tpn.cur_v > lim->V));
+            if (tpnRampToEnd(rp)) {
+                tpnEndRamp(rp, 0, Send, &rl);
+                if (Pa > tpn.cur_s || ask_hi) {
+                    E = tpnEndAt(&rl, Pa);
+                }
+                rp = &rl;
+            }
+            if (tpnRampToEnd(rph)) {
+                tpnEndRamp(rph, 1, Send, &rlh);
+                if (ask_hi) {
+                    E_hi = rp == &rl && rlh.A == rl.A && rlh.J == rl.J && rlh.V == rl.V
+                        ? E : tpnEndAt(&rlh, Pa);
+                }
+                rph = &rlh;
+            }
             /* the opened caps where the override asks for more than the
              * caps allow and they let the motion run faster; in the piece
              * the motion is in only once it is about to reach the caps,
@@ -438,7 +458,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                     : soft > lim->V && E_hi > E)) {
                 lim = hi;
                 E = E_hi;
-                rp = &sg->R_hi[piece];
+                rp = rph;
             }
             if (Pa <= tpn.cur_s && rp->J > 0.0 && rp->S > tpn.cur_s) {
                 actAdd(rp);

@@ -31,10 +31,18 @@ typedef struct {
 
 /* A ramp of the backward envelope: down to speed E at S with no
  * acceleration left, under limits A and J (braking scale applied) and
- * below the smallest speed cap V of the pieces it crosses. J = 0: none. */
+ * below the smallest speed cap V of the pieces it crosses. J = 0: none.
+ * E < 0: down to rest at the end of the queue, wherever the queue ends
+ * when it is read; S is then the queue build that stored it, and the
+ * limits of the moves queued since are in tpn.gen, tpnEndRamp(). */
 typedef struct {
     double S, E, A, J, V;
 } tpn_ramp;
+
+static inline int tpnRampToEnd(tpn_ramp const *r)
+{
+    return r->J > 0.0 && r->E < 0.0;
+}
 
 /* per axis limits */
 typedef struct {
@@ -149,6 +157,10 @@ typedef struct {
     double E_sub_hi[TPN_NSUB], E_int_hi;
     /* the ramp each envelope comes from, by piece as tpnPiece() */
     tpn_ramp R[TPN_NSUB + TPN_NINT], R_hi[TPN_NSUB + TPN_NINT];
+    /* bit k: the ramp of piece k starts from an envelope that came from
+     * the end of the queue (lo, hi) */
+    unsigned dep[2];
+    double epoch;           /* the queue build that added it */
     int active;
     int rev_ok;             /* may be run backwards: no tap, sync or indexer */
     double hump_t;          /* speed humps shorter than this are flattened, s */
@@ -242,6 +254,8 @@ double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, doubl
 /* braking is planned with this fraction of the tangential limits so the
  * cycle by cycle controller has headroom to follow the curve */
 #define TPN_BRAKE_SCALE 0.97
+/* queue builds kept that lowered the limits of the end of the queue */
+#define TPN_GENS 32
 
 /* fmin and fmax are library calls unless the math is fast, a cost in the
  * per piece and per cycle loops; these differ from them only on a NaN */
@@ -304,6 +318,16 @@ typedef struct {
     int jmoves;
     int jend_valid;
     double jend[TPN_NJ];
+    int ndep;               /* pieces with a bit set in seg dep */
+    /* queue builds so far, and the smallest limits of the moves added
+     * by the builds since which ramps to rest at the end of the queue
+     * have lower limits than they were stored with, oldest first */
+    double epoch;
+    int ngen;
+    struct {
+        double s;
+        double A[2], J[2], V[2];
+    } gen[TPN_GENS];
 } tpn_state;
 
 extern tpn_state tpn;
@@ -329,6 +353,33 @@ static inline double ownedStart(tpn_seg const *sg)
 static inline double ownedEnd(tpn_seg const *sg)
 {
     return sg->S0 + sg->geom.L - sg->h_out;
+}
+
+/* where the queue ends, with moves in it */
+static inline double tpnQueueEnd(void)
+{
+    return ownedEnd(seg(tpn.q_len - 1));
+}
+
+/* r, a ramp to rest at the end of the queue (of the opened caps for hi),
+ * as it ends now, at S */
+static inline void tpnEndRamp(tpn_ramp const *r, int hi, double S, tpn_ramp *out)
+{
+    int k;
+    *out = *r;
+    for (k = tpn.ngen - 1; k >= 0 && tpn.gen[k].s > r->S; k--) {
+        out->A = tpnMin(out->A, tpn.gen[k].A[hi]);
+        out->J = tpnMin(out->J, tpn.gen[k].J[hi]);
+        out->V = tpnMin(out->V, tpn.gen[k].V[hi]);
+    }
+    out->S = S;
+    out->E = 0.0;
+}
+
+/* the envelope at Pa from such a ramp as it ends now */
+static inline double tpnEndAt(tpn_ramp const *r, double Pa)
+{
+    return tpnMin(r->V, tpnRampReach(0.0, r->A, r->J, r->S - Pa));
 }
 
 /* the pieces of a move: the parts of its blend with the previous move,
@@ -400,6 +451,14 @@ static inline tpn_lim const *tpnEndLim(tpn_seg const *sg, int end, int hi)
 int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         double ini_maxvel, double vlimit_scale, unsigned char enables, char atspeed,
         int indexer_jnum, struct state_tag_t tag);
+/* the move sg leaves the queue: its envelopes from the ramp to rest at
+ * the end of the queue, which the queue build keeps up to date no more,
+ * are fixed where the queue ends now */
+void tpnEnvLeave(tpn_seg *sg);
+/* sg comes back into the queue, in a reverse run */
+void tpnEnvBack(tpn_seg *sg);
+/* the queue was emptied */
+void tpnEnvReset(void);
 
 /* spindle synchronization, tpn_sync.c; a catch up to the spindle uses
  * this much of the acceleration and jerk limits, the rest is left for
