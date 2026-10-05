@@ -657,11 +657,6 @@ double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, doubl
     return tpnRampTime(lo - vhi, Aa, Ja) + tpnRampTime(lo - vhi, Ab, Jb);
 }
 
-/*
- * Shortest distance in which the state (v0, a0) can be brought to a
- * velocity no higher than vt with zero acceleration, under tangential
- * limits A and J. Zero if the state never exceeds vt anyway.
- */
 /* The speed change a jerk limited ramp from speed V and zero
  * acceleration makes over D under A and J */
 double tpnRampReach(double V, double A, double J, double D)
@@ -671,10 +666,14 @@ double tpnRampReach(double V, double A, double J, double D)
      * one real root is Cardano's; past dv = A^2 / J the ramp holds A and
      * covers (V + dv / 2) (dv / A + A / J), a quadratic in dv. */
     double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
+    if (q <= 0.0) {
+        return 0.0;
+    }
     double disc = sqrt(0.25 * q * q + p3 * p3 * p3);
-    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = pow(tpnMax(disc - 0.5 * q, 0.0), 1.0 / 3.0);
-    /* ca - cb without the cancellation: ca^3 - cb^3 = q */
-    double x = q / (ca * ca + ca * cb + cb * cb);
+    /* x = ca - cb with ca^3 - cb^3 = q and ca cb = p3, without the
+     * cancellation */
+    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = p3 / ca;
+    double x = q / (ca * ca + p3 + cb * cb);
     double dv = x * x;
     if (dv * J > A * A) {
         /* dv^2 / (2A) + dv (V / A + A / (2J)) - (D - V A / J) = 0 */
@@ -684,6 +683,11 @@ double tpnRampReach(double V, double A, double J, double D)
     return dv;
 }
 
+/*
+ * Shortest distance in which the state (v0, a0) can be brought to a
+ * velocity no higher than vt with zero acceleration, under tangential
+ * limits A and J. Zero if the state never exceeds vt anyway.
+ */
 double tpnBrakeDist(double v0, double a0, double vt, double A, double J)
 {
     if (vt < 0.0) {

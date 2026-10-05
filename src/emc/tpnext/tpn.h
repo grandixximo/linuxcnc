@@ -29,6 +29,13 @@ typedef struct {
     double V, A, J;
 } tpn_lim;
 
+/* A ramp of the backward envelope: down to speed E at S with no
+ * acceleration left, under limits A and J (braking scale applied) and
+ * below the smallest speed cap V of the pieces it crosses. J = 0: none. */
+typedef struct {
+    double S, E, A, J, V;
+} tpn_ramp;
+
 /* per axis limits */
 typedef struct {
     double vel[TPN_NAX];
@@ -140,6 +147,8 @@ typedef struct {
     double tap_scale;       /* spindle speed factor of its way out */
     double E_sub[TPN_NSUB], E_int;  /* backward envelope at the entry of each piece */
     double E_sub_hi[TPN_NSUB], E_int_hi;
+    /* the ramp each envelope comes from, by piece as tpnPiece() */
+    tpn_ramp R[TPN_NSUB + TPN_NINT], R_hi[TPN_NSUB + TPN_NINT];
     int active;
     int rev_ok;             /* may be run backwards: no tap, sync or indexer */
     double hump_t;          /* speed humps shorter than this are flattened, s */
