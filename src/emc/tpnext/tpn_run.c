@@ -1776,14 +1776,18 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     if (!tpn.track) {
         j = landJerk(tp, &st, j);
     }
-    if (scale > 0.0 && finishStop(tp, &st, &jf)) {
+    int fin = scale > 0.0 && finishStop(tp, &st, &jf);
+    if (fin) {
         j = jf;
     }
     tpn_next n;
     stepState(j, dt, &n);
 
-    /* land exactly on a stop */
-    if (n.s1 >= st.Sstop - 1e-9 || (n.v1 < 1e-6 && st.Sstop - n.s1 < 1e-6 && n.a1 <= 0.0)) {
+    /* land exactly on a stop; a deadbeat sequence with steps left ends
+     * there itself, snapping early drops its last deceleration in one cycle */
+    if (fin && db_i < db_n) {
+        n.s1 = tpnMin(n.s1, st.Sstop);
+    } else if (n.s1 >= st.Sstop - 1e-9 || (n.v1 < 1e-6 && st.Sstop - n.s1 < 1e-6 && n.a1 <= 0.0)) {
         n.s1 = tpnMin(n.s1, st.Sstop);
         if (st.Sstop - n.s1 < 1e-6) {
             n.s1 = st.Sstop;
