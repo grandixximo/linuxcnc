@@ -54,7 +54,7 @@ static double cx;
 static int conOk(double v1, double a1, double d, double V, double A, double J)
 {
     double bd = tpnBrakeDist(v1, a1, V, A, J);
-    return bd <= fmax(d, 0.0) + 1e-12;
+    return bd <= tpnMax(d, 0.0) + 1e-12;
 }
 
 /* Shortest distance in which (v0, a0) gets down to vt, still braking if
@@ -79,7 +79,7 @@ static double reachDist(double v0, double a0, double vt, double A, double J)
         return 0.0;
     }
     /* from (vv, 0) the deceleration ramps down through a0 */
-    double Aeff = fmax(A, -a0);
+    double Aeff = tpnMax(A, -a0);
     double t0 = -a0 / J;
     double vv = v0 + 0.5 * a0 * a0 / J;
     double dpre = vv * t0 - J * t0 * t0 * t0 / 6.0;
@@ -93,7 +93,7 @@ static double reachDist(double v0, double a0, double vt, double A, double J)
         double t3 = (v2 - vt) / Aeff;
         dr = vv * t2 - J * t2 * t2 * t2 / 6.0 + v2 * t3 - 0.5 * Aeff * t3 * t3;
     }
-    return d + fmax(0.0, dr - dpre);
+    return d + tpnMax(0.0, dr - dpre);
 }
 
 /* distance needed to bring |a1| down to Aentry */
@@ -135,7 +135,7 @@ static double pieceSoft(TP_STRUCT const *tp, tpn_seg const *sg, int blend, doubl
     }
     v *= scale;
     if (tp->vLimit > 0.0 && vls > 0.0) {
-        v = fmin(v, tp->vLimit * vls);
+        v = tpnMin(v, tp->vLimit * vls);
     }
     return v;
 }
@@ -182,10 +182,10 @@ static void stepInit(tpn_step *st)
  * constraint can be met by stopping */
 static double horizonOf(tpn_step const *st, double Arun, double Jrun, double dt)
 {
-    double vhi = tpn.cur_v + fmax(tpn.cur_a, 0.0) * dt + 0.5 * st->J * dt * dt;
-    double ahi = fmax(tpn.cur_a, 0.0) + st->J * dt;
-    return tpnBrakeDist(vhi, ahi, 0.0, TPN_BRAKE_SCALE * fmin(Arun, st->A),
-            TPN_BRAKE_SCALE * fmin(Jrun, st->J))
+    double vhi = tpn.cur_v + tpnMax(tpn.cur_a, 0.0) * dt + 0.5 * st->J * dt * dt;
+    double ahi = tpnMax(tpn.cur_a, 0.0) + st->J * dt;
+    return tpnBrakeDist(vhi, ahi, 0.0, TPN_BRAKE_SCALE * tpnMin(Arun, st->A),
+            TPN_BRAKE_SCALE * tpnMin(Jrun, st->J))
         + 2.0 * vhi * dt + 8.0 * st->J * dt * dt * dt + 1e-6;
 }
 
@@ -196,7 +196,7 @@ static double humpReach(tpn_step const *st)
     if (st->hump_t <= 0.0) {
         return 0.0;
     }
-    double vtop = st->Vs >= 0.0 ? fmin(st->Vs, st->V) : st->V;
+    double vtop = st->Vs >= 0.0 ? tpnMin(st->Vs, st->V) : st->V;
     return vtop * st->hump_t + 2.0 * tpnRampDist(tpn.cur_v, vtop, st->A, st->J);
 }
 
@@ -218,12 +218,12 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
          * table fills up short of the horizon the motion stops */
         if (nrun < 0 && ncon + tpnPieces(sg) + 3 > TPN_MAXCON) {
             addCon(ownedStart(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = fmin(st->Sstop, ownedStart(sg));
+            st->Sstop = tpnMin(st->Sstop, ownedStart(sg));
             break;
         }
         if (sg->stop_in && sg->S0 > tpn.cur_s) {
             addCon(sg->S0, 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = fmin(st->Sstop, sg->S0);
+            st->Sstop = tpnMin(st->Sstop, sg->S0);
         }
         /* the parts of the blend, then the interior */
         for (piece = 0; piece < tpnPieces(sg); piece++) {
@@ -252,12 +252,12 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 E = E_hi;
             }
             if (Pa <= tpn.cur_s) {
-                st->hump_t = fmax(st->hump_t, sg->hump_t);
-                st->V = fmin(st->V, lim->V);
-                st->A = fmin(st->A, lim->A);
-                st->J = fmin(st->J, lim->J);
+                st->hump_t = tpnMax(st->hump_t, sg->hump_t);
+                st->V = tpnMin(st->V, lim->V);
+                st->A = tpnMin(st->A, lim->A);
+                st->J = tpnMin(st->J, lim->J);
                 if (soft >= 0.0) {
-                    st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
+                    st->Vs = st->Vs < 0.0 ? soft : tpnMin(st->Vs, soft);
                 }
             } else {
                 /* a step that ends inside the piece runs part of the
@@ -266,22 +266,22 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                     * 6.0 / (dt * dt * dt);
                 if (jstar < -lim->J) {
                     /* every jerk within the limits enters it */
-                    st->J = fmin(st->J, lim->J);
+                    st->J = tpnMin(st->J, lim->J);
                 } else {
-                    st->Jhi = fmin(st->Jhi, fmax(jstar, lim->J));
+                    st->Jhi = tpnMin(st->Jhi, tpnMax(jstar, lim->J));
                 }
                 addCon(Pa, E, soft, lim->A, lim->J, Arun, Jrun);
             }
-            Arun = fmin(Arun, lim->A);
-            Jrun = fmin(Jrun, lim->J);
+            Arun = tpnMin(Arun, lim->A);
+            Jrun = tpnMin(Jrun, lim->J);
         }
         if (stepping && i == 0 && tpn.q_len > 1) {
             addCon(ownedEnd(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = fmin(st->Sstop, ownedEnd(sg));
+            st->Sstop = tpnMin(st->Sstop, ownedEnd(sg));
         }
         if (i == tpn.q_len - 1) {
             addCon(segEnd(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = fmin(st->Sstop, segEnd(sg));
+            st->Sstop = tpnMin(st->Sstop, segEnd(sg));
         }
         if (ncon >= TPN_MAXCON) {
             break;
@@ -322,7 +322,7 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
         int piece;
         if (ncon + tpnPieces(sg) + 3 > TPN_MAXCON) {
             addCon(-ownedEnd(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = fmin(st->Sstop, -ownedEnd(sg));
+            st->Sstop = tpnMin(st->Sstop, -ownedEnd(sg));
             break;
         }
         /* the interior, then the parts of the blend, last first */
@@ -342,31 +342,31 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
                 lim = hi;
             }
             if (Pb >= s) {
-                st->V = fmin(st->V, lim->V);
-                st->A = fmin(st->A, lim->A);
-                st->J = fmin(st->J, lim->J);
+                st->V = tpnMin(st->V, lim->V);
+                st->A = tpnMin(st->A, lim->A);
+                st->J = tpnMin(st->J, lim->J);
                 if (soft >= 0.0) {
-                    st->Vs = st->Vs < 0.0 ? soft : fmin(st->Vs, soft);
+                    st->Vs = st->Vs < 0.0 ? soft : tpnMin(st->Vs, soft);
                 }
             } else {
                 double jstar = (-Pb - cx - tpn.cur_v * dt - 0.5 * tpn.cur_a * dt * dt)
                     * 6.0 / (dt * dt * dt);
                 if (jstar < -lim->J) {
-                    st->J = fmin(st->J, lim->J);
+                    st->J = tpnMin(st->J, lim->J);
                 } else {
-                    st->Jhi = fmin(st->Jhi, fmax(jstar, lim->J));
+                    st->Jhi = tpnMin(st->Jhi, tpnMax(jstar, lim->J));
                 }
                 addCon(-Pb, lim->V, soft, lim->A, lim->J, Arun, Jrun);
             }
-            Arun = fmin(Arun, lim->A);
-            Jrun = fmin(Jrun, lim->J);
+            Arun = tpnMin(Arun, lim->A);
+            Jrun = tpnMin(Jrun, lim->J);
         }
         /* a corner without a blend, the end of the history, the start of
          * the move when stepping */
         int last = i == -tpn.h_len || !sg->rev_ok || !seg(i - 1)->rev_ok;
         if ((sg->stop_in && sg->S0 < s) || last || (stepping && i == 0 && ownedStart(sg) < s)) {
             addCon(-ownedStart(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = fmin(st->Sstop, -ownedStart(sg));
+            st->Sstop = tpnMin(st->Sstop, -ownedStart(sg));
         }
         if (last || s - ownedStart(sg) > horizonOf(st, Arun, Jrun, dt)) {
             break;
@@ -376,7 +376,7 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
      * backwardPass() builds it forward */
     for (i = ncon - 2; i >= 0; i--) {
         if (con[i].Aentry < TPN_BIG) {
-            con[i].Vh = fmin(con[i].Vh, sqrt(con[i + 1].Vh * con[i + 1].Vh
+            con[i].Vh = tpnMin(con[i].Vh, sqrt(con[i + 1].Vh * con[i + 1].Vh
                         + con[i].Aentry * (con[i + 1].S - con[i].S)));
         }
     }
@@ -434,8 +434,8 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
      * in acceleration, each would be a small plateau of its own, and the
      * jerk would swing from one to the next. Only into a piece that can
      * hold the deceleration it is met with. */
-    double J = fmin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
-    double A = fmin(c->Arun, st->A) * TPN_BRAKE_SCALE;
+    double J = tpnMin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
+    double A = tpnMin(c->Arun, st->A) * TPN_BRAKE_SCALE;
     int deep = c->Aentry >= A;
     int chain = deep && k + 1 < ncon && con[k + 1].Vh > 0.0 && con[k + 1].Vh < c->Vh;
     int chain_s = deep && k + 1 < ncon && con[k + 1].Vs >= 0.0 && con[k + 1].Vs < c->Vs;
@@ -444,7 +444,7 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
             /* leave the deadbeat finish a little room to land on a cycle */
             d -= 4.0 * J * g_dt * g_dt * g_dt;
         }
-        int ok = chain ? reachDist(n->v1, n->a1, c->Vh, A, J) <= fmax(d, 0.0) + 1e-12
+        int ok = chain ? reachDist(n->v1, n->a1, c->Vh, A, J) <= tpnMax(d, 0.0) + 1e-12
             : conOk(n->v1, n->a1, d, c->Vh, A, J);
         if (what == CHK_SPEED) {
             return ok;
@@ -454,7 +454,7 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
     if (c->Vs < 0.0) {
         return 1;
     }
-    return chain_s ? reachDist(n->v1, n->a1, c->Vs, A, J) <= fmax(d, 0.0) + 1e-12
+    return chain_s ? reachDist(n->v1, n->a1, c->Vs, A, J) <= tpnMax(d, 0.0) + 1e-12
         : conOk(n->v1, n->a1, d, c->Vs, A, J);
 }
 
@@ -522,7 +522,7 @@ static double jerkAhead(tpn_step const *st, double dt)
         double reach = v * t + 0.5 * a * t * t + J * t * t * t / 6.0 + 2.0 * v * dt;
         double Jn = st->J;
         for (k = 0; k < ncon && con[k].S - cx <= reach && con[k].Vh > 0.0; k++) {
-            Jn = fmin(Jn, con[k].Jentry);
+            Jn = tpnMin(Jn, con[k].Jentry);
         }
         if (Jn >= J) {
             break;
@@ -546,7 +546,7 @@ static double jerkAhead(tpn_step const *st, double dt)
 static int humpShort(tpn_step const *st, double *Vhold)
 {
     double v = tpn.cur_v + 0.5 * tpn.cur_a * fabs(tpn.cur_a) / st->J;
-    double vtop = st->Vs >= 0.0 ? fmin(st->Vs, st->V) : st->V;
+    double vtop = st->Vs >= 0.0 ? tpnMin(st->Vs, st->V) : st->V;
     double hold = TPN_BIG;
     int k;
     if (v >= vtop) {
@@ -554,7 +554,7 @@ static int humpShort(tpn_step const *st, double *Vhold)
     }
     for (k = 0; k < ncon_hump; k++) {
         tpn_con const *c = &con[k];
-        double Vk = c->Vs >= 0.0 ? fmin(c->Vh, c->Vs) : c->Vh;
+        double Vk = c->Vs >= 0.0 ? tpnMin(c->Vh, c->Vs) : c->Vh;
         double d = c->S - cx;
         if (Vk <= 0.0) {
             break;
@@ -564,9 +564,9 @@ static int humpShort(tpn_step const *st, double *Vhold)
         }
         /* up under the limits here, down under the lowest on the way */
         double t = tpnHumpTime(v, Vk, vtop, d, st->A, st->J,
-                fmin(c->Arun, st->A), fmin(c->Jrun, st->J));
+                tpnMin(c->Arun, st->A), tpnMin(c->Jrun, st->J));
         if (t < st->hump_t) {
-            hold = fmin(hold, fmax(v, Vk));
+            hold = tpnMin(hold, tpnMax(v, Vk));
         }
         if (Vk <= v) {
             break;
@@ -584,8 +584,8 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     double dt = tp->cycleTime;
     double J = st->J;
     double A = st->A;
-    double jhi = fmin(fmin(J, st->Jhi), (A - tpn.cur_a) / dt);
-    double jlo = fmax(-J, (-A - tpn.cur_a) / dt);
+    double jhi = tpnMin(tpnMin(J, st->Jhi), (A - tpn.cur_a) / dt);
+    double jlo = tpnMax(-J, (-A - tpn.cur_a) / dt);
     tpn_next n;
     int k, i;
     int nfail = 0;
@@ -629,12 +629,12 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     stepState(jlo, dt, &n);
     if ((curmask & CHK_SOFT) && !checkOne(-1, CHK_SOFT, &n, st)) {
         curmask &= ~CHK_SOFT;
-        Vtrack = fmin(Vtrack, st->Vs);
+        Vtrack = tpnMin(Vtrack, st->Vs);
     }
     for (i = 0; i < ncon; i++) {
         if ((failmask[i] & CHK_SOFT) && !checkOne(i, CHK_SOFT, &n, st)) {
             failmask[i] &= ~CHK_SOFT;
-            Vtrack = fmin(Vtrack, con[i].Vs);
+            Vtrack = tpnMin(Vtrack, con[i].Vs);
         }
     }
 
@@ -708,7 +708,7 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     if (Vtrack < TPN_BIG) {
         /* a requested stop ramps its deceleration out with the jerk
          * limit ahead */
-        j = fmin(j, jerkTrack(Vtrack, jlo, jhi, Vtrack > 0.0 ? J : jerkAhead(st, dt), dt));
+        j = tpnMin(j, jerkTrack(Vtrack, jlo, jhi, Vtrack > 0.0 ? J : jerkAhead(st, dt), dt));
     }
     return j;
 }
@@ -741,7 +741,7 @@ static int landPlan(double v, double a, double Vt, int N, double dt, double *c0,
 static double landJerk(TP_STRUCT const *tp, tpn_step const *st, double j)
 {
     double dt = tp->cycleTime, a = tpn.cur_a, v = tpn.cur_v;
-    double Vt = st->Vs >= 0.0 ? fmin(st->Vs, st->V) : st->V;
+    double Vt = st->Vs >= 0.0 ? tpnMin(st->Vs, st->V) : st->V;
     double Jf = st->J, sg = a > 0.0 ? 1.0 : -1.0;
     tpn_next n;
     int n0, N, i;
@@ -791,16 +791,16 @@ static double followJerk(double dt, double s, double v, double a, double A, doub
     double ev = tpn.v_ref - (v + a * dt + 0.5 * jf * dt * dt);
     double ea = tpn.a_ref - (a + jf * dt);
     double j = jf + w * w * w * es + 3.0 * w * w * ev + 3.0 * w * ea;
-    double jlo = fmax(-J, (-A - a) / dt);
-    double jhi = fmin(J, (A - a) / dt);
-    j = fmax(jlo, fmin(jhi, j));
+    double jlo = tpnMax(-J, (-A - a) / dt);
+    double jhi = tpnMin(J, (A - a) / dt);
+    j = tpnMax(jlo, tpnMin(jhi, j));
     if (fabs(es) > TPN_SYNC_LAND && jlo < jhi) {
         /* Far from the reference the linear law saturates and would
          * overshoot. In the frame moving with the reference the axis is
          * again a triple integrator: keep the jerk where it can still
          * land on the reference, the way a stop is kept reachable. */
         double side = es > 0.0 ? 1.0 : -1.0;
-        double Al = fmax(TPN_SYNC_AMARGIN * A - fabs(tpn.a_ref), 0.1 * A);
+        double Al = tpnMax(TPN_SYNC_AMARGIN * A - fabs(tpn.a_ref), 0.1 * A);
         double Jl = TPN_SYNC_JMARGIN * J;
         double lo = jlo, hi = jhi;
         tpn_next n;
@@ -818,7 +818,7 @@ static double followJerk(double dt, double s, double v, double a, double A, doub
                 hi = mid;
             }
         }
-        j = side > 0.0 ? fmin(j, lo) : fmax(j, hi);
+        j = side > 0.0 ? tpnMin(j, lo) : tpnMax(j, hi);
     }
     return j;
 }
@@ -829,12 +829,12 @@ static double syncJerk(TP_STRUCT const *tp, tpn_step const *st, double jhard)
 {
     double dt = tp->cycleTime;
     double j = followJerk(dt, tpn.cur_s, tpn.cur_v, tpn.cur_a, st->A, st->J, TPN_SYNC_W);
-    double jlo = fmax(-st->J, (-st->A - tpn.cur_a) / dt);
+    double jlo = tpnMax(-st->J, (-st->A - tpn.cur_a) / dt);
     if (jlo > jhard) {
         return jhard;
     }
     jlo = jerkNoReverse(jlo, jhard, st->J, dt);
-    return fmax(jlo, fmin(j, jhard));
+    return tpnMax(jlo, tpnMin(j, jhard));
 }
 
 /* where the speed ends once the acceleration is ramped out at J */
@@ -853,8 +853,8 @@ void tpnTapAdvance(TP_STRUCT const *tp, double *s, double *v, double *a, tpn_lim
     /* keep the speed where it can still be held within V either way */
     double side = speedAhead(&n, J) > V ? 1.0 : speedAhead(&n, J) < -V ? -1.0 : 0.0;
     if (side != 0.0) {
-        double lo = side > 0.0 ? fmax(-J, (-A - *a) / dt) : j;
-        double hi = side > 0.0 ? j : fmin(J, (A - *a) / dt);
+        double lo = side > 0.0 ? tpnMax(-J, (-A - *a) / dt) : j;
+        double hi = side > 0.0 ? j : tpnMin(J, (A - *a) / dt);
         for (k = 0; k < 40; k++) {
             double mid = 0.5 * (lo + hi);
             stepFrom(*s, *v, *a, mid, dt, &n);
@@ -888,19 +888,19 @@ static int brakePhases(double v, double a, double A, double J, double *pj, doubl
     double t1, tA, vv;
     if (a >= 0.0) {
         vv = v + 0.5 * a * a / J;
-        t1 = fmin(sqrt(vv / J), A / J);
+        t1 = tpnMin(sqrt(vv / J), A / J);
         tA = vv > J * t1 * t1 ? (vv - J * t1 * t1) / A : 0.0;
         pj[n] = -J; pt[n++] = a / J + t1;
     } else {
-        double Aeff = fmax(A, -a);
+        double Aeff = tpnMax(A, -a);
         vv = v + 0.5 * a * a / J;
         if (v - 0.5 * a * a / J <= 0.0) {
             pj[n] = J; pt[n++] = -a / J;
             return n;
         }
-        t1 = fmin(sqrt(vv / J), Aeff / J);
+        t1 = tpnMin(sqrt(vv / J), Aeff / J);
         tA = vv > J * t1 * t1 ? (vv - J * t1 * t1) / Aeff : 0.0;
-        pj[n] = -J; pt[n++] = fmax(0.0, t1 + a / J);
+        pj[n] = -J; pt[n++] = tpnMax(0.0, t1 + a / J);
     }
     pj[n] = 0.0; pt[n++] = tA;
     pj[n] = J; pt[n++] = t1;
@@ -946,7 +946,7 @@ static double deadbeat(double d, double v, double a, int N, double dt,
         double ta = k * dt, tb = ta + dt, acc = 0.0;
         t0 = 0.0;
         for (p = 0; p < nph; p++) {
-            double lo = fmax(ta, t0), hi = fmin(tb, t0 + pt[p]);
+            double lo = tpnMax(ta, t0), hi = tpnMin(tb, t0 + pt[p]);
             if (hi > lo) {
                 acc += pj[p] * (hi - lo);
             }
@@ -985,7 +985,7 @@ static double deadbeat(double d, double v, double a, int N, double dt,
         double m = N - k;
         seq[k - 1] += lam[0] * dt * dt * dt * (1.0 / 6.0 + 0.5 * m + 0.5 * m * m)
                     + lam[1] * dt * dt * (0.5 + m) + lam[2] * dt;
-        jmax = fmax(jmax, fabs(seq[k - 1]));
+        jmax = tpnMax(jmax, fabs(seq[k - 1]));
     }
     return jmax;
 }
@@ -1027,7 +1027,7 @@ static int finishStop(TP_STRUCT const *tp, tpn_step const *st, double *j)
     double bd = tpnBrakeDist(tpn.cur_v, tpn.cur_a, 0.0, Ab, Jb);
     double slack = 8.0 * st->J * dt * dt * dt;
     int creep = tpn.cur_v <= 1e-9 && fabs(tpn.cur_a) <= 1e-9;
-    if (creep ? d > fmin(0.01, 100.0 * slack) : d > bd + fmax(1e-6 * d, 0.05 * tpn.cur_v * dt) + slack) {
+    if (creep ? d > tpnMin(0.01, 100.0 * slack) : d > bd + tpnMax(1e-6 * d, 0.05 * tpn.cur_v * dt) + slack) {
         return 0;
     }
     nph = brakePhases(tpn.cur_v, tpn.cur_a, Ab, Jb, pj, pt);
@@ -1085,7 +1085,7 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     if (!rev && !tpn.track && st.hump_t > 0.0 && tpn.cur_a + j * dt > 0.0) {
         double Vh;
         if (humpShort(&st, &Vh)) {
-            st.Vs = st.Vs < 0.0 ? Vh : fmin(st.Vs, Vh);
+            st.Vs = st.Vs < 0.0 ? Vh : tpnMin(st.Vs, Vh);
             j = chooseJerk(tp, &st);
         }
     }
@@ -1104,7 +1104,7 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
 
     /* land exactly on a stop */
     if (n.s1 >= st.Sstop - 1e-9 || (n.v1 < 1e-6 && st.Sstop - n.s1 < 1e-6 && n.a1 <= 0.0)) {
-        n.s1 = fmin(n.s1, st.Sstop);
+        n.s1 = tpnMin(n.s1, st.Sstop);
         if (st.Sstop - n.s1 < 1e-6) {
             n.s1 = st.Sstop;
             n.v1 = 0.0;
