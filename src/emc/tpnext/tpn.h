@@ -234,6 +234,18 @@ double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, doubl
  * cycle by cycle controller has headroom to follow the curve */
 #define TPN_BRAKE_SCALE 0.97
 
+/* fmin and fmax are library calls unless the math is fast, a cost in the
+ * per piece and per cycle loops; these differ from them only on a NaN */
+static inline double tpnMin(double a, double b)
+{
+    return b < a ? b : a;
+}
+
+static inline double tpnMax(double a, double b)
+{
+    return b > a ? b : a;
+}
+
 struct emcmot_status_t;
 struct emcmot_config_t;
 
