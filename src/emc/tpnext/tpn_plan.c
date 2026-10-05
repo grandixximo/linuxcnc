@@ -64,57 +64,232 @@ static double speedFactor(TP_STRUCT const *tp)
     return tpnMax(tpn.emcmotConfig->maxFeedScale, 1.0);
 }
 
-/* envelope at the entry of a piece of length len from Enext at its end */
-static double envelopeIn(tpn_lim const *lim, double Enext, double len, double *E, int *same)
+/* Ramps the backward envelope keeps besides the one from the next piece */
+#define TPN_ENV_RAMPS 3
+/* the ramps are worked out again once this fraction of the longest is
+ * passed */
+#define TPN_ENV_STEP 0.05
+
+typedef struct {
+    tpn_ramp r[TPN_ENV_RAMPS + 1];
+    int nr;
+    int capped;     /* the last piece took its own speed cap */
+    double P, E;    /* where the ramps were last worked out, and to what */
+    double Smax;    /* the furthest end of the ramps */
+    tpn_lim m;      /* limits of the pieces since, not yet in the ramps */
+    tpn_ramp def;   /* the ramp the last envelope comes from, J = 0: own cap */
+} tpn_env;
+
+static void envStart(tpn_env *ev, double S, double E)
 {
-    double e = tpnMin(lim->V, sqrt(Enext * Enext + lim->A * len));
-    *same = *same && e == *E;
-    *E = e;
-    return e;
+    ev->r[0].S = S;
+    ev->r[0].E = E;
+    ev->r[0].A = ev->r[0].J = ev->r[0].V = TPN_BIG;
+    ev->nr = 1;
+    ev->P = S;
+    ev->E = E;
+    ev->Smax = S;
+    ev->m.V = ev->m.A = ev->m.J = TPN_BIG;
+    ev->def.J = 0.0;
 }
 
-/* Backward envelope with half of each piece's tangential acceleration and
- * zero speed at the end of the queue and at every stop, for both sets of
- * limits. The runtime checks the true caps inside its braking horizon;
- * the envelope carries everything beyond it. */
+/* Envelope at the entry Pa of a piece with limits lim: the fastest start
+ * with no acceleration from which one of the ramps ends where it should
+ * and keeps under the caps it crosses. The ramp ending in the speed of
+ * the next piece is the plain backward step; a longer one is not cut
+ * into a ramp per piece, which with short pieces would lose most of the
+ * speed. Where a piece takes its own cap, every older ramp stays under
+ * that cap and the one starting there is above them all: they go. */
+static double envPiece(tpn_env *ev, tpn_lim const *lim, double Pa)
+{
+    double c[TPN_ENV_RAMPS + 1], E = 0.0;
+    int k, m;
+    /* close to where they were last worked out: the speed there, lower
+     * than here, held at no acceleration up to there. The furthest ramp
+     * is always kept, so the furthest end only moves on a cap. */
+    if (ev->E < lim->V && ev->P - Pa < TPN_ENV_STEP * (tpnMax(ev->Smax, Pa) - Pa)) {
+        ev->capped = 0;
+        ev->m.A = tpnMin(ev->m.A, lim->A);
+        ev->m.J = tpnMin(ev->m.J, lim->J);
+        ev->m.V = tpnMin(ev->m.V, lim->V);
+        if (ev->def.J > 0.0) {
+            ev->def.A = tpnMin(ev->def.A, lim->A * TPN_BRAKE_SCALE);
+            ev->def.J = tpnMin(ev->def.J, lim->J * TPN_BRAKE_SCALE);
+            ev->def.V = tpnMin(ev->def.V, lim->V);
+        }
+        return ev->E;
+    }
+    int best = 0;
+    double mA = tpnMin(ev->m.A, lim->A), mJ = tpnMin(ev->m.J, lim->J);
+    for (k = 0; k < ev->nr; k++) {
+        tpn_ramp *r = &ev->r[k];
+        r->A = tpnMin(r->A, mA);
+        r->J = tpnMin(r->J, mJ);
+        r->V = tpnMin(r->V, ev->m.V);
+        c[k] = tpnMin(r->V, r->E + tpnRampReach(r->E, r->A * TPN_BRAKE_SCALE,
+                    r->J * TPN_BRAKE_SCALE, tpnMax(r->S - Pa, 0.0)));
+        if (c[k] > E) {
+            E = c[k];
+            best = k;
+        }
+    }
+    ev->m.V = ev->m.A = ev->m.J = TPN_BIG;
+    ev->capped = E >= lim->V;
+    if (ev->capped) {
+        /* no ramp: J = 0, with S where the one that allows the cap ends */
+        double S = ev->r[best].S;
+        envStart(ev, Pa, lim->V);
+        ev->def.S = S;
+        return lim->V;
+    }
+    ev->def = ev->r[best];
+    ev->def.A *= TPN_BRAKE_SCALE;
+    ev->def.J *= TPN_BRAKE_SCALE;
+    ev->def.V = tpnMin(ev->def.V, lim->V);
+    /* Keep the best, then start one here. A ramp started further on is
+     * already speeding up where a new one starts from no acceleration:
+     * the furthest is always kept, and of two close ones the further. */
+    int far = 0;
+    for (k = 0; k < ev->nr; k++) {
+        ev->r[k].V = tpnMin(ev->r[k].V, lim->V);
+        if (ev->r[k].S > ev->r[far].S) {
+            far = k;
+        }
+    }
+    m = ev->nr;
+    while (m > TPN_ENV_RAMPS) {
+        int w = -1;
+        for (k = 0; k < m; k++) {
+            if (k != far && (w < 0 || c[k] < c[w] - 1e-9 * c[w]
+                        || (c[k] <= c[w] + 1e-9 * c[w] && ev->r[k].S < ev->r[w].S))) {
+                w = k;
+            }
+        }
+        m--;
+        if (far == m) {
+            far = w;
+        }
+        c[w] = c[m];
+        ev->r[w] = ev->r[m];
+    }
+    ev->r[m].S = Pa;
+    ev->r[m].E = E;
+    ev->r[m].A = ev->r[m].J = ev->r[m].V = TPN_BIG;
+    ev->nr = m + 1;
+    ev->P = Pa;
+    ev->E = E;
+    return E;
+}
+
+/* the envelope at Pa came out higher than the ramps gave: start from it */
+static void envRaise(tpn_env *ev, double Pa, double E)
+{
+    tpn_ramp *r = &ev->r[ev->nr - 1];
+    if (r->S == Pa && r->E < E) {
+        r->E = E;
+    }
+    if (ev->P == Pa && ev->E < E) {
+        ev->E = E;
+    }
+}
+
+/* where the blend with the move just added starts: pieces from here on
+ * changed, and a ramp across them no longer holds */
+static double g_chg;
+/* the nearest piece start this pass has lowered the envelope of, or
+ * g_chg: a ramp that ends there or further on no longer holds either */
+static double g_low;
+
+/* Store the envelope of a piece starting at Pa, counting it unchanged. A
+ * move further back than the last two keeps the higher of the old and new
+ * values while the ramp of the old one still holds: the ramps kept are
+ * picked from where the queue ends, so the new value may come out lower
+ * where the controller has already gone by the old one. A blend added
+ * with lower limits than the end of the queue had lowers it for real. */
+static double envStore(double *dst, tpn_ramp *rdst, double E, tpn_ramp const *r,
+        double Pa, int keep, int *same)
+{
+    if (keep && *dst >= E && rdst->S < g_low) {
+        return *dst;
+    }
+    if (E < *dst && Pa < g_low) {
+        g_low = Pa;
+    }
+    *same = 0;
+    *dst = E;
+    *rdst = *r;
+    return E;
+}
+
+/* Backward envelope from zero speed at the end of the queue and at every
+ * stop, for both sets of limits, under the tangential jerk limits: from
+ * the envelope at its entry with no acceleration every speed cap and stop
+ * after a piece can be met. The runtime checks the caps inside its
+ * braking horizon against it; beyond the horizon the envelope carries
+ * everything. Before a piece that takes its own cap nothing after it
+ * counts: the pass ends at the first such piece left unchanged. */
 static void backwardPass(void)
 {
-    double Enext = 0.0, Enext_hi = 0.0;
+    tpn_env lo, hi;
     int i;
+    /* while the opened caps are the caps, one envelope serves both */
+    int one = 1;
+    if (tpn.q_len == 0) {
+        return;
+    }
+    envStart(&lo, ownedEnd(seg(tpn.q_len - 1)), 0.0);
+    envStart(&hi, ownedEnd(seg(tpn.q_len - 1)), 0.0);
+    g_chg = tpn.q_len > 1 ? ownedEnd(seg(tpn.q_len - 2)) : TPN_BIG;
+    g_low = g_chg;
     for (i = tpn.q_len - 1; i >= 0; i--) {
         tpn_seg *sg = seg(i);
-        int same = i < tpn.q_len - 2;
-        double E, E_hi;
         int k;
-        if (sg->nint == 1) {
-            double len = tpnMax(0.0, sg->geom.L - sg->h_in - sg->h_out);
-            E = envelopeIn(&sg->lim_int, Enext, len, &sg->E_int, &same);
-            E_hi = envelopeIn(&sg->lim_int_hi, Enext_hi, len, &sg->E_int_hi, &same);
-        } else {
-            E = Enext;
-            E_hi = Enext_hi;
-            for (k = sg->nint - 1; k >= 0; k--) {
-                double Pa, Pb, e, e_hi;
-                tpn_lim const *lim, *hi;
-                if (tpnIntPart(sg, k, &Pa, &Pb, &lim, &hi, &e, &e_hi)) {
-                    E = envelopeIn(lim, E, Pb - Pa, &sg->E_ip[k], &same);
-                    E_hi = envelopeIn(hi, E_hi, Pb - Pa, &sg->E_ip_hi[k], &same);
+        for (k = tpnPieces(sg) - 1; k >= 0; k--) {
+            double Pa, Pb, e, e_hi;
+            tpn_lim const *lim, *lh;
+            int same = i < tpn.q_len - 2;
+            if (!tpnPiece(sg, k, &Pa, &Pb, &lim, &lh, &e, &e_hi)) {
+                continue;
+            }
+            if (one && (lh->V != lim->V || lh->A != lim->A || lh->J != lim->J)) {
+                hi = lo;
+                one = 0;
+            }
+            double E = envPiece(&lo, lim, Pa);
+            double E_hi = one ? E : envPiece(&hi, lh, Pa);
+            if (one) {
+                hi.capped = lo.capped;
+            }
+            int keep = i < tpn.q_len - 2;
+            tpn_ramp const *rh = one ? &lo.def : &hi.def;
+            if (k < TPN_NSUB) {
+                E = envStore(&sg->E_sub[k], &sg->R[k], E, &lo.def, Pa, keep, &same);
+                E_hi = envStore(&sg->E_sub_hi[k], &sg->R_hi[k], E_hi, rh, Pa, keep, &same);
+            } else if (sg->nint == 1) {
+                E = envStore(&sg->E_int, &sg->R[k], E, &lo.def, Pa, keep, &same);
+                E_hi = envStore(&sg->E_int_hi, &sg->R_hi[k], E_hi, rh, Pa, keep, &same);
+            } else {
+                E = envStore(&sg->E_ip[k - TPN_NSUB], &sg->R[k], E, &lo.def, Pa, keep, &same);
+                E_hi = envStore(&sg->E_ip_hi[k - TPN_NSUB], &sg->R_hi[k], E_hi, rh, Pa, keep, &same);
+            }
+            if (keep) {
+                if (one && E_hi != E) {
+                    hi = lo;
+                    one = 0;
+                }
+                envRaise(&lo, Pa, E);
+                if (!one) {
+                    envRaise(&hi, Pa, E_hi);
                 }
             }
-            sg->E_int = E;
-            sg->E_int_hi = E_hi;
-        }
-        if (sg->h_in > 0.0) {
-            double part = 2.0 * sg->h_in / TPN_NSUB;
-            for (k = TPN_NSUB - 1; k >= 0; k--) {
-                E = envelopeIn(&sg->lim_sub[k], E, part, &sg->E_sub[k], &same);
-                E_hi = envelopeIn(&sg->lim_sub_hi[k], E_hi, part, &sg->E_sub_hi[k], &same);
+            if (same && lo.capped && hi.capped) {
+                return;
             }
         }
-        Enext = sg->stop_in ? 0.0 : E;
-        Enext_hi = sg->stop_in ? 0.0 : E_hi;
-        if (same) {
-            break;
+        if (sg->stop_in) {
+            envStart(&lo, sg->S0, 0.0);
+            envStart(&hi, sg->S0, 0.0);
+            one = 1;
         }
     }
 }

@@ -14,11 +14,15 @@
 #include "../tp/tp.h"
 #include "tpn.h"
 
-#define TPN_MAXCON 512
+#define TPN_MAXCON 128
 /* poles of the spindle tracking, rad/s; beyond TPN_SYNC_LAND of error
  * it also keeps the reference reachable */
 #define TPN_SYNC_W 80.0
 #define TPN_SYNC_LAND 0.02
+/* jerks tried across the range when the lowest misses */
+#define TPN_SCAN 16
+/* halvings of the jerk range: a hair of the limit is not worth more */
+#define TPN_BISECT 18
 /* landing plans tried beyond the shortest, in steps */
 #define TPN_LAND_EXTRA 4
 
@@ -35,13 +39,66 @@ typedef struct {
     double Vh;      /* hard: speed cap or envelope at S */
     double Vs;      /* soft: requested speed at S, < 0 for none */
     double Aentry;  /* tangential acceleration limit from S on */
-    double Arun;    /* smallest acceleration limit between here and S */
-    double Jrun;    /* smallest jerk limit between here and S */
+    double Arun;    /* smallest acceleration limit on the way to S */
+    double Jrun;    /* smallest jerk limit on the way to S */
     double Jentry;  /* jerk limit from S on */
+    double ae;      /* largest acceleration either way S may be met with */
+    int own;        /* carried by the envelopes of the constraints before */
+    tpn_ramp r;     /* the ramp its envelope comes from, r.J = 0: none */
 } tpn_con;
 
 static tpn_con con[TPN_MAXCON];
 static int ncon;
+/* the lowest jerk limit the constraints gathered reach */
+static double jfloor;
+/* the ramps of the pieces the motion has entered that reach on past
+ * it: a motion following one of them may cross the boundaries ahead
+ * faster than their envelopes, still braking. Those of the move it is
+ * in are read again every cycle, as the planner changes them while the
+ * move is near the end of the queue; those of the moves it has left
+ * stay as they were last. */
+#define TPN_NACT 16
+static tpn_ramp act[TPN_NACT];
+static int nact, nact_old;
+static int act_id = -1;
+
+static void actAdd(tpn_ramp const *r)
+{
+    int k, w = nact_old;
+    if (nact_old >= TPN_NACT) {
+        return;
+    }
+    for (k = 0; k < nact; k++) {
+        if (act[k].S == r->S && act[k].E == r->E && act[k].J == r->J) {
+            return;
+        }
+        if (k >= nact_old && act[k].S < act[w].S) {
+            w = k;
+        }
+    }
+    if (nact < TPN_NACT) {
+        w = nact++;
+    }
+    act[w] = *r;
+}
+
+/* a new cycle in the move with id: keep the ramps of the moves left,
+ * drop those passed */
+static void actStart(int id, double s)
+{
+    int k;
+    if (id != act_id) {
+        nact_old = nact;
+        act_id = id;
+    }
+    nact = nact_old;
+    for (k = 0; k < nact; k++) {
+        if (act[k].S <= s) {
+            act[k--] = act[--nact];
+        }
+    }
+    nact_old = nact;
+}
 /* with those further on that only humpShort() looks at */
 static int ncon_hump;
 static double g_dt = 0.001;
@@ -96,24 +153,126 @@ static double reachDist(double v0, double a0, double vt, double A, double J)
     return d + tpnMax(0.0, dr - dpre);
 }
 
-/* distance needed to bring |a1| down to Aentry */
-static int accEntryOk(double v1, double a1, double d, double Aentry, double J)
+/* Hard feasibility of a cap V at distance d, met with at most ae of
+ * deceleration: the brake under A and J of the pieces the step is in
+ * meets V with none left, or passes V with ae and goes on to
+ * V - ae^2 / 2J with none left; a state
+ * already below V only ramps its deceleration down to ae, and keeps above
+ * the speed the piece after S, with jerk limit Ja, ramps it out from.
+ * A cycle early, as the step entering that piece runs under its limits. */
+static int conArriveOk(double v1, double a1, double d, double V, double A, double J,
+        double ae, double Aentry, double Ja, double W, double Vn, double Ln)
 {
-    double aa = fabs(a1);
-    if (aa <= Aentry + 1e-9) {
+    double tol = J * g_dt * g_dt;
+    /* the step onto S, at about V */
+    double dd = tpnMax(d - V * g_dt, 0.0);
+    int k;
+    if (a1 > 0.0) {
+        /* ramp the acceleration out: if it is still speeding up at S, it
+         * ramps the rest out under Ja there, and no faster, below the caps
+         * W that the ramp reaches */
+        double Jr = J;
+        double tr = a1 / Jr;
+        if (v1 * tr + 0.5 * a1 * tr * tr - Jr * tr * tr * tr / 6.0 > dd) {
+            double t = v1 > 0.0 ? tpnMin(dd / v1, tr) : tr;
+            for (k = 0; k < 4 && t > 0.0; k++) {
+                double f = v1 * t + 0.5 * a1 * t * t - Jr * t * t * t / 6.0 - dd;
+                double df = v1 + a1 * t - 0.5 * Jr * t * t;
+                if (df <= 0.0) {
+                    break;
+                }
+                t = tpnMax(0.0, tpnMin(tr, t - f / df));
+            }
+            double aS = a1 - Jr * t, vS = v1 + a1 * t - 0.5 * Jr * t * t;
+            /* the step onto S under Ja */
+            double tl = tpnMin(g_dt, aS / Ja);
+            vS += aS * tl - 0.5 * Ja * tl * tl;
+            aS -= Ja * tl;
+            /* V holds at S with no acceleration; the ramp out ends
+             * further on, where the envelope is down towards the next
+             * cap Vn at Ln */
+            double tz = aS / Ja, vz = vS + 0.5 * aS * aS / Ja;
+            double rel = (vS * tz + 0.5 * aS * tz * tz - Ja * tz * tz * tz / 6.0);
+            double Vz = Vn < V && Ln > 0.0 ? V - (V - Vn) * tpnMin(rel / Ln, 1.0) : V;
+            return vz <= tpnMin(Vz, W) + tol && aS <= Aentry + 1e-9;
+        }
+    }
+    /* the controller ramps a deceleration out at the full limit */
+    double Jf = J / TPN_BRAKE_SCALE;
+    if (a1 >= 0.0 ? v1 + 0.5 * a1 * a1 / J <= V : v1 <= V
+            || v1 - 0.5 * a1 * a1 / Jf <= V - 0.5 * ae * ae / J) {
+        if (a1 >= 0.0) {
+            return 1;
+        }
+        /* ramp the deceleration out: where is it at S */
+        double tr = -a1 / Jf, t = tr;
+        if (v1 * tr + 0.5 * a1 * tr * tr + Jf * tr * tr * tr / 6.0 > dd) {
+            t = v1 > 0.0 ? tpnMin(dd / v1, tr) : 0.0;
+            for (k = 0; k < 4 && t > 0.0; k++) {
+                double f = v1 * t + 0.5 * a1 * t * t + Jf * t * t * t / 6.0 - dd;
+                double df = v1 + a1 * t + 0.5 * Jf * t * t;
+                if (df <= 0.0) {
+                    break;
+                }
+                t = tpnMax(0.0, tpnMin(tr, t - f / df));
+            }
+        }
+        double aS = -(a1 + Jf * t), vS = v1 + a1 * t + 0.5 * Jf * t * t;
+        if (aS > 0.0) {
+            /* the step onto S under Ja */
+            double tl = tpnMin(g_dt, aS / Ja);
+            vS -= aS * tl - 0.5 * Ja * tl * tl;
+            aS -= Ja * tl;
+        }
+        return vS <= V + tol && aS <= Aentry + 1e-9 && vS - 0.5 * aS * aS / Ja >= -tol;
+    }
+    /* down to V with no deceleration left, or past V with ae on the way
+     * to V - ae^2 / 2J: either brake will do */
+    if ((a1 >= 0.0 || v1 - 0.5 * a1 * a1 / J > V)
+            && tpnBrakeDist(v1, a1, V, A, J) <= dd + 1e-12) {
         return 1;
     }
-    if (d <= 0.0) {
+    double te = ae / J;
+    double extra = V * te - 0.5 * ae * te * te + J * te * te * te / 6.0;
+    return tpnBrakeDist(v1, a1, V - 0.5 * ae * ae / J, A, J) <= dd + extra + 1e-12;
+}
+
+/* The ramp an envelope comes from, from (v1, a1) at distance D from its
+ * end: down to E there with no acceleration left under A and J, or below
+ * E already with a deceleration J ramps out short of rest. */
+static int rampOk(tpn_ramp const *r, double v1, double a1, double D, double A, double J)
+{
+    double E = r->E;
+    double tol = J * g_dt * g_dt;
+    /* done a cycle early, at the speed it ends with, the same for every
+     * caller; a ramp to rest leaves the deadbeat finish room to land on
+     * a cycle, as the stop check: the latest brake to rest, followed a
+     * cycle at a time, may miss its peak deceleration by a cycle */
+    double rest = tpnMax(D - v1 * g_dt - 4.0 * J * g_dt * g_dt * g_dt, 0.0);
+#define EARLY(v) (E <= 0.0 ? rest : tpnMax(D - tpnMin(v, E) * g_dt, 0.0))
+    if (-a1 > A / TPN_BRAKE_SCALE + 1e-9) {
+        /* more deceleration than the pieces of the ramp take */
         return 0;
     }
-    double t = (aa - Aentry) / J;
-    double dist;
-    if (a1 > 0.0) {
-        dist = v1 * t + 0.5 * a1 * t * t - J * t * t * t / 6.0;
-    } else {
-        dist = v1 * t + 0.5 * a1 * t * t + J * t * t * t / 6.0;
+    if (a1 >= 0.0) {
+        /* released at once below E by the end, or braked to E there */
+        double tr = a1 / J, vz = v1 + 0.5 * a1 * tr;
+        if (vz <= E) {
+            return v1 * tr + 0.5 * a1 * tr * tr - J * tr * tr * tr / 6.0 <= EARLY(vz) + 1e-12;
+        }
+        return tpnBrakeDist(v1, a1, E, A, J) <= EARLY(E) + 1e-12;
     }
-    return dist <= d;
+    /* a deceleration ramped out at once short of rest, done by the end
+     * below E, or the brake to E */
+    double t = -a1 / J, vz = v1 + 0.5 * a1 * t;
+    if (vz < -tol) {
+        return 0;
+    }
+    if (vz <= E) {
+        return v1 * t + 0.5 * a1 * t * t + J * t * t * t / 6.0 <= EARLY(tpnMax(vz, 0.0)) + 1e-12;
+    }
+    return tpnBrakeDist(v1, a1, E, A, J) <= EARLY(E) + 1e-12;
+#undef EARLY
 }
 
 /* a speed that settles on a cap from below approaches it only slowly */
@@ -163,12 +322,38 @@ static void addCon(double S, double Vh, double Vs, double Aentry, double Jentry,
     con[ncon].Jentry = Jentry;
     con[ncon].Arun = Arun;
     con[ncon].Jrun = Jrun;
+    con[ncon].own = 1;
+    con[ncon].r.J = 0.0;
     ncon++;
 }
+
+/* The acceleration each constraint may be met with, last first: no more
+ * than its piece allows, nor than its piece ramps down to what the next
+ * one may be met with while the motion crosses it at no more than its
+ * cap. */
+static void conBudget(void)
+{
+    int k;
+    for (k = ncon - 1; k >= 0; k--) {
+        tpn_con *c = &con[k];
+        jfloor = tpnMin(jfloor, c->Jrun);
+        double ae = c->Vh > 0.0 ? c->Aentry : 0.0;
+        if (k + 1 < ncon && c->Vh > 0.0 && c->Jentry < TPN_BIG) {
+            double t = (con[k + 1].S - c->S) / c->Vh;
+            ae = tpnMin(ae, con[k + 1].ae + c->Jentry * TPN_BRAKE_SCALE * t);
+        }
+        c->ae = ae;
+    }
+}
+
+static void const *rp_n, *ae_n;
 
 static void stepInit(tpn_step *st)
 {
     ncon = ncon_hump = 0;
+    jfloor = TPN_BIG;
+    rp_n = NULL;
+    ae_n = NULL;
     st->V = TPN_BIG;
     st->A = TPN_BIG;
     st->J = TPN_BIG;
@@ -179,14 +364,15 @@ static void stepInit(tpn_step *st)
 }
 
 /* beyond the braking distance of the fastest next state every
- * constraint can be met by stopping */
+ * constraint can be met by stopping, with the cycle conArriveOk() brakes
+ * early by to spare */
 static double horizonOf(tpn_step const *st, double Arun, double Jrun, double dt)
 {
     double vhi = tpn.cur_v + tpnMax(tpn.cur_a, 0.0) * dt + 0.5 * st->J * dt * dt;
     double ahi = tpnMax(tpn.cur_a, 0.0) + st->J * dt;
     return tpnBrakeDist(vhi, ahi, 0.0, TPN_BRAKE_SCALE * tpnMin(Arun, st->A),
             TPN_BRAKE_SCALE * tpnMin(Jrun, st->J))
-        + 2.0 * vhi * dt + 8.0 * st->J * dt * dt * dt + 1e-6;
+        + 4.0 * vhi * dt + 8.0 * st->J * dt * dt * dt + 1e-6;
 }
 
 /* how much further than the braking horizon a speed hump short enough to
@@ -208,17 +394,18 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
 {
     double dt = tp->cycleTime;
     double Arun = TPN_BIG, Jrun = TPN_BIG;
-    int i, nrun = -1;
+    int i, nrun = -1, want_one = 0;
     stepInit(st);
+    if (tpn.q_len > 0) {
+        actStart(seg(0)->id, tpn.cur_s);
+    }
 
     for (i = 0; i < tpn.q_len; i++) {
         tpn_seg *sg = seg(i);
         int piece;
-        /* the envelopes beyond hold for acceleration only: where the
-         * table fills up short of the horizon the motion stops */
+        /* where the table fills up short of the horizon the envelopes of
+         * the pieces in it carry the rest */
         if (nrun < 0 && ncon + tpnPieces(sg) + 3 > TPN_MAXCON) {
-            addCon(ownedStart(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
-            st->Sstop = tpnMin(st->Sstop, ownedStart(sg));
             break;
         }
         if (sg->stop_in && sg->S0 > tpn.cur_s) {
@@ -231,6 +418,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
             tpn_lim const *lim;
             tpn_lim const *hi;
             double E_hi;
+            tpn_ramp const *rp = &sg->R[piece];
             if (!tpnPiece(sg, piece, &Pa, &Pb, &lim, &hi, &E, &E_hi)) {
                 continue;
             }
@@ -250,6 +438,10 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                     : soft > lim->V && E_hi > E)) {
                 lim = hi;
                 E = E_hi;
+                rp = &sg->R_hi[piece];
+            }
+            if (Pa <= tpn.cur_s && rp->J > 0.0 && rp->S > tpn.cur_s) {
+                actAdd(rp);
             }
             if (Pa <= tpn.cur_s) {
                 st->hump_t = tpnMax(st->hump_t, sg->hump_t);
@@ -271,12 +463,16 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                     st->Jhi = tpnMin(st->Jhi, tpnMax(jstar, lim->J));
                 }
                 addCon(Pa, E, soft, lim->A, lim->J, Arun, Jrun);
+                if (rp->J > 0.0 && rp->S > Pa) {
+                    con[ncon - 1].r = *rp;
+                }
             }
             Arun = tpnMin(Arun, lim->A);
             Jrun = tpnMin(Jrun, lim->J);
         }
         if (stepping && i == 0 && tpn.q_len > 1) {
             addCon(ownedEnd(sg), 0.0, -1.0, TPN_BIG, TPN_BIG, Arun, Jrun);
+            con[ncon - 1].own = 0;
             st->Sstop = tpnMin(st->Sstop, ownedEnd(sg));
         }
         if (i == tpn.q_len - 1) {
@@ -286,8 +482,18 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
         if (ncon >= TPN_MAXCON) {
             break;
         }
+        if (want_one && ncon > 0) {
+            nrun = ncon;
+            break;
+        }
         double past = ownedEnd(sg) - tpn.cur_s - horizonOf(st, Arun, Jrun, dt);
         if (past > 0.0) {
+            if (ncon == 0) {
+                /* the envelopes carry the rest only from a constraint
+                 * on: the next move's */
+                want_one = 1;
+                continue;
+            }
             if (nrun < 0) {
                 nrun = ncon;
             }
@@ -300,6 +506,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
     if (nrun >= 0) {
         ncon = nrun;
     }
+    conBudget();
 }
 
 /*
@@ -316,6 +523,8 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
     double Arun = TPN_BIG, Jrun = TPN_BIG;
     int i;
     stepInit(st);
+    nact = nact_old = 0;
+    act_id = -1;
 
     for (i = 0; ; i--) {
         tpn_seg *sg = seg(i);
@@ -376,9 +585,14 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
      * backwardPass() builds it forward */
     for (i = ncon - 2; i >= 0; i--) {
         if (con[i].Aentry < TPN_BIG) {
-            con[i].Vh = tpnMin(con[i].Vh, sqrt(con[i + 1].Vh * con[i + 1].Vh
-                        + con[i].Aentry * (con[i + 1].S - con[i].S)));
+            con[i].Vh = tpnMin(con[i].Vh, con[i + 1].Vh + tpnRampReach(con[i + 1].Vh,
+                        con[i].Aentry * TPN_BRAKE_SCALE, con[i].Jentry * TPN_BRAKE_SCALE,
+                        con[i + 1].S - con[i].S));
         }
+    }
+    /* no envelope of the planner's here: every constraint is checked */
+    for (i = 0; i < ncon; i++) {
+        con[i].own = 0;
     }
     if (st->J >= TPN_BIG) {
         /* at the start of the move, which is the end of the reverse run:
@@ -416,8 +630,326 @@ static void stepState(double j, double dt, tpn_next *n)
 enum { CHK_HARD = 1, CHK_SOFT = 2, CHK_SPEED = 4 };
 
 static unsigned char failmask[TPN_MAXCON];
+/* the last constraint failing a check that a carrier does not spare: one
+ * not own, or a soft one */
+static int fail_last;
 
 /* check constraint k (or the step caps for k < 0) against the next state */
+
+/* An acceleration a at speed v, past the limit A of a ramp, still within
+ * the limit Ain of the piece it is in, ramps down to A under J within
+ * the distance L left to the next piece. */
+static int accDownOk(double v, double a, double A, double Ain, double J, double L)
+{
+    if (a <= A + 1e-9) {
+        return 1;
+    }
+    if (a > Ain + 1e-9) {
+        return 0;
+    }
+    double t = (a - A) / J;
+    return v * t + 0.5 * a * t * t - J * t * t * t / 6.0 <= L;
+}
+
+/* Arrival at the boundary S of own constraint c at distance d under A1
+ * and J1, the limits of the way there: braked to its envelope Vh at S
+ * with no acceleration left, or ramping the acceleration out across S
+ * into a state from which the ramp of the envelope holds, under the
+ * limits of that ramp past the piece at S, Ln long. */
+static int landOk(double v1, double a1, double d, tpn_con const *c, double Ln,
+        double A1, double J1)
+{
+    tpn_ramp const *r = &c->r;
+    double tol = J1 * g_dt * g_dt;
+    double dd = tpnMax(d - c->Vh * g_dt, 0.0);
+    double L = r->S - c->S, rJ = tpnMin(r->J, c->Jentry * TPN_BRAKE_SCALE);
+    double Jr = J1;
+    double tr = fabs(a1) / Jr;
+    double vz = v1 + 0.5 * a1 * tr;
+    double Dr = v1 * tr + 0.5 * a1 * tr * tr - (a1 > 0.0 ? Jr : -Jr) * tr * tr * tr / 6.0;
+    int k;
+    if (a1 < 0.0 && vz < -tol) {
+        return 0;
+    }
+    if (d <= 0.0) {
+        /* the step crosses S: on the ramp from here; a speed cap with
+         * no ramp is only landed on short of it */
+        if (r->J <= 0.0) {
+            return 0;
+        }
+        return (a1 <= 0.0 ? v1 : v1 + 0.5 * a1 * a1 / rJ) <= r->V + tol
+            && -a1 <= r->A / TPN_BRAKE_SCALE + 1e-9
+            && accDownOk(v1, a1, r->A / TPN_BRAKE_SCALE, c->Aentry, rJ, Ln + d)
+            && rampOk(r, v1, a1, L + d, r->A, rJ);
+    }
+    if (vz <= c->Vh + tol || (a1 < 0.0 && v1 <= c->Vh)) {
+        /* a cycle early at the speed it settles at */
+        if (Dr <= tpnMax(d - tpnMin(tpnMax(vz, 0.0), c->Vh) * g_dt, 0.0)) {
+            /* settled before S below the envelope */
+            return vz <= c->Vh + tol || v1 <= c->Vh;
+        }
+        if (r->J <= 0.0) {
+            return 0;
+        }
+        /* the state at S, still ramping out */
+        double t = v1 > 0.0 ? tpnMin(d / v1, tr) : tr;
+        double sj = a1 > 0.0 ? -Jr : Jr;
+        for (k = 0; k < 6 && t > 0.0; k++) {
+            double f = v1 * t + 0.5 * a1 * t * t + sj * t * t * t / 6.0 - tpnMax(d, 0.0);
+            double df = v1 + a1 * t + 0.5 * sj * t * t;
+            if (df <= 0.0) {
+                break;
+            }
+            t = tpnMax(0.0, tpnMin(tr, t - f / df));
+        }
+        double vS = v1 + a1 * t + 0.5 * sj * t * t, aS = a1 + sj * t;
+        if (-aS > r->A / TPN_BRAKE_SCALE + 1e-9
+                || !accDownOk(vS, aS, r->A / TPN_BRAKE_SCALE, c->Aentry, rJ, Ln)) {
+            return 0;
+        }
+        if ((aS > 0.0 ? vS + 0.5 * aS * aS / rJ : vS) > r->V + tol) {
+            return 0;
+        }
+        return rampOk(r, vS, aS, L, r->A, rJ);
+    }
+    if (a1 < 0.0 && v1 - 0.5 * a1 * a1 / J1 <= c->Vh) {
+        /* under J1 the brake would reach Vh still decelerating: ramp out
+         * at once, then brake */
+        return Dr + tpnBrakeDist(vz, 0.0, c->Vh, A1, J1) <= dd + 1e-12;
+    }
+    return tpnBrakeDist(v1, a1, c->Vh, A1, J1) <= dd + 1e-12;
+}
+
+/* the motion lands on the envelope of own constraint m, or on the ramp
+ * it comes from */
+static int landsOn(int m, tpn_next const *n, tpn_step const *st)
+{
+    tpn_con const *c = &con[m];
+    double Ln = m + 1 < ncon ? con[m + 1].S - c->S : TPN_BIG;
+    return c->Vh > 0.0 && landOk(n->v1, n->a1, c->S - n->s1, c, Ln,
+            tpnMin(c->Arun, st->A) * TPN_BRAKE_SCALE, tpnMin(c->Jrun, st->J) * TPN_BRAKE_SCALE);
+}
+
+/* the motion follows the ramp of own constraint m from here */
+static int followsRamp(int m, tpn_next const *n, tpn_step const *st)
+{
+    tpn_con const *c = &con[m];
+    double d = c->S - n->s1;
+    double J = tpnMin(c->Jrun, st->J) * TPN_BRAKE_SCALE, A = tpnMin(c->Arun, st->A) * TPN_BRAKE_SCALE;
+    /* an acceleration the pieces of the ramp take, or released before */
+    double tr = n->a1 / J;
+    if (n->a1 > c->r.A / TPN_BRAKE_SCALE + 1e-9
+            && n->v1 * tr + 0.5 * n->a1 * tr * tr - J * tr * tr * tr / 6.0 > d) {
+        return 0;
+    }
+    double Jr = tpnMin(c->r.J, J), Ar = tpnMin(c->r.A, A);
+    if ((n->a1 <= 0.0 ? n->v1 : n->v1 + 0.5 * n->a1 * n->a1 / Jr) > c->r.V) {
+        return 0;
+    }
+    /* the pieces of a move often share one ramp: the last answer holds
+     * for the same ramp under the same limits */
+    static tpn_ramp fr_r;
+    static double fr_v, fr_a, fr_s, fr_A, fr_J;
+    static int fr_ok;
+    if (n->v1 != fr_v || n->a1 != fr_a || n->s1 != fr_s || Ar != fr_A || Jr != fr_J
+            || c->r.S != fr_r.S || c->r.E != fr_r.E || c->r.A != fr_r.A || c->r.J != fr_r.J) {
+        fr_v = n->v1;
+        fr_a = n->a1;
+        fr_s = n->s1;
+        fr_A = Ar;
+        fr_J = Jr;
+        fr_r = c->r;
+        fr_ok = rampOk(&c->r, n->v1, n->a1, c->r.S - n->s1, Ar, Jr);
+    }
+    return fr_ok;
+}
+
+/* the motion follows the ramp of a piece it has entered */
+static int followsAct(tpn_next const *n, tpn_step const *st)
+{
+    int m;
+    for (m = 0; m < nact; m++) {
+        tpn_ramp const *r = &act[m];
+        double J = tpnMin(r->J, st->J * TPN_BRAKE_SCALE), A = tpnMin(r->A, st->A * TPN_BRAKE_SCALE);
+        if (n->a1 <= r->A / TPN_BRAKE_SCALE + 1e-9
+                && (n->a1 <= 0.0 ? n->v1 : n->v1 + 0.5 * n->a1 * n->a1 / J) <= r->V
+                && rampOk(r, n->v1, n->a1, r->S - n->s1, A, J)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* How far the next state can ramp its acceleration down by each
+ * boundary: under the jerk limit of each piece on the way, for at least
+ * the time it takes to get there at the fastest speed the ramp reaches.
+ * Worked out once per state, and only as far as it is asked. */
+static double ae_v1, ae_a1, ae_s1, ae_v;
+static int ae_k;
+static double ae_R[TPN_MAXCON];
+
+/* the acceleration of the next state is down to the limit of the piece
+ * of constraint k a cycle before the step that crosses into it */
+static int entryOk(int k, tpn_next const *n, tpn_step const *st)
+{
+    tpn_con const *c = &con[k];
+    double aa = n->a1;
+    int i;
+    if (aa <= c->Aentry + 1e-9) {
+        return 1;
+    }
+    if (n != ae_n || n->v1 != ae_v1 || n->a1 != ae_a1 || n->s1 != ae_s1) {
+        ae_n = n;
+        ae_v1 = n->v1;
+        ae_a1 = n->a1;
+        ae_s1 = n->s1;
+        ae_v = tpnMax(n->v1 + (n->a1 > 0.0 ? 0.5 * aa * aa / tpnMin(st->J, jfloor) : 0.0), 1e-9);
+        ae_k = 0;
+    }
+    /* the piece before boundary i: the one the step runs in, then those
+     * of the constraints */
+    for (; ae_k <= k; ae_k++) {
+        i = ae_k;
+        double lo = i ? tpnMax(con[i - 1].S, n->s1) : n->s1;
+        double J = i ? con[i - 1].Jentry : st->J;
+        ae_R[i] = (i ? ae_R[i - 1] : 0.0) + J * tpnMax(con[i].S - lo, 0.0) / ae_v;
+    }
+    /* less what the last cycle of the way would add */
+    double P = c->S - ae_v * g_dt, R = ae_R[k];
+    for (i = k; i >= 0; i--) {
+        double hi = con[i].S, lo = i ? tpnMax(con[i - 1].S, n->s1) : n->s1;
+        if (hi <= P) {
+            break;
+        }
+        if (hi > lo) {
+            R -= (i ? con[i - 1].Jentry : st->J) * (hi - tpnMax(lo, P)) / ae_v;
+        }
+    }
+    return aa - R <= c->Aentry + 1e-9;
+}
+
+/* the motion keeps under the envelope of own constraint m up to it,
+ * ramping its acceleration out at once, and a deceleration it carries
+ * past m is one the piece of m takes: a carrier further on may hold it */
+static int passesUnder(int m, tpn_next const *n, tpn_step const *st)
+{
+    tpn_con const *c = &con[m];
+    double J = tpnMin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
+    double vpk = n->a1 > 0.0 ? n->v1 + 0.5 * n->a1 * n->a1 / J : n->v1;
+    return c->Vh > 0.0 && vpk <= c->Vh && -n->a1 <= c->Aentry + 1e-9
+        && entryOk(m, n, st);
+}
+
+/* Whether own constraint k is carried for the next state: a ramp the
+ * motion follows holds every cap it crosses and the envelope where it
+ * ends everything after, and so does a landing on an envelope for the
+ * constraints after it. Those the motion passes under on the way to
+ * either hold as well. The nearest carrier carries the rest, so the
+ * search runs once per state, and only as far as it is asked. */
+static double cf_v, cf_a, cf_s;
+static int cf_from, cf_next;
+/* the first of the own constraints passed under since the last one that
+ * is not, -1 for none */
+static int cf_run;
+/* the own constraint the motion lands on, -1 for none */
+static int cf_land;
+
+/* the motion ramps its acceleration out short of own constraint m, as
+ * landOk() settles it */
+static int settlesBefore(int m, tpn_next const *n, tpn_step const *st)
+{
+    tpn_con const *c = &con[m];
+    double d = c->S - n->s1;
+    double J = tpnMin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
+    double tr = fabs(n->a1) / J, vz = n->v1 + 0.5 * n->a1 * tr;
+    double Dr = n->v1 * tr + 0.5 * n->a1 * tr * tr - (n->a1 > 0.0 ? J : -J) * tr * tr * tr / 6.0;
+    return d > 0.0 && Dr <= tpnMax(d - tpnMin(tpnMax(vz, 0.0), c->Vh) * g_dt, 0.0);
+}
+
+/* own constraint m carries the rest: a ramp the motion follows, or an
+ * envelope it lands on */
+static int carrier(int m, tpn_next const *n, tpn_step const *st)
+{
+    if (con[m].r.J > 0.0 && followsRamp(m, n, st)) {
+        cf_from = cf_run >= 0 ? cf_run : m;
+        return 1;
+    }
+    if (landsOn(m, n, st)) {
+        cf_from = cf_run >= 0 ? cf_run : m + 1;
+        cf_land = m;
+        return 1;
+    }
+    return 0;
+}
+
+/* A run passed under ends at m without a carrier there: the ones in it
+ * that did not settle were not tried yet. Of those sharing one ramp, the
+ * last is tried: the motion ramps its acceleration out under the jerk
+ * of the pieces before it for longer, and that jerk is no lower than the
+ * ramp's. */
+static int runCarrier(int m, tpn_next const *n, tpn_step const *st)
+{
+    int i, last = -1;
+    for (i = m - 1; cf_run >= 0 && i >= cf_run; i--) {
+        tpn_ramp const *r = &con[i].r;
+        if (!con[i].own) {
+            continue;
+        }
+        if (last >= 0 && r->J > 0.0 && r->S == con[last].r.S && r->E == con[last].r.E
+                && r->J == con[last].r.J && r->A == con[last].r.A) {
+            continue;
+        }
+        if (carrier(i, n, st)) {
+            return 1;
+        }
+        last = i;
+    }
+    return 0;
+}
+
+static int carried(int k, tpn_next const *n, tpn_step const *st)
+{
+    if (n != rp_n || n->v1 != cf_v || n->a1 != cf_a || n->s1 != cf_s) {
+        rp_n = n;
+        cf_v = n->v1;
+        cf_a = n->a1;
+        cf_s = n->s1;
+        cf_from = followsAct(n, st) ? 0 : ncon;
+        cf_next = 0;
+        cf_run = -1;
+        cf_land = -1;
+    }
+    while (cf_from > k && cf_next < ncon && (cf_next <= k || cf_run >= 0)) {
+        int m = cf_next++;
+        if (!con[m].own) {
+            continue;
+        }
+        /* passed under short of where the acceleration settles: a
+         * carrier there only matters if the run ends without one */
+        int under = passesUnder(m, n, st);
+        if (under && !settlesBefore(m, n, st)) {
+            if (cf_run < 0) {
+                cf_run = m;
+            }
+        } else if (carrier(m, n, st)) {
+            break;
+        } else if (under) {
+            if (cf_run < 0) {
+                cf_run = m;
+            }
+        } else if (runCarrier(m, n, st)) {
+            break;
+        } else {
+            cf_run = -1;
+        }
+    }
+    if (cf_from > k && cf_next >= ncon && cf_run >= 0) {
+        runCarrier(ncon, n, st);
+        cf_run = -1;
+    }
+    return k >= cf_from;
+}
+
 static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
 {
     if (k < 0) {
@@ -434,22 +966,93 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
      * in acceleration, each would be a small plateau of its own, and the
      * jerk would swing from one to the next. Only into a piece that can
      * hold the deceleration it is met with. */
-    double J = tpnMin(c->Jrun, st->J) * TPN_BRAKE_SCALE;
-    double A = tpnMin(c->Arun, st->A) * TPN_BRAKE_SCALE;
+    /* braked to under the limits of the pieces that carry the way there:
+     * the envelope of the constraints of the short ones carries the
+     * speed past them and their acceleration budgets what is left to
+     * ramp out */
+    /* the speed alone, for the fallback, under the limits of the way
+     * there whether own or not: no envelope is relied on then */
+    int run = !c->own || what == CHK_SPEED;
+    double J = (run ? tpnMin(c->Jrun, st->J) : st->J) * TPN_BRAKE_SCALE;
+    double A = (run ? tpnMin(c->Arun, st->A) : st->A) * TPN_BRAKE_SCALE;
     int deep = c->Aentry >= A;
     int chain = deep && k + 1 < ncon && con[k + 1].Vh > 0.0 && con[k + 1].Vh < c->Vh;
     int chain_s = deep && k + 1 < ncon && con[k + 1].Vs >= 0.0 && con[k + 1].Vs < c->Vs;
     if (what == CHK_HARD || what == CHK_SPEED) {
+        if (c->own && what == CHK_HARD) {
+            /* an acceleration the piece does not take ramps down to its
+             * limit by the time the motion gets there, carried or not */
+            if (c->Vh > 0.0 && !entryOk(k, n, st)) {
+                return 0;
+            }
+            /* the envelope of a nearer one carries it, or a ramp the
+             * motion follows */
+            if (carried(k, n, st)) {
+                return 1;
+            }
+        }
         if (c->Vh <= 0.0) {
             /* leave the deadbeat finish a little room to land on a cycle */
             d -= 4.0 * J * g_dt * g_dt * g_dt;
         }
-        int ok = chain ? reachDist(n->v1, n->a1, c->Vh, A, J) <= tpnMax(d, 0.0) + 1e-12
+        int ok;
+        if (c->Vh <= 0.0 && what == CHK_HARD) {
+            /* at rest with nothing left to ramp out */
+            return conArriveOk(n->v1, n->a1, d, 0.0, A, J, 0.0, TPN_BIG, J, TPN_BIG, 0.0, 0.0);
+        }
+        if (c->Vh > 0.0 && c->S >= st->Sstop) {
+            /* the motion stops before it gets there */
+            return 1;
+        }
+        if (c->Vh > 0.0 && what == CHK_HARD) {
+            /* the deceleration S may be met with */
+            double Ja = tpnMin(c->Jentry * TPN_BRAKE_SCALE, J);
+            double ae = tpnMin(tpnMin(c->ae, A), sqrt(2.0 * c->Vh * Ja));
+            /* the caps and the jerk limits of the pieces an acceleration
+             * still ramping out at S reaches, twice as the second may
+             * reach further under a lower limit */
+            double W = TPN_BIG;
+            int m, it;
+            for (it = 0; it < 2 && n->a1 != 0.0; it++) {
+                double aa = fabs(n->a1);
+                double R = (n->v1 + 0.5 * aa * aa / Ja) * aa / Ja;
+                for (m = k + 1; m < ncon && con[m].S <= c->S + R; m++) {
+                    if (con[m].Vh > 0.0) {
+                        W = tpnMin(W, con[m].Vh);
+                        Ja = tpnMin(Ja, con[m].Jentry * TPN_BRAKE_SCALE);
+                    }
+                }
+            }
+            ae = tpnMin(ae, sqrt(2.0 * c->Vh * Ja));
+            if (n->a1 < 0.0) {
+                W = TPN_BIG;
+            }
+            /* the next one the envelope carries */
+            double Vn = c->Vh, Ln = 0.0;
+            for (m = k + 1; m < ncon; m++) {
+                if (con[m].own && con[m].S > c->S) {
+                    Vn = con[m].Vh;
+                    Ln = con[m].S - c->S;
+                    break;
+                }
+            }
+            /* down to the envelope at S, or past S on the ramp the
+             * envelope comes from, the whole way under its limits, below
+             * the caps the ramp crosses */
+            if (c->r.J > 0.0) {
+                /* carried() has looked for a landing on it */
+                return cf_land == k;
+            }
+            /* carried() looked for a landing on an own one */
+            return (c->own && cf_land == k)
+                || conArriveOk(n->v1, n->a1, d, c->Vh, A, J, ae, tpnMin(c->ae, A), Ja, W, Vn, Ln);
+        }
+        ok = chain ? reachDist(n->v1, n->a1, c->Vh, A, J) <= tpnMax(d, 0.0) + 1e-12
             : conOk(n->v1, n->a1, d, c->Vh, A, J);
         if (what == CHK_SPEED) {
             return ok;
         }
-        return ok && accEntryOk(n->v1, n->a1, d, c->Aentry, J);
+        return ok && entryOk(k, n, st);
     }
     if (c->Vs < 0.0) {
         return 1;
@@ -579,6 +1182,48 @@ static int humpShort(tpn_step const *st, double *Vhold)
     return 1;
 }
 
+/* how far ahead the acceleration of the next state may still be
+ * ramping out, under the lowest jerk limit on the way: constraints
+ * nearer are checked for it, carried or not */
+static double entryWindow(tpn_next const *n, tpn_step const *st)
+{
+    double J = tpnMin(st->J, jfloor), aa = fabs(n->a1);
+    double v = n->v1 + (n->a1 > 0.0 ? 0.5 * aa * aa / J : 0.0);
+    return tpnMax(v, 0.0) * (aa / J + 2.0 * g_dt) + 1e-9;
+}
+
+/* The next state meets the step caps in curmask and the constraints in
+ * failmask. Past the first own constraint carried the own ones need no
+ * hard check, beyond where the acceleration settles. */
+static int stateOk(tpn_next const *n, tpn_step const *st, unsigned char curmask)
+{
+    int i, carried_own = 0;
+    double win = n->s1 + entryWindow(n, st);
+    if (((curmask & CHK_HARD) && !checkOne(-1, CHK_HARD, n, st))
+            || ((curmask & CHK_SOFT) && !checkOne(-1, CHK_SOFT, n, st))) {
+        return 0;
+    }
+    for (i = 0; i < ncon; i++) {
+        unsigned char m = failmask[i];
+        if (carried_own && i > fail_last) {
+            break;
+        }
+        if (!m) {
+            continue;
+        }
+        if ((m & CHK_HARD) && con[i].own && con[i].S > win
+                && (carried_own || carried(i, n, st))) {
+            carried_own = 1;
+            m &= ~CHK_HARD;
+        }
+        if (((m & CHK_HARD) && !checkOne(i, CHK_HARD, n, st))
+                || ((m & CHK_SOFT) && !checkOne(i, CHK_SOFT, n, st))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
 {
     double dt = tp->cycleTime;
@@ -598,10 +1243,19 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
 
     /* everything that holds at jhi holds for any smaller jerk */
     stepState(jhi, dt, &n);
+    /* past the first own one carried the own ones hold; past the first
+     * own one that fails they are rechecked below without looking here */
+    int carried_own = 0, failed_own = 0;
+    double win = n.s1 + entryWindow(&n, st);
     for (i = -1; i < ncon; i++) {
         unsigned char m = 0;
-        if (!checkOne(i, CHK_HARD, &n, st)) {
+        if (i >= 0 && con[i].own && failed_own) {
             m |= CHK_HARD;
+        } else if (i >= 0 && con[i].own && con[i].S > win && (carried_own || carried(i, &n, st))) {
+            carried_own = 1;
+        } else if (!checkOne(i, CHK_HARD, &n, st)) {
+            m |= CHK_HARD;
+            failed_own = i >= 0 && con[i].own;
         }
         if (!checkOne(i, CHK_SOFT, &n, st)) {
             m |= CHK_SOFT;
@@ -638,20 +1292,29 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
         }
     }
 
+    fail_last = -1;
+    for (i = 0; i < ncon; i++) {
+        if ((failmask[i] & CHK_SOFT) || ((failmask[i] & CHK_HARD) && !con[i].own)) {
+            fail_last = i;
+        }
+    }
     double lo = jlo, hi = jhi;
     int ok_lo = 1;
     stepState(lo, dt, &n);
-    if ((curmask && !(((curmask & CHK_HARD) == 0 || checkOne(-1, CHK_HARD, &n, st))
-                     && ((curmask & CHK_SOFT) == 0 || checkOne(-1, CHK_SOFT, &n, st))))) {
-        ok_lo = 0;
-    }
-    for (i = 0; i < ncon && ok_lo; i++) {
-        if (((failmask[i] & CHK_HARD) && !checkOne(i, CHK_HARD, &n, st))
-                || ((failmask[i] & CHK_SOFT) && !checkOne(i, CHK_SOFT, &n, st))) {
-            ok_lo = 0;
+    ok_lo = stateOk(&n, st, curmask);
+    double j;
+    if (!ok_lo) {
+        /* braking too hard may fail a ramp that ends above rest: look
+         * for a jerk inside that meets them all, and search above it */
+        for (k = TPN_SCAN - 1; k >= 1 && !ok_lo; k--) {
+            double mid = jlo + (jhi - jlo) * k / TPN_SCAN;
+            stepState(mid, dt, &n);
+            ok_lo = stateOk(&n, st, curmask);
+            if (ok_lo) {
+                lo = mid;
+            }
         }
     }
-    double j;
     if (!ok_lo) {
         /* No jerk meets every hard constraint: the step went a hair past
          * the point where a speed cap and the acceleration cap of the
@@ -660,7 +1323,7 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
          * only push the acceleration further past the cap. */
         lo = jlo;
         hi = jhi;
-        for (k = 0; k < 30; k++) {
+        for (k = 0; k < TPN_BISECT; k++) {
             double mid = k ? 0.5 * (lo + hi) : hi;
             int ok = 1;
             stepState(mid, dt, &n);
@@ -683,21 +1346,10 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
         }
         j = lo;
     } else {
-        for (k = 0; k < 30; k++) {
+        for (k = 0; k < TPN_BISECT; k++) {
             double mid = 0.5 * (lo + hi);
-            int ok = 1;
             stepState(mid, dt, &n);
-            if (((curmask & CHK_HARD) && !checkOne(-1, CHK_HARD, &n, st))
-                    || ((curmask & CHK_SOFT) && !checkOne(-1, CHK_SOFT, &n, st))) {
-                ok = 0;
-            }
-            for (i = 0; i < ncon && ok; i++) {
-                if (((failmask[i] & CHK_HARD) && !checkOne(i, CHK_HARD, &n, st))
-                        || ((failmask[i] & CHK_SOFT) && !checkOne(i, CHK_SOFT, &n, st))) {
-                    ok = 0;
-                }
-            }
-            if (ok) {
+            if (stateOk(&n, st, curmask)) {
                 lo = mid;
             } else {
                 hi = mid;
@@ -1025,6 +1677,12 @@ static int finishStop(TP_STRUCT const *tp, tpn_step const *st, double *j)
     }
     double Ab = st->A * TPN_BRAKE_SCALE, Jb = st->J * TPN_BRAKE_SCALE;
     double bd = tpnBrakeDist(tpn.cur_v, tpn.cur_a, 0.0, Ab, Jb);
+    if (tpn.cur_a < 0.0 && tpn.cur_v - 0.5 * tpn.cur_a * tpn.cur_a / st->J <= 0.0) {
+        /* a deceleration ramped out at the full limit: the stop check
+         * brakes to rest with none left, so does the curve here */
+        double t = -tpn.cur_a / st->J;
+        bd = tpn.cur_v * t + 0.5 * tpn.cur_a * t * t + st->J * t * t * t / 6.0;
+    }
     double slack = 8.0 * st->J * dt * dt * dt;
     int creep = tpn.cur_v <= 1e-9 && fabs(tpn.cur_a) <= 1e-9;
     if (creep ? d > tpnMin(0.01, 100.0 * slack) : d > bd + tpnMax(1e-6 * d, 0.05 * tpn.cur_v * dt) + slack) {
@@ -1059,6 +1717,8 @@ static int finishStop(TP_STRUCT const *tp, tpn_step const *st, double *j)
 void tpnRunReset(void)
 {
     db_n = db_i = 0;
+    nact = nact_old = 0;
+    act_id = -1;
 }
 
 void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
