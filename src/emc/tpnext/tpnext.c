@@ -281,7 +281,7 @@ int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance, double angul
     case TC_TERM_COND_STOP:
         tp->termCond = cond;
         tp->tolerance = tolerance;
-        tpn.ang_tolerance = fmax(0.0, angular_tolerance);
+        tpn.ang_tolerance = tpnMax(0.0, angular_tolerance);
         break;
     default:
         return -1;
@@ -638,7 +638,7 @@ static void updateStatus(TP_STRUCT * const tp, tpn_vec const *d1)
     tp->execId = sg->id;
     tp->execTag = sg->tag;
     tp->activeDepth = (sg->h_in > 0.0 && tpn.cur_s < sg->S0 + sg->h_in) ? 2 : 1;
-    tpn.emcmotStatus->distance_to_go = fmax(0.0, rev ? tpn.cur_s - sg->S0 : segEnd(sg) - tpn.cur_s);
+    tpn.emcmotStatus->distance_to_go = tpnMax(0.0, rev ? tpn.cur_s - sg->S0 : segEnd(sg) - tpn.cur_s);
     tpn.emcmotStatus->enables_queued = sg->enables;
     tpn.emcmotStatus->requested_vel = sg->vreq;
     tpn.emcmotStatus->current_vel = tpn.cur_v;
@@ -745,11 +745,11 @@ static void tapToPath(tpn_seg *sg, double u, double v, double a)
     sg->sync = TC_SYNC_NONE;
     sg->vreq = sg->lim_int.V;
     sg->lim_int_hi = sg->lim_int;
-    sg->E_int = sg->E_int_hi = fmin(sg->lim_int.V, sqrt(sg->lim_int.A * sg->geom.L));
+    sg->E_int = sg->E_int_hi = tpnMin(sg->lim_int.V, sqrt(sg->lim_int.A * sg->geom.L));
     tpnSyncReset();
     tpnRunReset();
     tpn.cur_s = sg->S0;
-    tpn.cur_v = fmax(v, 0.0);
+    tpn.cur_v = tpnMax(v, 0.0);
     tpn.cur_a = a;
     tpn.cur_j = 0.0;
 }

@@ -242,7 +242,7 @@ static void planEval(double t, double *x, double *v, double *a)
     int k;
     *x = *v = *a = 0.0;
     for (k = 0; k < sy.np && t > 0.0; k++) {
-        double h = fmin(sy.pt[k], t), j = sy.pj[k];
+        double h = tpnMin(sy.pt[k], t), j = sy.pj[k];
         *x += *v * h + 0.5 * *a * h * h + j * h * h * h / 6.0;
         *v += *a * h + 0.5 * j * h * h;
         *a += j * h;
@@ -277,7 +277,7 @@ static double leadInShort(tpn_seg const *sg)
     planEval(sy.T, &x, &v, &a);
     x += tpnBrakeDist(v, 0.0, 0.0, sg->lim_int.A * TPN_BRAKE_SCALE,
             sg->lim_int.J * TPN_BRAKE_SCALE);
-    return fmax(0.0, sy.S0 + x - end);
+    return tpnMax(0.0, sy.S0 + x - end);
 }
 
 /* A tap goes into the hole once, so where its thread lies against the
