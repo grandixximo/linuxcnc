@@ -332,15 +332,18 @@ int tpSetPos(TP_STRUCT * const tp, EmcPose const * const pos)
 int tpSetSpindleSync(TP_STRUCT * const tp, int spindle, double sync, int mode,
         double angular_offset_degrees)
 {
-    (void)angular_offset_degrees;
     if (sync) {
         tp->synchronized = mode ? TC_SYNC_VELOCITY : TC_SYNC_POSITION;
         tp->uu_per_rev = sync;
         tp->spindle.spindle_num = spindle;
+        /* the D word: a thread starting that angle past the index, which
+         * has no direction */
+        tp->spindle.pending_offset = fabs(angular_offset_degrees) / 360.0;
         /* each synchronized move may report again */
         tp->spindle.overrun_reported = 0;
     } else {
         tp->synchronized = 0;
+        tp->spindle.pending_offset = 0.0;
     }
     return TP_ERR_OK;
 }

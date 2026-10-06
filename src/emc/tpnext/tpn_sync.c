@@ -78,6 +78,9 @@ static struct {
     int cycles;
     /* cycles waited for a steady spindle */
     int waited;
+    /* the move waiting past the index for the angle its thread starts
+     * at, its id + 1, 0 for none */
+    int hold;
 } sy;
 
 void tpnSyncReset(void)
@@ -86,6 +89,7 @@ void tpnSyncReset(void)
     tap.state = TAP_OFF;
     sy.np = 0;
     sy.cycles = 0;
+    sy.hold = 0;
     tpn.track = 0;
 }
 
@@ -307,14 +311,21 @@ static void tapStart(TP_STRUCT const *tp, tpn_seg const *sg, int k)
 }
 
 /* Start following the spindle: wait until every spindle is at speed,
- * then for the index of this one; the move starts on the index. Returns
- * nonzero while waiting. */
+ * then for the index of this one; the move starts on the index, or where
+ * the spindle has turned past it the angle the D word asks for: the
+ * thread lies that much further round, as if the index were there.
+ * Returns nonzero while waiting. */
 int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg)
 {
     int s, k = sg->spindle;
     spindle_status_t *sp = &tpn.emcmotStatus->spindle_status[k];
     double dt = tp->cycleTime;
-    if (tp->spindle.waiting_for_index != sg->id) {
+    if (sy.hold == sg->id + 1) {
+        if (spindleAhead(k, dt) < sg->sync_angle) {
+            return 1;
+        }
+        sy.hold = 0;
+    } else if (tp->spindle.waiting_for_index != sg->id) {
         for (s = 0; s < tpn.emcmotConfig->numSpindles; s++) {
             if (!tpn.emcmotStatus->spindle_status[s].at_speed) {
                 tp->spindle.waiting_for_atspeed = sg->id;
@@ -332,13 +343,18 @@ int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg)
         tp->spindle.waiting_for_index = sg->id;
         sp->spindle_index_enable = 1;
         return 1;
+    } else {
+        if (sp->spindle_index_enable) {
+            return 1;
+        }
+        /* the encoder counts from the index now */
+        tp->spindle.waiting_for_index = MOTION_INVALID_ID;
+        spest[k].pos = signedRevs(k);
+        if (!sg->tap && spindleAhead(k, dt) < sg->sync_angle) {
+            sy.hold = sg->id + 1;
+            return 1;
+        }
     }
-    if (sp->spindle_index_enable) {
-        return 1;
-    }
-    /* the encoder counts from the index now */
-    tp->spindle.waiting_for_index = MOTION_INVALID_ID;
-    spest[k].pos = signedRevs(k);
     if (sg->tap) {
         tapStart(tp, sg, k);
         return 0;
@@ -346,14 +362,14 @@ int tpnSyncStart(TP_STRUCT * const tp, tpn_seg *sg)
     sy.on = 1;
     sy.spindle = k;
     sy.S = sg->S0;
-    sy.R = 0.0;
+    sy.R = sg->sync_angle;
     sy.L = sg->geom.L;
     sy.p = sg->uu_per_rev;
     sy.cycles = 0;
     /* this cycle's output aims at the reference now, the axis is at rest
      * one cycle before it */
     sy.S0 = tpn.cur_s;
-    sy.r0 = sy.S + sy.p * spindleAhead(k, dt);
+    sy.r0 = sy.S + sy.p * (spindleAhead(k, dt) - sy.R);
     sy.v0 = sy.p * spindleSpeedAhead(k, dt);
     sy.tau = 0.0;
     sy.shift = 0.0;
