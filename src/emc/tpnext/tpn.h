@@ -122,6 +122,7 @@ typedef struct {
     int sync;               /* TC_SYNC_* */
     int spindle;            /* the spindle it follows */
     double uu_per_rev;
+    double sync_angle;      /* revolutions past the index the thread starts at */
     double vreq;            /* requested feed, path units */
     double vlimit_scale;    /* max velocity slider scale canon sends, 0 = none */
     syncdio_t syncdio;

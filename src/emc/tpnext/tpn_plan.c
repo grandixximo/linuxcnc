@@ -1860,6 +1860,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     sg->sync = tp->synchronized;
     sg->spindle = tp->spindle.spindle_num;
     sg->uu_per_rev = tp->uu_per_rev;
+    sg->sync_angle = sg->sync == TC_SYNC_POSITION ? tp->spindle.pending_offset : 0.0;
     sg->vreq = tpnMin(vel, ini_maxvel > 0.0 ? ini_maxvel : vel);
     if (sg->vreq <= 0.0 || (sg->sync == TC_SYNC_POSITION && ini_maxvel > 0.0)) {
         /* the spindle sets the speed of a position synchronized move */
