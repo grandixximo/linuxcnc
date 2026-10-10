@@ -1288,6 +1288,15 @@ static PyObject *Stat_g68_rotation(pyStatChannel *s, void *) {
     return res;
 }
 
+static PyObject *Stat_tool_frame(pyStatChannel *s, void *) {
+    if (!s->status.motion.traj.tool_frame_ok) { Py_RETURN_NONE; }
+    PyObject *res = PyTuple_New(9);
+    for (int i = 0; i < 9; i++) {
+        PyTuple_SET_ITEM(res, i, PyFloat_FromDouble(s->status.motion.traj.tool_frame[i]));
+    }
+    return res;
+}
+
 static PyObject *Stat_position(pyStatChannel *s, void *) {
     return pose(s->status.motion.traj.position);
 }
@@ -1594,6 +1603,8 @@ static PyGetSetDef Stat_getsetlist[] = {
         (char*)"Origin of the tilted work plane (G68.2), in the coordinate system it was defined in.", NULL},
     {(char*)"g68_rotation", (getter)Stat_g68_rotation, NULL,
         (char*)"Rotation matrix of the tilted work plane (G68.2), nine values row by row.", NULL},
+    {(char*)"tool_frame", (getter)Stat_tool_frame, NULL,
+        (char*)"Tool frame in the work frame at the commanded joints, nine values row by row, the columns being tool X, Y and Z; None where the kinematics reports no frames.", NULL},
     {(char*)"position", (getter)Stat_position, NULL, NULL, NULL},
     {(char*)"dtg", (getter)Stat_dtg, NULL, NULL, NULL},
     {(char*)"joint_position", (getter)Stat_joint_position, NULL, NULL, NULL},
