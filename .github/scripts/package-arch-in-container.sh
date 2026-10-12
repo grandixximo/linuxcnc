@@ -29,7 +29,7 @@ apt-get --yes --no-install-recommends install ../*.deb
 adduser --disabled-password --gecos "" testrunner
 passwd -d testrunner
 adduser testrunner sudo
-find tests/ -type d -exec chmod 0777 {} + # make test dirs world-writable for the testrunner
-su -c "./scripts/runtests -p -d ./tests" testrunner
+chown -R testrunner:testrunner tests # make test dirs owned by testrunner for parallel execution
+su -c "./scripts/runtests -j ${RUNTEST_JOBS:-1} -p -d ./tests" testrunner
 
 .github/scripts/verify-clean-repo.sh ':(exclude)VERSION' ':(exclude)debian/changelog'

@@ -415,10 +415,10 @@ jobs:
         include:
           - arch: i386
             platform: linux/386
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
           - arch: armhf
             platform: linux/arm/v7
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
     steps:
     - name: Dump GitHub context
       env:
@@ -452,9 +452,14 @@ jobs:
         set -x
         # IPC_OWNER is needed for shmget IPC_CREAT
         # SYS_ADMIN is needed for shmctl IPC_SET
+        # security-opt and tmpfs /tmp: see package-arch, needed for bwrap parallel tests
         docker run --rm --platform ${{ matrix.platform }} \
           --cap-add=IPC_OWNER --cap-add=SYS_ADMIN \
-          -e DEBIAN_FRONTEND \
+          --security-opt apparmor=unconfined \
+          --security-opt seccomp=unconfined \
+          --security-opt systempaths=unconfined \
+          --tmpfs /tmp:rw \
+          -e DEBIAN_FRONTEND -e RUNTEST_JOBS \
           -v "$PWD:/build/linuxcnc" -w /build/linuxcnc \
           debian:trixie .github/scripts/package-arch-in-container.sh
 
