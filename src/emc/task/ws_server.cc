@@ -86,6 +86,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <chrono>
+#include "json_delta.hh"
 
 namespace beast     = boost::beast;
 namespace http      = beast::http;
@@ -1478,6 +1480,75 @@ void serialize_and_fanout()
 
     if (!raw.empty()) {
         const EMC_STAT *st = reinterpret_cast<const EMC_STAT *>(raw.data());
+
+        /* Encoding benchmark only: LINUXCNC_WS_CAPTURE=path appends every
+           encoded EmcStat as a 4-byte length plus the buffer. */
+        static FILE *cap = nullptr;
+        static bool cap_init = false;
+        static long cap_left = 0;
+        if (!cap_init) {
+            cap_init = true;
+            if (const char *p = getenv("LINUXCNC_WS_CAPTURE")) {
+                cap = fopen(p, "wb");
+                const char *m = getenv("LINUXCNC_WS_CAPTURE_MAX");
+                cap_left = m ? atol(m) : 50000;
+            }
+        }
+        if (cap && cap_left > 0) {
+            std::vector<uint8_t> capbuf;
+            encode_status(*st, capbuf);
+            uint32_t n = capbuf.size();
+            fwrite(&n, 4, 1, cap);
+            fwrite(capbuf.data(), 1, n, cap);
+            if (--cap_left == 0) { fclose(cap); cap = nullptr; }
+        }
+
+        /* Encoding benchmark only: LINUXCNC_WS_TIMING=1 times the real
+           FlatBuffers builder, the reflection JSON and a JSON delta from
+           EMC_STAT on every frame and prints averages to stderr.
+           LINUXCNC_WS_TIMING_DUMP=path keeps snapshots and deltas of the
+           first frames for an offline replay check. */
+        static int tim = -1;
+        static FILE *tdump = nullptr;
+        static std::vector<char> tprev;
+        static std::string tdelta;
+        static double t_fbs, t_refl, t_delta, b_fbs, b_refl, b_delta;
+        static long t_n, t_dumped;
+        if (tim < 0) {
+            tim = getenv("LINUXCNC_WS_TIMING") != nullptr;
+            if (const char *p = getenv("LINUXCNC_WS_TIMING_DUMP")) tdump = fopen(p, "w");
+        }
+        if (tim) {
+            using tclk = std::chrono::steady_clock;
+            auto us = [](tclk::duration d) { return std::chrono::duration<double, std::micro>(d).count(); };
+            auto t0 = tclk::now();
+            auto fb = encode_status_msg(*st);
+            auto t1 = tclk::now();
+            std::vector<uint8_t> rbuf;
+            encode_status(*st, rbuf);
+            flatbuffers::ToStringVisitor rv(" ", true, "");
+            flatbuffers::IterateFlatBuffer(rbuf.data(), EMC::EmcStatTypeTable(), &rv);
+            auto t2 = tclk::now();
+            bool have_prev = tprev.size() == raw.size();
+            if (have_prev) {
+                jdelta::delta(tdelta, *reinterpret_cast<const EMC_STAT *>(tprev.data()), *st);
+            }
+            tprev = raw;
+            auto t3 = tclk::now();
+            if (have_prev) {
+                t_fbs += us(t1 - t0); t_refl += us(t2 - t1); t_delta += us(t3 - t2);
+                b_fbs += fb->size(); b_refl += rv.s.size(); b_delta += tdelta.size();
+                if (++t_n % 10000 == 0) {
+                    fprintf(stderr, "WS_TIMING n=%ld us: fbs %.2f refl_json %.2f json_delta %.2f | bytes: fbs %.0f refl_json %.0f json_delta %.0f\n",
+                            t_n, t_fbs / t_n, t_refl / t_n, t_delta / t_n, b_fbs / t_n, b_refl / t_n, b_delta / t_n);
+                }
+            }
+            if (tdump && t_dumped < 5000) {
+                if (have_prev) fprintf(tdump, "D %s\n", tdelta.c_str());
+                if (t_dumped % 1000 == 0) fprintf(tdump, "S %s\n", rv.s.c_str());
+                if (++t_dumped == 5000) { fclose(tdump); tdump = nullptr; }
+            }
+        }
 
         /* Encode only what somebody is listening for. With no client
            attached -- the usual case -- this costs nothing beyond the

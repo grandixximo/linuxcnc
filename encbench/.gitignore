@@ -1,0 +1,12 @@
+gen/
+pygen/
+tojson.hh
+applyjson.hh
+bench
+run*/frames.bin
+run*/*.jsonl
+run*/*.log
+run*/tdump.txt
+run*/position*.txt
+run*/*.var
+run*/*.var.bak
