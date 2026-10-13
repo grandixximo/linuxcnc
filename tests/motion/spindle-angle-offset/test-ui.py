@@ -10,8 +10,12 @@
 #
 # Detecting "Z started moving" costs a small, fixed amount of spindle rotation
 # (the axis has to accelerate far enough to clear the threshold), so no single
-# measurement is exact.  Every check below is therefore a *difference* between
-# two passes that carry that same lag, which cancels it.
+# measurement is exact.  The release checks below are therefore *differences*
+# between two passes that carry that same lag, which cancels it.
+#
+# Where the thread actually sits needs no such care.  Once Z tracks the spindle,
+# revs + Z / PITCH is constant over the cut and equals Z0 / PITCH plus the angle
+# the thread starts at, however the planner brought the axis up to speed.
 
 import linuxcnc
 import linuxcnc_util
@@ -27,6 +31,7 @@ GCODETIMEOUT = 240   # Max seconds for the gcode program to run
 PITCH = 2.0          # K/P word of every synchronized move in the program, mm/rev
 ZMOVED = 0.02        # mm of Z travel counted as "the axis has been released"
 REVTOL = 0.08        # rev, tolerance on a measured angle difference (~29 deg)
+PHASETOL = 0.04      # rev, tolerance on where the thread sits (~14 deg)
 
 # sampler field order, see sample.hal
 LINE, MTYPE, REVS, ZPOS, XPOS, INDEX = range(6)
@@ -104,6 +109,20 @@ def cut_samples(group):
             stalled = 0
         cut.append(s)
     return cut[:len(cut) - stalled]
+
+
+def thread_phase(group):
+    """Revolutions past the index the thread starts at, from the cut itself.
+
+    Z = Z0 - PITCH * (revs - start) while Z tracks the spindle, so the start
+    angle is revs + (Z - Z0) / PITCH, averaged over the middle of the cut.
+    """
+    cut = cut_samples(group)
+    cut = cut[len(cut) // 4: -(len(cut) // 4)]
+    if len(cut) < 5:
+        return None
+    z0 = group[0][ZPOS]
+    return sum(s[REVS] + (s[ZPOS] - z0) / PITCH for s in cut) / len(cut)
 
 
 def cut_pitch(group, z1, z2):
@@ -265,11 +284,19 @@ if abs(dneg180 - d180) > REVTOL:
          "a negative D should be used as its magnitude"
          .format(dneg180, d180))
 
-# The reference pass has no offset, so it starts at the index pulse.  Only the
-# detection lag should separate it from zero.
-if ref > REVTOL:
-    fail("pass without a D word released {:.4f} rev past index, expected ~0"
-         .format(ref))
+# The reference pass has no offset, so its thread starts at the index pulse,
+# and D180 and D-180 start half a turn later.  This is read off the cut, not off
+# the release: a planner that ramps the axis in and catches up cuts the same
+# thread as one that jumps straight to speed.
+phases = [thread_phase(g) for g in groups[:3]]
+for i, (ph, want) in enumerate(zip(phases, (0.0, 0.5, 0.5))):
+    if ph is None:
+        fail("move {} cut too short to measure where the thread starts".format(i))
+        continue
+    print("move {}: thread starts {:.4f} rev past index".format(i, ph))
+    if abs(ph - want) > PHASETOL:
+        fail("move {} thread starts {:.4f} rev past index, expected {}"
+             .format(i, ph, want))
 
 # G76 honours D too: the offset cycle waits half a turn longer than the
 # otherwise identical reference cycle.
