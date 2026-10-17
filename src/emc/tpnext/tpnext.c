@@ -533,6 +533,31 @@ static void setReversible(tpn_seg *sg)
     sg->rev_ok = !sg->tap && !sg->joint && sg->sync == TC_SYNC_NONE && sg->indexer_jnum == -1;
 }
 
+/* the orientation shape of the next move added: rates d and second
+ * derivatives dd of A, B and C per unit s at its start (0) and end (1) */
+int tpnextSetOrientShape(unsigned mask, double const d0[TPN_NOSH], double const dd0[TPN_NOSH],
+        double const d1[TPN_NOSH], double const dd1[TPN_NOSH])
+{
+    int k;
+    tpn.osh_mask = mask;
+    for (k = 0; k < TPN_NOSH; k++) {
+        tpn.osh[0][k] = d0[k];
+        tpn.osh[1][k] = dd0[k];
+        tpn.osh[2][k] = d1[k];
+        tpn.osh[3][k] = dd1[k];
+    }
+    return 0;
+}
+
+/* bend g by the orientation shape set for it, once */
+static void takeShape(tpn_geom *g)
+{
+    if (tpn.osh_mask) {
+        tpnGeomShape(g, tpn.osh_mask, tpn.osh[0], tpn.osh[1], tpn.osh[2], tpn.osh[3]);
+    }
+    tpn.osh_mask = 0;
+}
+
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
         double vel, double ini_maxvel, double acc, double ini_maxjerk,
         double vlimit_scale, unsigned char enables, char atspeed, int indexer_jnum,
@@ -549,8 +574,10 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     tpn_seg *sg = newSlot();
     sg->joint = 0;
     if (tpnLineInit(&sg->geom, &tp->goalPos, &end)) {
+        tpn.osh_mask = 0;
         return TP_ERR_ZERO_LENGTH;
     }
+    takeShape(&sg->geom);
     int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
             enables, atspeed, indexer_jnum, tag);
     if (res == TP_ERR_OK) {
@@ -576,8 +603,10 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
     tpn_seg *sg = newSlot();
     sg->joint = 0;
     if (tpnArcInit(&sg->geom, &tp->goalPos, &end, &center, &normal, turn)) {
+        tpn.osh_mask = 0;
         return TP_ERR_ZERO_LENGTH;
     }
+    takeShape(&sg->geom);
     int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
             enables, atspeed, -1, tag);
     if (res == TP_ERR_OK) {

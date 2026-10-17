@@ -1664,7 +1664,8 @@ static void joinMoves(TP_STRUCT const *tp, tpn_axlim const *ax, tpn_seg *prev, t
     tpn_blend b;
     tpn_lim lim, sub[TPN_NSUB];
     int k, i;
-    int lines = prev->geom.type == TPN_LINE && sg->geom.type == TPN_LINE;
+    int lines = prev->geom.type == TPN_LINE && sg->geom.type == TPN_LINE
+        && !prev->geom.oshape && !sg->geom.oshape;
     blendBuild(prev, sg, h, &b);
     if (tol > 0.0 || atol > 0.0) {
         tpn_vec w;

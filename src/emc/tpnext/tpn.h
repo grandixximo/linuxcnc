@@ -18,6 +18,8 @@
 #include "../tp/tp.h"
 
 #define TPN_NAX 9
+/* axes an orientation shape may bend: A, B and C */
+#define TPN_NOSH 3
 
 typedef struct {
     double v[TPN_NAX];
@@ -91,6 +93,11 @@ typedef struct {
     PmCartesian center, rTan, rPerp, rHelix;
     double radius, spiral, angle;
     int flat;               /* a circle, no spiral, helix or other axes */
+    /* Orientation shape: rotary axis 3 + k with bit k of oshape set
+     * follows the quintic oc[.][k] in t = u / L instead of the line from
+     * p0 to p1, power basis, same ends. */
+    unsigned oshape;
+    double oc[6][TPN_NOSH];
 } tpn_geom;
 
 /* a blend is followed in TPN_NSUB parts of equal length, each with its
@@ -185,6 +192,10 @@ int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
         PmCartesian const *center, PmCartesian const *normal, int turn);
 void tpnGeomEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2);
 void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2);
+/* bend the rotary axes of g to the quintic with rates d and second
+ * derivatives dd per unit s at the start (0) and end (1), for axes in mask */
+void tpnGeomShape(tpn_geom *g, unsigned mask, double const d0[TPN_NOSH],
+        double const dd0[TPN_NOSH], double const d1[TPN_NOSH], double const dd1[TPN_NOSH]);
 /* distance from q to the move, each axis scaled by its weight in w */
 double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w);
 
@@ -287,6 +298,9 @@ typedef struct {
     int h_len;
     /* G64 E for the moves queued next */
     double ang_tolerance;
+    /* orientation shape of the next move added, see tpnGeomShape() */
+    unsigned osh_mask;
+    double osh[4][TPN_NOSH];
     /* axes of each type, bit n = axis n, from [AXIS_n]TYPE */
     unsigned lin_mask, ang_mask;
     /* controller state along the path parameter */
