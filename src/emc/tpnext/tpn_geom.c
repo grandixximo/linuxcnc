@@ -36,6 +36,8 @@ void tpnPoseFromVec(EmcPose *p, tpn_vec const *v)
     p->w = v->v[8];
 }
 
+static void tpnGeomEvalBase(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2);
+
 static double norm3(double const *x)
 {
     return sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
@@ -62,6 +64,7 @@ int tpnLineInit(tpn_geom *g, EmcPose const *start, EmcPose const *end)
     int i;
     g->type = TPN_LINE;
     g->flat = 0;
+    g->oshape = 0;
     tpnVecFromPose(&g->p0, start);
     tpnVecFromPose(&g->p1, end);
     for (i = 0; i < TPN_NAX; i++) {
@@ -82,6 +85,7 @@ void tpnChordInit(tpn_geom *g, EmcPose const *start, EmcPose const *end, double 
     int i;
     g->type = TPN_LINE;
     g->flat = 0;
+    g->oshape = 0;
     tpnVecFromPose(&g->p0, start);
     tpnVecFromPose(&g->p1, end);
     g->L = L;
@@ -97,6 +101,7 @@ int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
     double helix;
     int i;
     g->type = TPN_ARC;
+    g->oshape = 0;
     tpnVecFromPose(&g->p0, start);
     tpnVecFromPose(&g->p1, end);
     if (pmCircleInit(&c, &start->tran, &end->tran, center, normal, turn)) {
@@ -131,7 +136,66 @@ int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
     return 0;
 }
 
+void tpnGeomShape(tpn_geom *g, unsigned mask, double const d0[TPN_NOSH],
+        double const dd0[TPN_NOSH], double const d1[TPN_NOSH], double const dd1[TPN_NOSH])
+{
+    double H = g->L;
+    int k;
+    g->oshape = 0;
+    for (k = 0; k < TPN_NOSH; k++) {
+        if (!(mask & (1u << k))) {
+            continue;
+        }
+        /* quintic Hermite in t = u / L, as tpnBlendInit() */
+        double D = g->p1.v[3 + k] - g->p0.v[3 + k];
+        double v0 = H * d0[k], v1 = H * d1[k];
+        double a0 = H * H * dd0[k], a1 = H * H * dd1[k];
+        g->oc[0][k] = g->p0.v[3 + k];
+        g->oc[1][k] = v0;
+        g->oc[2][k] = 0.5 * a0;
+        g->oc[3][k] = 10.0 * D - 6.0 * v0 - 4.0 * v1 - 1.5 * a0 + 0.5 * a1;
+        g->oc[4][k] = -15.0 * D + 8.0 * v0 + 7.0 * v1 + 1.5 * a0 - a1;
+        g->oc[5][k] = 6.0 * D - 3.0 * v0 - 3.0 * v1 - 0.5 * a0 + 0.5 * a1;
+        g->oshape |= 1u << k;
+        g->flat = 0;
+    }
+}
+
+/* the rotary axes bent by the orientation shape */
+static void shapeEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2)
+{
+    double t = u / g->L, iL = 1.0 / g->L;
+    int k;
+    for (k = 0; k < TPN_NOSH; k++) {
+        if (!(g->oshape & (1u << k))) {
+            continue;
+        }
+        double c0 = g->oc[0][k], c1 = g->oc[1][k], c2 = g->oc[2][k];
+        double c3 = g->oc[3][k], c4 = g->oc[4][k], c5 = g->oc[5][k];
+        if (p) {
+            p->v[3 + k] = c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * c5))));
+        }
+        if (d1) {
+            d1->v[3 + k] = (c1 + t * (2.0 * c2 + t * (3.0 * c3 + t * (4.0 * c4 + t * 5.0 * c5)))) * iL;
+        }
+        if (d2) {
+            d2->v[3 + k] = (2.0 * c2 + t * (6.0 * c3 + t * (12.0 * c4 + t * 20.0 * c5))) * iL * iL;
+        }
+    }
+}
+
 void tpnGeomEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2)
+{
+    if (g->oshape) {
+        double uc = tpnMin(u, g->L);
+        tpnGeomEvalBase(g, u, p, d1, d2);
+        shapeEval(g, uc, u >= g->L ? 0 : p, d1, d2);
+        return;
+    }
+    tpnGeomEvalBase(g, u, p, d1, d2);
+}
+
+static void tpnGeomEvalBase(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2)
 {
     int i;
     if (u >= g->L && p) {
@@ -188,6 +252,34 @@ void tpnGeomEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *
     }
 }
 
+/* bounds of the first three derivatives of a quintic in t = sigma / H,
+ * power basis c, from the Bernstein coefficients of the derivatives: a
+ * polynomial on [0, 1] stays inside the hull of its Bernstein coefficients */
+static void quinticBounds(double c0, double c1, double c2, double c3, double c4, double c5,
+        double H, double *G, double *G1, double *G2)
+{
+    double bz[6], m1 = 0.0, m2 = 0.0, m3 = 0.0;
+    int k;
+    bz[0] = c0;
+    bz[1] = c0 + c1 / 5.0;
+    bz[2] = c0 + 2.0 * c1 / 5.0 + c2 / 10.0;
+    bz[3] = c0 + 3.0 * c1 / 5.0 + 3.0 * c2 / 10.0 + c3 / 10.0;
+    bz[4] = c0 + 4.0 * c1 / 5.0 + 6.0 * c2 / 10.0 + 4.0 * c3 / 10.0 + c4 / 5.0;
+    bz[5] = c0 + c1 + c2 + c3 + c4 + c5;
+    for (k = 0; k < 5; k++) {
+        m1 = tpnMax(m1, fabs(5.0 * (bz[k + 1] - bz[k])));
+    }
+    for (k = 0; k < 4; k++) {
+        m2 = tpnMax(m2, fabs(20.0 * (bz[k + 2] - 2.0 * bz[k + 1] + bz[k])));
+    }
+    for (k = 0; k < 3; k++) {
+        m3 = tpnMax(m3, fabs(60.0 * (bz[k + 3] - 3.0 * bz[k + 2] + 3.0 * bz[k + 1] - bz[k])));
+    }
+    *G = m1 / H;
+    *G1 = m2 / (H * H);
+    *G2 = m3 / (H * H * H);
+}
+
 /* per axis bounds of |dP/ds|, |d2P/ds2|, |d3P/ds3| over the whole move */
 void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
 {
@@ -196,6 +288,12 @@ void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
         G->v[i] = fabs(g->g.v[i]);
         G1->v[i] = 0.0;
         G2->v[i] = 0.0;
+    }
+    for (i = 0; i < TPN_NOSH; i++) {
+        if (g->oshape & (1u << i)) {
+            quinticBounds(g->oc[0][i], g->oc[1][i], g->oc[2][i], g->oc[3][i], g->oc[4][i],
+                    g->oc[5][i], g->L, &G->v[3 + i], &G1->v[3 + i], &G2->v[3 + i]);
+        }
     }
     if (g->type != TPN_ARC) {
         return;
@@ -268,8 +366,14 @@ double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
         }
         if (L2 > TPN_TINY) {
             tpn_vec p;
-            tpnGeomEval(g, tpnMin(g->L, tpnMax(0.0, t / L2)), &p, 0, 0);
-            best = tpnMin(best, weightedDist2(&p, q, w));
+            double u = tpnMin(g->L, tpnMax(0.0, t / L2));
+            if (g->oshape) {
+                /* bent rotaries: refine from the projection on the chord */
+                best = tpnMin(best, refineDist2(g, q, w, u));
+            } else {
+                tpnGeomEval(g, u, &p, 0, 0);
+                best = tpnMin(best, weightedDist2(&p, q, w));
+            }
         }
         return sqrt(best);
     }
@@ -352,40 +456,17 @@ void tpnBlendEval(tpn_blend const *b, double sigma, tpn_vec *p, tpn_vec *d1)
     }
 }
 
-/* Bounds from the Bernstein coefficients of the derivatives: a polynomial
- * on [0, 1] stays inside the hull of its Bernstein coefficients. */
 void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
 {
-    int i, k;
-    double H = b->H;
+    int i;
     for (i = 0; i < TPN_NAX; i++) {
-        double bz[6];
-        double c0 = b->c[0][i], c1 = b->c[1][i], c2 = b->c[2][i];
+        double c1 = b->c[1][i], c2 = b->c[2][i];
         double c3 = b->c[3][i], c4 = b->c[4][i], c5 = b->c[5][i];
         if (c1 == 0.0 && c2 == 0.0 && c3 == 0.0 && c4 == 0.0 && c5 == 0.0) {
             G->v[i] = G1->v[i] = G2->v[i] = 0.0;
             continue;
         }
-        /* power to Bernstein, degree 5 */
-        bz[0] = c0;
-        bz[1] = c0 + c1 / 5.0;
-        bz[2] = c0 + 2.0 * c1 / 5.0 + c2 / 10.0;
-        bz[3] = c0 + 3.0 * c1 / 5.0 + 3.0 * c2 / 10.0 + c3 / 10.0;
-        bz[4] = c0 + 4.0 * c1 / 5.0 + 6.0 * c2 / 10.0 + 4.0 * c3 / 10.0 + c4 / 5.0;
-        bz[5] = c0 + c1 + c2 + c3 + c4 + c5;
-        double m1 = 0.0, m2 = 0.0, m3 = 0.0;
-        for (k = 0; k < 5; k++) {
-            m1 = tpnMax(m1, fabs(5.0 * (bz[k + 1] - bz[k])));
-        }
-        for (k = 0; k < 4; k++) {
-            m2 = tpnMax(m2, fabs(20.0 * (bz[k + 2] - 2.0 * bz[k + 1] + bz[k])));
-        }
-        for (k = 0; k < 3; k++) {
-            m3 = tpnMax(m3, fabs(60.0 * (bz[k + 3] - 3.0 * bz[k + 2] + 3.0 * bz[k + 1] - bz[k])));
-        }
-        G->v[i] = m1 / H;
-        G1->v[i] = m2 / (H * H);
-        G2->v[i] = m3 / (H * H * H);
+        quinticBounds(b->c[0][i], c1, c2, c3, c4, c5, b->H, &G->v[i], &G1->v[i], &G2->v[i]);
     }
 }
 
