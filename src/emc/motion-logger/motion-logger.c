@@ -265,6 +265,21 @@ void log_print(const char *fmt, ...) {
     fflush(logfile);
 }
 
+/* the orientation shape a line or circle carries, if any */
+static void log_orient_shape(emcmot_command_t const *c)
+{
+    int k;
+    if (!c->orient_mask) {
+        return;
+    }
+    log_print("ORIENT_SHAPE mask=%u, end=%.17g %.17g %.17g, shape=", c->orient_mask,
+            c->pos.a, c->pos.b, c->pos.c);
+    for (k = 0; k < TP_ORIENT_SHAPE_N; k++) {
+        log_print(" %.17g", c->orient_shape[k]);
+    }
+    log_print("\n");
+}
+
 
 int main(int argc, char* argv[]) {
     if (argc == 1) {
@@ -463,6 +478,7 @@ int main(int argc, char* argv[]) {
                     c->vel, c->ini_maxvel,
                     c->acc, c->turn
                 );
+                log_orient_shape(c);
                 break;
 
             case EMCMOT_SET_CIRCLE:
@@ -480,6 +496,7 @@ int main(int argc, char* argv[]) {
                     c->vel, c->ini_maxvel,
                     c->acc, c->turn
                 );
+                log_orient_shape(c);
                 break;
 
             case EMCMOT_CLEAR_PROBE_FLAGS:
