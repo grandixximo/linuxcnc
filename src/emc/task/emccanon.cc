@@ -531,6 +531,7 @@ static void send_g92_msg(void) {
 }
 
 void SET_XY_ROTATION(double t) {
+    flush_segments();
     auto sr = std::make_unique<EMC_TRAJ_SET_ROTATION>();
     sr->rotation = t;
     interp_list.append(std::move(sr));
@@ -3659,6 +3660,7 @@ void SELECT_TOOL(int tool)
 {
     auto prep_for_tool_msg = std::make_unique<EMC_TOOL_PREPARE>();
 
+    flush_segments();
     prep_for_tool_msg->tool = tool;
 
     interp_list.append(std::move(prep_for_tool_msg));
@@ -3668,7 +3670,8 @@ void SELECT_TOOL(int tool)
 void CHANGE_TOOL_NUMBER(int pocket_number)
 {
     auto emc_tool_set_number_msg = std::make_unique<EMC_TOOL_SET_NUMBER>();
-    
+
+    flush_segments();
     emc_tool_set_number_msg->tool = pocket_number;
 
     interp_list.append(std::move(emc_tool_set_number_msg));
@@ -3677,6 +3680,7 @@ void CHANGE_TOOL_NUMBER(int pocket_number)
 void RELOAD_TOOLDATA(void)
 {
     auto load_tool_table_msg = std::make_unique<EMC_TOOL_LOAD_TOOL_TABLE>();
+    flush_segments();
     interp_list.append(std::move(load_tool_table_msg));
 }
 
@@ -4887,6 +4891,7 @@ int UNLOCK_ROTARY(int line_number, int joint_num)
 {
     auto m = std::make_unique<EMC_TRAJ_LINEAR_MOVE>();
 
+    flush_segments();
     // first, set up a zero length move to interrupt blending and get to final position
     m->type = EMC_MOTION_TYPE_TRAVERSE;
     m->feed_mode = 0;
