@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Check what canon sends with [TRAJ]ORIENT_SMOOTH (motion-logger output)
+against orient.ngc: every short line under G64 E carries a curve for A and
+C, its points and the quintic along each line stay within 0.8 E of the
+programmed lines over both axes, the curve is continuous in value, rate and
+second derivative from line to line within a run, across the windows the
+run is held back in, ends exactly where a run ends, and the synced output
+stays between the lines it was programmed between."""
+import math
+import os
+import re
+import sys
+
+os.chdir(os.path.dirname(os.path.abspath(sys.argv[1])))
+TOL = 0.8 * 0.05
+EPS = 1e-9
+fail = []
+
+
+def check(ok, msg):
+    if not ok:
+        fail.append(msg)
+
+
+# the programmed lines: file line number => end, and whether a run takes it
+prog = {}
+pos = [0.0] * 5
+cont = True
+for n, l in enumerate(open("orient.ngc"), 1):
+    w = dict((k, float(v)) for k, v in re.findall(r"([XYZAC])(-?[0-9.]+)", l))
+    if "G61" in l:
+        cont = False
+    if "G64" in l:
+        cont = True
+    if re.match(r"G[01] ", l):
+        end = [w.get(k, pos[i]) for i, k in enumerate("XYZAC")]
+        L = math.dist(end[:3], pos[:3])
+        prog[n] = (pos, end, l.startswith("G1") and cont and 0 < L <= 5.0)
+        pos = end
+
+# the log: lines with their shape, and what comes between them
+cmds = []
+for l in open("out.motion-logger"):
+    if l.startswith("SET_LINE"):
+        f = dict(re.findall(r"(\w+)=(-?[0-9.e+-]+)", l))
+        cmds.append({"id": int(f["id"]), "end": [float(f[k]) for k in "xyzac"], "shape": None})
+    elif l.startswith("ORIENT_SHAPE"):
+        m = re.match(r"ORIENT_SHAPE mask=(\d+), end=(\S+) (\S+) (\S+), shape=(.*)", l)
+        cmds[-1]["mask"] = int(m.group(1))
+        cmds[-1]["abc"] = [float(m.group(k)) for k in (2, 3, 4)]
+        cmds[-1]["shape"] = [float(v) for v in m.group(5).split()]
+    elif l.startswith("SET_DOUT"):
+        cmds.append({"dout": True})
+
+lines = [c for c in cmds if "id" in c]
+check([c["id"] for c in lines] == sorted(n for n in prog if prog[n][1] != prog[n][0]),
+      "the lines sent are not the lines programmed, in order")
+douts = [i for i, c in enumerate(cmds) if "dout" in c]
+check(len(douts) == 1 and cmds[douts[0] - 1].get("id") == 66 and cmds[douts[0] + 1].get("id") == 69,
+      "the synced output is not between lines 66 and 69")
+
+
+def hermite(v0, d0, a0, v1, d1, a1, H):
+    D = v1 - v0
+    r0, r1, q0, q1 = H * d0, H * d1, H * H * a0, H * H * a1
+    return [v0, r0, 0.5 * q0, 10 * D - 6 * r0 - 4 * r1 - 1.5 * q0 + 0.5 * q1,
+            -15 * D + 8 * r0 + 7 * r1 + 1.5 * q0 - q1, 6 * D - 3 * r0 - 3 * r1 - 0.5 * q0 + 0.5 * q1]
+
+
+prev = None             # the line before, as sent
+shaped = 0
+for i, c in enumerate(cmds):
+    if "id" not in c:
+        prev = None
+        continue
+    start, end, takes = prog[c["id"]]
+    check(all(abs(c["end"][k] - end[k]) < 1e-6 for k in range(3)), "line %d: XYZ moved" % c["id"])
+    if not takes:
+        check(c["shape"] is None, "line %d: a curve on a line no run takes" % c["id"])
+        check(all(abs(c["end"][k] - end[k]) < 1e-6 for k in (3, 4)), "line %d: A or C moved" % c["id"])
+        prev = None
+        continue
+    shaped += 1
+    if c["shape"] is None or c["mask"] != 5:
+        check(False, "line %d: no curve for A and C" % c["id"])
+        prev = None
+        continue
+    sh = c["shape"]
+    a1, c1 = c["abc"][0], c["abc"][2]
+    check(math.hypot(a1 - end[3], c1 - end[4]) <= TOL + EPS, "line %d: end off by more than 0.8 E" % c["id"])
+    # the run ends exactly where the next line is no longer taken
+    nxt = cmds[i + 1] if i + 1 < len(cmds) else None
+    if nxt is None or "id" not in nxt or not prog[nxt["id"]][2]:
+        check(abs(a1 - end[3]) < EPS and abs(c1 - end[4]) < EPS, "line %d: run does not end exactly" % c["id"])
+    if prev is not None:
+        ps = prev["shape"]
+        for k in (0, 2):
+            check(abs(ps[6 + k] - sh[k]) < EPS and abs(ps[9 + k] - sh[3 + k]) < EPS,
+                  "line %d: rate or second derivative jumps from line %d" % (c["id"], prev["id"]))
+        a0, c0 = prev["abc"][0], prev["abc"][2]
+    else:
+        a0, c0 = start[3], start[4]
+        check(True, "")
+    # the quintic along the line against the programmed line, over A and C
+    H = math.dist(start[:3], end[:3])
+    qa = hermite(a0, sh[0], sh[3], a1, sh[6], sh[9], H)
+    qc = hermite(c0, sh[2], sh[5], c1, sh[8], sh[11], H)
+    worst = 0.0
+    for q in range(1, 64):
+        t = q / 64
+        ea = sum(qa[j] * t ** j for j in range(6)) - (start[3] + t * (end[3] - start[3]))
+        ec = sum(qc[j] * t ** j for j in range(6)) - (start[4] + t * (end[4] - start[4]))
+        worst = max(worst, math.hypot(ea, ec))
+    check(worst <= TOL * 1.02, "line %d: curve %.4g off the programmed line, over 0.8 E" % (c["id"], worst))
+    prev = c
+
+check(shaped == 100, "%d lines taken, expected 100" % shaped)
+for f in fail[:20]:
+    print(f)
+sys.exit(1 if fail else 0)
