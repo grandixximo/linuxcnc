@@ -1932,7 +1932,9 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
                                    emcTrajLinearMoveMsg->type, emcTrajLinearMoveMsg->vel,
                                    emcTrajLinearMoveMsg->ini_maxvel, emcTrajLinearMoveMsg->acc, emcTrajLinearMoveMsg->ini_maxjerk,
                                    emcTrajLinearMoveMsg->vlimit_scale,
-                                   emcTrajLinearMoveMsg->indexer_jnum);
+                                   emcTrajLinearMoveMsg->indexer_jnum,
+                                   emcTrajLinearMoveMsg->orient_mask,
+                                   emcTrajLinearMoveMsg->orient_shape);
 	break;
 
     case EMC_TRAJ_JOINT_MOVE_TYPE: {
@@ -1951,7 +1953,9 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
                 emcTrajCircularMoveMsg->vel,
                 emcTrajCircularMoveMsg->ini_maxvel,
                 emcTrajCircularMoveMsg->acc, emcTrajCircularMoveMsg->ini_maxjerk,
-                emcTrajCircularMoveMsg->vlimit_scale);
+                emcTrajCircularMoveMsg->vlimit_scale,
+                emcTrajCircularMoveMsg->orient_mask,
+                emcTrajCircularMoveMsg->orient_shape);
 	break;
 
     case EMC_TRAJ_DELAY_TYPE:
