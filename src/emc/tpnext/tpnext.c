@@ -533,29 +533,40 @@ static void setReversible(tpn_seg *sg)
     sg->rev_ok = !sg->tap && !sg->joint && sg->sync == TC_SYNC_NONE && sg->indexer_jnum == -1;
 }
 
-/* the orientation shape of the next move added: rates d and second
- * derivatives dd of A, B and C per unit s at its start (0) and end (1) */
-int tpnextSetOrientShape(unsigned mask, double const d0[TPN_NOSH], double const dd0[TPN_NOSH],
-        double const d1[TPN_NOSH], double const dd1[TPN_NOSH])
+int tpSetOrientShape(TP_STRUCT * const tp, unsigned mask, double const *shape)
 {
-    int k;
-    tpn.osh_mask = mask;
-    for (k = 0; k < TPN_NOSH; k++) {
-        tpn.osh[0][k] = d0[k];
-        tpn.osh[1][k] = dd0[k];
-        tpn.osh[2][k] = d1[k];
-        tpn.osh[3][k] = dd1[k];
+    int k, m;
+    if (!tp || !shape) {
+        return TP_ERR_FAIL;
     }
-    return 0;
+    for (k = 0; k < TP_ORIENT_SHAPE_N; k++) {
+        if (!isfinite(shape[k])) {
+            return TP_ERR_FAIL;
+        }
+    }
+    tpn.osh_mask = mask & ((1u << TPN_NOSH) - 1);
+    for (m = 0; m < 4; m++) {
+        for (k = 0; k < TPN_NOSH; k++) {
+            tpn.osh[m][k] = shape[m * TPN_NOSH + k];
+        }
+    }
+    return TP_ERR_OK;
 }
 
-/* bend g by the orientation shape set for it, once */
-static void takeShape(tpn_geom *g)
+/* The orientation shape set for the move being added, which it takes
+ * whether or not the move makes it into the queue: 0 if none. */
+static unsigned takeShape(void)
 {
-    if (tpn.osh_mask) {
-        tpnGeomShape(g, tpn.osh_mask, tpn.osh[0], tpn.osh[1], tpn.osh[2], tpn.osh[3]);
-    }
+    unsigned m = tpn.osh_mask;
     tpn.osh_mask = 0;
+    return m;
+}
+
+static void applyShape(tpn_geom *g, unsigned mask)
+{
+    if (mask) {
+        tpnGeomShape(g, mask, tpn.osh[0], tpn.osh[1], tpn.osh[2], tpn.osh[3]);
+    }
 }
 
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
@@ -565,6 +576,7 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
 {
     (void)acc;
     (void)ini_maxjerk;
+    unsigned shape = takeShape();
     if (!tp) {
         return TP_ERR_FAIL;
     }
@@ -574,10 +586,9 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     tpn_seg *sg = newSlot();
     sg->joint = 0;
     if (tpnLineInit(&sg->geom, &tp->goalPos, &end)) {
-        tpn.osh_mask = 0;
         return TP_ERR_ZERO_LENGTH;
     }
-    takeShape(&sg->geom);
+    applyShape(&sg->geom, shape);
     int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
             enables, atspeed, indexer_jnum, tag);
     if (res == TP_ERR_OK) {
@@ -594,6 +605,7 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
 {
     (void)acc;
     (void)ini_maxjerk;
+    unsigned shape = takeShape();
     if (!tp) {
         return TP_ERR_FAIL;
     }
@@ -603,10 +615,9 @@ int tpAddCircle(TP_STRUCT * const tp, EmcPose end, PmCartesian center,
     tpn_seg *sg = newSlot();
     sg->joint = 0;
     if (tpnArcInit(&sg->geom, &tp->goalPos, &end, &center, &normal, turn)) {
-        tpn.osh_mask = 0;
         return TP_ERR_ZERO_LENGTH;
     }
-    takeShape(&sg->geom);
+    applyShape(&sg->geom, shape);
     int res = tpnAddSegment(tp, sg, canon_motion_type, vel, ini_maxvel, vlimit_scale,
             enables, atspeed, -1, tag);
     if (res == TP_ERR_OK) {
@@ -1153,6 +1164,7 @@ EXPORT_SYMBOL(tpSetPos);
 EXPORT_SYMBOL(tpSetRunDir);
 EXPORT_SYMBOL(tpSetSpindleSync);
 EXPORT_SYMBOL(tpSetTermCond);
+EXPORT_SYMBOL(tpSetOrientShape);
 EXPORT_SYMBOL(tpSetVlimit);
 EXPORT_SYMBOL(tpSetVmax);
 EXPORT_SYMBOL(tpTakeJointEnd);

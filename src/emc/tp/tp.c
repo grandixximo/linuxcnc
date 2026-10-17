@@ -658,6 +658,15 @@ struct state_tag_t tpGetExecTag(TP_STRUCT * const tp)
 }
 
 
+/* tpmod runs every move straight in all axes */
+int tpSetOrientShape(TP_STRUCT * const tp, unsigned mask, double const *shape)
+{
+    (void)tp;
+    (void)mask;
+    (void)shape;
+    return TP_ERR_OK;
+}
+
 /**
  * Sets the termination condition for all subsequent queued moves.
  * If cond is TC_TERM_COND_STOP, motion comes to a stop before a subsequent move
@@ -4804,6 +4813,7 @@ EXPORT_SYMBOL(tpSetAout);
 EXPORT_SYMBOL(tpSetCycleTime);
 EXPORT_SYMBOL(tpSetDout);
 EXPORT_SYMBOL(tpSetId);
+EXPORT_SYMBOL(tpSetOrientShape);
 EXPORT_SYMBOL(tpSetPos);
 EXPORT_SYMBOL(tpSetRunDir);
 EXPORT_SYMBOL(tpSetSpindleSync);

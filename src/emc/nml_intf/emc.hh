@@ -379,11 +379,12 @@ extern int emcTrajResume();
 extern int emcTrajDelay(double delay);
 extern int emcTrajLinearMove(const EmcPose& end, int type, double vel,
                              double ini_maxvel, double acc, double ini_maxjerk,
-                             double vlimit_scale, int indexer_jnum);
+                             double vlimit_scale, int indexer_jnum,
+                             int orient_mask = 0, const double *orient_shape = nullptr);
 extern int emcTrajJointMove(const EmcPose& end, const double *joints, int have_joints, double seconds);
 extern int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center, const PM_CARTESIAN&
         normal, int turn, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
-        double vlimit_scale);
+        double vlimit_scale, int orient_mask = 0, const double *orient_shape = nullptr);
 extern int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance);
 extern int emcTrajSetSpindleSync(int spindle, double feed_per_revolution, bool wait_for_index, double angular_offset_degrees = 0.0);
 extern int emcTrajSetOffset(const EmcPose& tool_offset, const EmcPose *point);

@@ -1590,8 +1590,18 @@ int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance)
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
+/* the orientation shape of a line or circle into the motion command,
+ * none for a null shape */
+static void setOrientShape(int orient_mask, const double *orient_shape)
+{
+    emcmotCommand.orient_mask = orient_shape ? orient_mask : 0;
+    for (int k = 0; k < TP_ORIENT_SHAPE_N; k++) {
+        emcmotCommand.orient_shape[k] = orient_shape ? orient_shape[k] : 0.0;
+    }
+}
+
 int emcTrajLinearMove(const EmcPose& end, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
-                      double vlimit_scale, int indexer_jnum)
+                      double vlimit_scale, int indexer_jnum, int orient_mask, const double *orient_shape)
 {
 #ifdef ISNAN_TRAP
     if (std::isnan(end.tran.x) || std::isnan(end.tran.y) || std::isnan(end.tran.z) ||
@@ -1615,13 +1625,14 @@ int emcTrajLinearMove(const EmcPose& end, int type, double vel, double ini_maxve
     emcmotCommand.ini_maxjerk = ini_maxjerk;
     emcmotCommand.vlimit_scale = vlimit_scale;
     emcmotCommand.turn = indexer_jnum;
+    setOrientShape(orient_mask, orient_shape);
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
 int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center,
 			const PM_CARTESIAN& normal, int turn, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
-                        double vlimit_scale)
+                        double vlimit_scale, int orient_mask, const double *orient_shape)
 {
 #ifdef ISNAN_TRAP
     if (std::isnan(end.tran.x) || std::isnan(end.tran.y) || std::isnan(end.tran.z) ||
@@ -1656,6 +1667,7 @@ int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center,
     emcmotCommand.acc = acc;
     emcmotCommand.ini_maxjerk = ini_maxjerk;
     emcmotCommand.vlimit_scale = vlimit_scale;
+    setOrientShape(orient_mask, orient_shape);
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }

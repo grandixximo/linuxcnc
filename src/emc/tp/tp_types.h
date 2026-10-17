@@ -20,6 +20,9 @@
 #include "tc_types.h"
 #include "tcq.h"
 
+/* numbers in an orientation shape, see tpSetOrientShape() */
+#define TP_ORIENT_SHAPE_N 12
+
 #define TP_DEFAULT_QUEUE_SIZE 32
 /* Minimum length of a segment in cycles (must be greater than 1 to ensure each
  * segment is hit at least once.) */

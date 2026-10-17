@@ -231,6 +231,8 @@ extern "C" {
 	double jerk;			/* jerk for traj */
     double ini_maxjerk;
     double vlimit_scale;        /* limitVel scale for this move, 0 no limit */
+    unsigned orient_mask;       /* orientation shape of a line or circle, see tpSetOrientShape() */
+    double orient_shape[TP_ORIENT_SHAPE_N];
     int planner_type;	/* planner type: 0 = trapezoidal, 1 = S-curve */
     double scurve_peak_scale;	/* S-curve rest-to-rest peak scale (0.5=faithful..1.0=full) */
 	double backlash;	/* amount of backlash */

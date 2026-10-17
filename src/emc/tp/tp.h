@@ -55,6 +55,12 @@ int tpAddRigidTap(TP_STRUCT * const tp,
         unsigned char enables,
         double scale,
         struct state_tag_t tag);
+// The orientation shape of the next line or circle added: with bit k of
+// mask set, rotary axis A + k follows a curve with the rates and second
+// derivatives per unit of path length in shape, as d0[3], dd0[3], d1[3],
+// dd1[3] at its start (0) and end (1), instead of a straight line.
+// A planner may ignore it.
+int tpSetOrientShape(TP_STRUCT * const tp, unsigned mask, double const *shape);
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
 	      double vel, double ini_maxvel, double acc, double ini_maxjerk,
               double vlimit_scale, unsigned char enables,

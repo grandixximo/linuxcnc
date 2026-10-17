@@ -1200,6 +1200,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 
 	    /* append it to the emcmotInternal->coord_tp */
 	    tpSetId(&emcmotInternal->coord_tp, emcmotCommand->id);
+	    if (emcmotCommand->orient_mask) {
+		tpSetOrientShape(&emcmotInternal->coord_tp, emcmotCommand->orient_mask,
+			emcmotCommand->orient_shape);
+	    }
 	    int res_addline = tpAddLine(&emcmotInternal->coord_tp,
 					emcmotCommand->pos,
 					emcmotCommand->motion_type,
@@ -1426,6 +1430,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
             }
 	    /* append it to the emcmotInternal->coord_tp */
 	    tpSetId(&emcmotInternal->coord_tp, emcmotCommand->id);
+	    if (emcmotCommand->orient_mask) {
+		tpSetOrientShape(&emcmotInternal->coord_tp, emcmotCommand->orient_mask,
+			emcmotCommand->orient_shape);
+	    }
 	    int res_addcircle = tpAddCircle(&emcmotInternal->coord_tp, emcmotCommand->pos,
                             emcmotCommand->center, emcmotCommand->normal,
                             emcmotCommand->turn, emcmotCommand->motion_type,
