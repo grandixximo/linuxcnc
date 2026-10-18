@@ -285,6 +285,8 @@ extern int emcOperatorDisplay(const char *fmt, ...) __attribute__((format(printf
 
 extern int emcAxisSetMinPositionLimit(int axis, double limit);
 extern int emcAxisSetMaxPositionLimit(int axis, double limit);
+extern double emcAxisGetMinPositionLimit(int axis);
+extern double emcAxisGetMaxPositionLimit(int axis);
 extern int emcAxisSetMaxVelocity(int axis, double vel, double ext_offset_vel);
 extern int emcAxisSetMaxAcceleration(int axis, double acc, double ext_offset_acc);
 extern double emcAxisGetMaxVelocity(int axis);

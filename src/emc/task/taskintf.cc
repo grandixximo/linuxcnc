@@ -621,6 +621,22 @@ double emcAxisGetMaxJerk(int axis)
     return AxisConfig[axis].MaxJerk;
 }
 
+double emcAxisGetMinPositionLimit(int axis)
+{
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+        return 0;
+    }
+    return AxisConfig[axis].MinLimit;
+}
+
+double emcAxisGetMaxPositionLimit(int axis)
+{
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+        return 0;
+    }
+    return AxisConfig[axis].MaxLimit;
+}
+
 int emcAxisUpdate(EMC_AXIS_STAT stat[], int axis_mask)
 {
     int axis_num;
