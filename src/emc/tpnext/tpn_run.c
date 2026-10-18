@@ -646,6 +646,39 @@ static void stepState(double j, double dt, tpn_next *n)
     stepFrom(cx, tpn.cur_v, tpn.cur_a, j, dt, n);
 }
 
+/* A step that would end with the speed below zero, or back along the
+ * path from where it starts, ends where the speed first reaches zero, at
+ * rest: the position sent never decreases. A dip inside the cycle that
+ * the step comes out of ahead is left alone. Returns 1 where it cuts the
+ * step short. */
+static int stepNoReverse(double j, double dt, tpn_next *n)
+{
+    double v = tpn.cur_v, a = tpn.cur_a;
+    /* where the speed is lowest in the cycle */
+    double t = j > 0.0 ? tpnMin(tpnMax(-a / j, 0.0), dt) : dt;
+    double lo = 0.0, hi = t;
+    int k;
+    if (n->v1 >= -1e-9 && n->s1 >= cx) {
+        return 0;
+    }
+    if (v < 0.0 || v + a * t + 0.5 * j * t * t >= -1e-9) {
+        /* rounding, as a stop lands */
+        n->s1 = tpnMax(n->s1, cx);
+        return 0;
+    }
+    for (k = 0; k < 50; k++) {
+        double mid = 0.5 * (lo + hi);
+        if (v + a * mid + 0.5 * j * mid * mid >= 0.0) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    stepState(j, lo, n);
+    n->v1 = 0.0;
+    return 1;
+}
+
 /* CHK_SPEED: the speed part of a hard constraint alone */
 enum { CHK_HARD = 1, CHK_SOFT = 2, CHK_SPEED = 4 };
 
@@ -1783,6 +1816,10 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
     }
     tpn_next n;
     stepState(j, dt, &n);
+    if (stepNoReverse(j, dt, &n)) {
+        /* a deadbeat sequence no longer fits the state the cut leaves */
+        db_n = db_i = 0;
+    }
 
     /* land exactly on a stop; a deadbeat sequence with steps left ends
      * there itself, snapping early drops its last deceleration in one cycle */
