@@ -205,6 +205,9 @@ SS_ENABLE
 ENABLE
 
 #
-# The test UI then asks for Auto mode. That sets only the test UI's own
-# view; nothing goes to Task or Motion.
+# The test UI finally selects Auto mode: no jogs while paused, and Motion
+# to Coord.
 #
+
+SET_PAUSE_JOG_INHIBIT inhibit=1
+COORD

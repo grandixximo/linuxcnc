@@ -61,6 +61,8 @@
 
 #include "halui.hh"
 #include "cmd_queue.hh"
+#include "macros.hh"
+#include "task.hh"		// taskRunMode()
 
 using namespace linuxcnc;
 
@@ -80,9 +82,13 @@ static int axis_mask = 0;
     FIELD(bool,estop_reset) /* pin for resetting ESTOP */ \
     FIELD(bool,estop_is_activated) /* pin for status ESTOP is activated */ \
 \
-    FIELD(bool,mode_is_manual) /* pin for manual mode is on: task is idle */ \
-    FIELD(bool,mode_is_auto) /* pin for auto mode is on: a program runs */ \
-    FIELD(bool,mode_is_mdi) /* pin for mdi mode is on: MDI runs */ \
+    FIELD(bool,mode_manual) /* pin for selecting manual mode */ \
+    FIELD(bool,mode_is_manual) /* pin for manual mode is selected */ \
+    FIELD(bool,mode_auto) /* pin for selecting auto mode */ \
+    FIELD(bool,mode_is_auto) /* pin for auto mode is selected */ \
+    FIELD(bool,mode_mdi) /* pin for selecting mdi mode */ \
+    FIELD(bool,mode_is_mdi) /* pin for mdi mode is selected */ \
+    FIELD(bool,mode_lock) /* pin for only the mode pins selecting the mode */ \
     FIELD(bool,mode_teleop) /* pin for requesting teleop mode */ \
     FIELD(bool,mode_is_teleop) /* pin for teleop mode is on */ \
     FIELD(bool,mode_joint) /* pin for requesting joint mode */ \
@@ -216,6 +222,7 @@ static int axis_mask = 0;
     FIELD(bool,home_all) /* pin for homing all joints in sequence */ \
     FIELD(bool,abort) /* pin for aborting */ \
     ARRAY(bool,mdi_commands,MDI_MAX) \
+    ARRAY(bool,macros,MDI_MAX) /* [MDI_MACROS], by name */ \
 \
     FIELD(real,units_per_mm) \
 
@@ -494,6 +501,10 @@ int halui_hal_init(void)
     CHK(halui_export_pin_IN_bool(&(halui_data->machine_off), "halui.machine.off"));
     CHK(halui_export_pin_IN_bool(&(halui_data->estop_activate), "halui.estop.activate"));
     CHK(halui_export_pin_IN_bool(&(halui_data->estop_reset), "halui.estop.reset"));
+    CHK(halui_export_pin_IN_bool(&(halui_data->mode_manual), "halui.mode.manual"));
+    CHK(halui_export_pin_IN_bool(&(halui_data->mode_auto), "halui.mode.auto"));
+    CHK(halui_export_pin_IN_bool(&(halui_data->mode_mdi), "halui.mode.mdi"));
+    CHK(halui_export_pin_IN_bool(&(halui_data->mode_lock), "halui.mode.lock"));
     CHK(halui_export_pin_IN_bool(&(halui_data->mode_teleop), "halui.mode.teleop"));
     CHK(halui_export_pin_IN_bool(&(halui_data->mode_joint), "halui.mode.joint"));
     CHK(halui_export_pin_IN_bool(&(halui_data->mist_on), "halui.mist.on"));
@@ -588,6 +599,10 @@ int halui_hal_init(void)
         CHK(hal_pin_new_bool(comp_id, HAL_IN, &(halui_data->mdi_commands[n]), 0, "halui.mdi-command-%02d", n));
     }
 
+    for (int n = 0; n < taskMacroCount() && n < MDI_MAX; n++) {
+        CHK(hal_pin_new_bool(comp_id, HAL_IN, &(halui_data->macros[n]), 0, "halui.macro.%s", taskMacroName(n)));
+    }
+
     hal_ready(comp_id);
     return 0;
 }
@@ -654,6 +669,33 @@ static bool mdi_settled()
         && !taskcmd::pending(mdi_exec_ticket);
 }
 
+// Run an [MDI_MACROS] macro; task checks that the selected mode allows it
+static void sendMacro(int n)
+{
+    EMC_TASK_PLAN_MACRO msg;
+
+    rtapi_strxcpy(msg.name, taskMacroName(n));
+    emcCommandSend(msg);
+}
+
+static int sendMode(EMC_TASK_MODE mode)
+{
+    EMC_TASK_SET_MODE mode_msg;
+
+    mode_msg.mode = mode;
+    return emcCommandSend(mode_msg);
+}
+
+// halui.program.run, .resume and .step select the mode they need first,
+// as a user interface would, unless halui.mode.lock leaves the mode to the
+// halui.mode.* pins. Task then refuses a run outside Auto.
+static void selectModeFor(EMC_TASK_MODE mode)
+{
+    if (!haluiModeLocked() && emcStatus->task.mode != mode) {
+        sendMode(mode);
+    }
+}
+
 // The standalone halui waited here for task to finish the mode change,
 // up to 60 seconds. Inside task that wait is the deadlock it sounds like:
 // task cannot finish anything while halui holds the loop.
@@ -714,6 +756,7 @@ static int sendProgramRun(int line)
     }
     // save the start line, to compare against active line later
     programStartLine = line;
+    selectModeFor(EMC_TASK_MODE::AUTO);
 
     emc_task_plan_run_msg.line = line;
     return emcCommandSend(emc_task_plan_run_msg);
@@ -747,12 +790,19 @@ static int sendProgramResume()
 {
     EMC_TASK_PLAN_RESUME emc_task_plan_resume_msg;
 
+    if (emcStatus->task.run != EMC_TASK_RUN::NONE) {
+        selectModeFor(taskRunMode());
+    }
+
     return emcCommandSend(emc_task_plan_resume_msg);
 }
 
 static int sendProgramStep()
 {
     EMC_TASK_PLAN_STEP emc_task_plan_step_msg;
+
+    selectModeFor(emcStatus->task.run != EMC_TASK_RUN::NONE
+                  ? taskRunMode() : EMC_TASK_MODE::AUTO);
 
     return emcCommandSend(emc_task_plan_step_msg);
 }
@@ -1228,6 +1278,22 @@ static void check_hal_changes()
     if (check_bit_changed(new_halui_data.estop_reset, old_halui_data.estop_reset) != 0)
 	sendEstopReset();
 
+    // the mode pins select a mode on their rising edge. Setting
+    // halui.mode.lock applies the one that is held, so a selector switch
+    // takes over where it stands.
+    bool lock_set = check_bit_changed(new_halui_data.mode_lock, old_halui_data.mode_lock) != 0;
+    if (check_bit_changed(new_halui_data.mode_manual, old_halui_data.mode_manual) != 0
+        || (lock_set && new_halui_data.mode_manual))
+	sendMode(EMC_TASK_MODE::MANUAL);
+
+    if (check_bit_changed(new_halui_data.mode_mdi, old_halui_data.mode_mdi) != 0
+        || (lock_set && new_halui_data.mode_mdi))
+	sendMode(EMC_TASK_MODE::MDI);
+
+    if (check_bit_changed(new_halui_data.mode_auto, old_halui_data.mode_auto) != 0
+        || (lock_set && new_halui_data.mode_auto))
+	sendMode(EMC_TASK_MODE::AUTO);
+
     if (check_bit_changed(new_halui_data.mode_teleop, old_halui_data.mode_teleop) != 0)
 	sendTeleop();
 
@@ -1660,6 +1726,16 @@ static void check_hal_changes()
         if (check_bit_changed(new_halui_data.mdi_commands[n], old_halui_data.mdi_commands[n]) != 0)
             sendMdiCommand(n);
     }
+
+    for (int n = 0; n < taskMacroCount() && n < MDI_MAX; n++) {
+        if (check_bit_changed(new_halui_data.macros[n], old_halui_data.macros[n]) != 0)
+            sendMacro(n);
+    }
+}
+
+bool haluiModeLocked(void)
+{
+    return halui_data && halui_data->mode_lock && hal_get_bool(halui_data->mode_lock);
 }
 
 // this function looks at the received NML status message

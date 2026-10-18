@@ -1446,6 +1446,7 @@ static void get_pos_cmds(long period)
             /* jogs while paused move the axes off the paused position by
                the pause offsets; a resume first brings them back */
             emcmotStatus->pause_jog_ok = emcmotStatus->paused
+                && !emcmotInternal->pause_jog_inhibit
                 && !emcmotStatus->stepping
                 && !emcmotInternal->pause_resume_cmd
                 && emcmotStatus->current_vel < 1e-9;

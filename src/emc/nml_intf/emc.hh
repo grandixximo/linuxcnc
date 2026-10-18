@@ -124,6 +124,7 @@ struct PM_CARTESIAN;
 // NML for EMC_TASK
 
 #define EMC_TASK_ABORT_TYPE                          ((NMLTYPE) 503)
+#define EMC_TASK_SET_MODE_TYPE                       ((NMLTYPE) 504)
 #define EMC_TASK_SET_STATE_TYPE                      ((NMLTYPE) 505)
 #define EMC_TASK_PLAN_OPEN_TYPE                      ((NMLTYPE) 506)
 #define EMC_TASK_PLAN_RUN_TYPE                       ((NMLTYPE) 507)
@@ -140,6 +141,7 @@ struct PM_CARTESIAN;
 #define EMC_TASK_PLAN_OPTIONAL_STOP_TYPE             ((NMLTYPE) 519)
 #define EMC_TASK_PLAN_REVERSE_TYPE                   ((NMLTYPE) 520)
 #define EMC_TASK_PLAN_FORWARD_TYPE                   ((NMLTYPE) 521)
+#define EMC_TASK_PLAN_MACRO_TYPE                     ((NMLTYPE) 522)
 
 #define EMC_TASK_STAT_TYPE                           ((NMLTYPE) 599)
 
@@ -190,6 +192,14 @@ enum class EMC_TASK_MODE {
     MANUAL = 1,
     AUTO = 2,
     MDI = 3
+};
+
+// What task runs, whatever mode is selected (EMC_TASK_STAT::run). An
+// [MDI_MACROS] macro runs as MDI.
+enum class EMC_TASK_RUN {
+    NONE = 0,
+    PROGRAM = 1,
+    MDI = 2
 };
 
 // types for EMC_TASK state
@@ -393,6 +403,7 @@ extern int emcTrajSetJerk(double jerk);
 extern int emcTrajSetMaxJerk(double jerk);
 extern int emcTrajPlannerType(int type);
 extern int emcTrajSetPauseReturnLast(unsigned axis_mask);
+extern int emcTrajSetPauseJogInhibit(bool inhibit);
 extern int emcTrajSetScurvePeakScale(double scale);
 /* G64_R_PLANNER: [TRAJ]SMOOTH_PLANNER - planner a G64 R>0 request resolves to */
 extern int emcTrajSetSmoothPlanner(int type);

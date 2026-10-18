@@ -25,6 +25,10 @@ int haluiInit(const char *inifile);
    standalone halui's loop period. */
 void haluiUpdate(void);
 
+/* True while halui.mode.lock is set: only the halui.mode.* pins may
+   select the mode, user interfaces may not. */
+bool haluiModeLocked(void);
+
 /* Release the HAL component. Safe to call if haluiInit() never ran. */
 void haluiExit(void);
 

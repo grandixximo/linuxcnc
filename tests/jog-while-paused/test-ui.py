@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Jogs while a program is paused: axes move off the paused position, and
-# resume brings them back (the other axes first, then Z) with the spindle
-# and coolant as they were, before the program goes on.
+# Jogs while a program is paused: the operator selects Manual, axes move
+# off the paused position, and resume (back in Auto) brings them back (the
+# other axes first, then Z) with the spindle and coolant as they were,
+# before the program goes on.
 
 import math
 import os
@@ -56,10 +57,22 @@ def near(a, b, tol=1e-6):
 
 
 def idle():
-    return s.interp_state == linuxcnc.INTERP_IDLE and s.queue == 0 and hal.get_value('halui.mode.is-manual')
+    return s.interp_state == linuxcnc.INTERP_IDLE and s.queue == 0 and s.task_run == linuxcnc.RUN_NONE
 
 
+def mode(m):
+    c.mode(m)
+    c.wait_complete()
+
+
+def mdi(cmd):
+    mode(linuxcnc.MODE_MDI)
+    c.mdi(cmd)
+
+
+# run, pause at X >= at_x, select Manual to jog
 def run_and_pause(prog, at_x):
+    mode(linuxcnc.MODE_AUTO)
     c.program_open(os.path.abspath(prog))
     c.wait_complete()
     c.auto(linuxcnc.AUTO_RUN, 0)
@@ -67,6 +80,7 @@ def run_and_pause(prog, at_x):
         check('program reached X%g' % at_x, False, pos())
     c.auto(linuxcnc.AUTO_PAUSE)
     c.wait_complete()
+    mode(linuxcnc.MODE_MANUAL)
     return wait(lambda: s.pause_jog_ok, 2)
 
 
@@ -78,9 +92,54 @@ c.wait_complete()
 wait(lambda: all(s.homed[:3]), 10)
 c.teleop_enable(1)
 c.wait_complete()
-c.mdi('G0 X0 Y0 Z0')
+mdi('G0 X0 Y0 Z0')
 wait(idle)
 errors()
+
+# --- paused in Auto: no jogs, keyboard or wheel; Manual allows them
+mode(linuxcnc.MODE_AUTO)
+c.program_open(os.path.abspath('program.ngc'))
+c.wait_complete()
+c.auto(linuxcnc.AUTO_RUN, 0)
+wait(lambda: s.actual_position[0] >= 5.0, 10)
+c.auto(linuxcnc.AUTO_PAUSE)
+c.wait_complete()
+wait(lambda: s.paused and s.current_vel == 0, 2)
+time.sleep(0.1)
+s.poll()
+check('paused in Auto: no pause jogs', not s.pause_jog_ok and s.task_mode == linuxcnc.MODE_AUTO)
+p = pos()
+c.jog(linuxcnc.JOG_INCREMENT, False, 2, 20, 5.0)
+c.wait_complete()
+time.sleep(0.1)
+msgs = errors()
+check('jog refused in Auto', any('select Manual' in m for m in msgs), msgs)
+hal.set_p('axis.y.jog-enable', '1')
+hal.set_p('axis.y.jog-counts', '100')
+time.sleep(0.3)
+s.poll()
+check('wheel does not jog in Auto', near(pos(), p) and near(s.pause_offset[:3], (0, 0, 0), 0), pos())
+hal.set_p('axis.y.jog-enable', '0')
+mode(linuxcnc.MODE_MDI)
+msgs = errors()
+check('MDI refused while paused', s.task_mode == linuxcnc.MODE_AUTO and any('only Manual or Auto' in m for m in msgs), msgs)
+mode(linuxcnc.MODE_MANUAL)
+check('Manual while paused', wait(lambda: s.task_mode == linuxcnc.MODE_MANUAL and s.pause_jog_ok, 2))
+check('a program still runs', s.task_run == linuxcnc.RUN_PROGRAM and s.paused)
+c.auto(linuxcnc.AUTO_RESUME)
+c.wait_complete()
+time.sleep(0.1)
+msgs = errors()
+s.poll()
+check('resume refused in Manual', s.paused and any('Select Auto to resume' in m for m in msgs), msgs)
+c.abort()
+c.wait_complete()
+check('abort keeps Manual', wait(idle) and s.task_mode == linuxcnc.MODE_MANUAL)
+errors()
+# the wheel counts above were ignored; start counting from here
+hal.set_p('axis.y.jog-counts', '0')
+mdi('G0 X0 Y0 Z0')
+wait(idle)
 
 # --- pause in the middle of a G1, jog three axes three ways
 check('paused and ready to jog', run_and_pause('program.ngc', 5.0))
@@ -111,6 +170,8 @@ c.wait_complete()
 time.sleep(0.1)
 msgs = errors()
 check('joint jog refused while paused', any('jog a joint' in m for m in msgs), msgs)
+mode(linuxcnc.MODE_AUTO)
+check('Auto again while jogged away', wait(lambda: s.task_mode == linuxcnc.MODE_AUTO and not s.pause_jog_ok, 2))
 c.auto(linuxcnc.AUTO_REVERSE)
 c.wait_complete()
 time.sleep(0.1)
@@ -172,7 +233,7 @@ time.sleep(0.2)
 s.poll()
 check('abort keeps the jogged position', near(pos(), (p[0], p[1], p[2] + 3)), pos())
 check('pause offset gone after abort', near(s.pause_offset[:3], (0, 0, 0), 0), s.pause_offset[:3])
-c.mdi('G0 X1')
+mdi('G0 X1')
 check('MDI after the abort', wait(lambda: idle() and near(pos(), (1, p[1], p[2] + 3))), pos())
 errors()
 
@@ -186,7 +247,7 @@ c.jog(linuxcnc.JOG_STOP, False, 0)
 c.abort()
 c.wait_complete()
 wait(idle)
-c.mdi('G0 X0 Y0 Z0')
+mdi('G0 X0 Y0 Z0')
 wait(idle)
 errors()
 
@@ -195,6 +256,7 @@ check('paused for the step test', run_and_pause('program.ngc', 5.0))
 p = pos()
 c.jog(linuxcnc.JOG_INCREMENT, False, 1, 20, 4.0)
 wait(lambda: near(pos(), (p[0], p[1] + 4, p[2])))
+mode(linuxcnc.MODE_AUTO)
 c.auto(linuxcnc.AUTO_STEP)
 c.wait_complete()
 check('step brings the offset back', wait(lambda: near(s.pause_offset[:3], (0, 0, 0), 0), 5), s.pause_offset[:3])
@@ -202,18 +264,22 @@ check('step moved on along the program', wait(lambda: s.actual_position[0] > p[0
 c.abort()
 c.wait_complete()
 wait(idle)
-c.mdi('G0 X0 Y0 Z0')
+mdi('G0 X0 Y0 Z0')
 wait(idle)
 errors()
 
 # --- an M0 stop is a pause too
+mode(linuxcnc.MODE_AUTO)
 c.program_open(os.path.abspath('m0.ngc'))
 c.wait_complete()
 c.auto(linuxcnc.AUTO_RUN, 0)
-check('stopped at M0', wait(lambda: s.paused and s.pause_jog_ok, 10), pos())
+check('stopped at M0', wait(lambda: s.paused and s.current_vel == 0, 10), pos())
+mode(linuxcnc.MODE_MANUAL)
+check('M0: Manual to jog', wait(lambda: s.pause_jog_ok, 2))
 p = pos()
 c.jog(linuxcnc.JOG_INCREMENT, False, 2, 20, 2.0)
 wait(lambda: near(pos(), (p[0], p[1], p[2] + 2)))
+mode(linuxcnc.MODE_AUTO)
 c.auto(linuxcnc.AUTO_RESUME)
 c.wait_complete()
 check('M0: back and finished', wait(lambda: idle() and near(pos(), (0, p[1], p[2])), 10), pos())

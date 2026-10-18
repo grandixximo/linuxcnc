@@ -1008,10 +1008,6 @@ static int emc_machine(ClientData /*clientdata*/,
     return TCL_ERROR;
 }
 
-// The mode this process asked for with emc_mode. Task's mode reports what
-// runs and cannot be set; while task is idle emc_mode reports this one.
-static EMC_TASK_MODE viewMode = EMC_TASK_MODE::MANUAL;
-
 static int emc_mode(ClientData /*clientdata*/,
 		    Tcl_Interp * interp, int objc, Tcl_Obj * CONST objv[])
 {
@@ -1023,11 +1019,7 @@ static int emc_mode(ClientData /*clientdata*/,
 	if (emcUpdateType == EMC_UPDATE_AUTO) {
 	    updateStatus();
 	}
-	EMC_TASK_MODE mode = emcStatus->task.mode;
-	if (mode == EMC_TASK_MODE::MANUAL) {
-	    mode = viewMode;
-	}
-	switch (mode) {
+	switch (emcStatus->task.mode) {
 	case EMC_TASK_MODE::MANUAL:
 	    setresult(interp,"manual");
 	    break;
@@ -1047,15 +1039,15 @@ static int emc_mode(ClientData /*clientdata*/,
     if (objc == 2) {
 	objstr = Tcl_GetStringFromObj(objv[1], NULL);
 	if (!strcmp(objstr, "manual")) {
-	    viewMode = EMC_TASK_MODE::MANUAL;
+	    sendManual();
 	    return TCL_OK;
 	}
 	if (!strcmp(objstr, "auto")) {
-	    viewMode = EMC_TASK_MODE::AUTO;
+	    sendAuto();
 	    return TCL_OK;
 	}
 	if (!strcmp(objstr, "mdi")) {
-	    viewMode = EMC_TASK_MODE::MDI;
+	    sendMdi();
 	    return TCL_OK;
 	}
     }

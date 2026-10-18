@@ -580,6 +580,10 @@ int main(int argc, char* argv[]) {
                 log_print("SET_PAUSE_RETURN_LAST mask=0x%x\n", (unsigned)c->flags);
                 break;
 
+            case EMCMOT_SET_PAUSE_JOG_INHIBIT:
+                log_print("SET_PAUSE_JOG_INHIBIT inhibit=%d\n", c->flags);
+                break;
+
             case EMCMOT_SET_TERM_COND:
                 log_print("SET_TERM_COND termCond=%d, tolerance=%.6g\n", c->termCond, c->tolerance);
                 break;

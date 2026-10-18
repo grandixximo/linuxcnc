@@ -288,8 +288,8 @@ see <<python:reading-ini-values,ReadingINI file values>> for an example.
   `motion paused` flag.
 
 *pause_jog_ok*:: '(returns boolean)' -
-  a pause has stopped the motion of a program or MDI command: axes may
-  jog, see `pause_offset`.
+  a pause has stopped the motion of a program or MDI command and Manual
+  is selected: axes may jog, see `pause_offset`.
 
 *pause_offset*:: '(returns tuple of floats)' -
   how far jogs while paused have moved each axis off the paused position.
@@ -363,12 +363,13 @@ see <<python:reading-ini-values,ReadingINI file values>> for an example.
   current command execution status. One of `RCS_DONE`, `RCS_EXEC`, `RCS_ERROR`.
 
 *task_mode*:: '(returns integer)' -
-  current task mode. One of `MODE_MDI`, `MODE_AUTO`, `MODE_MANUAL`.
-  `MODE_AUTO` while a program runs (including paused) and `MODE_MDI`
-  while MDI commands run. While task is idle it is the mode this process
-  last asked for with `mode()`, `MODE_MANUAL` until then: task's own mode
-  reports what runs and cannot be set, so each user interface keeps its
-  own page.
+  the selected task mode, see `mode()`. One of `MODE_MDI`, `MODE_AUTO`,
+  `MODE_MANUAL`. What runs is `task_run`.
+
+*task_run*:: '(returns integer)' -
+  what task runs, whatever mode is selected. One of `RUN_NONE`,
+  `RUN_PROGRAM` (a program, also while paused) and `RUN_MDI` (MDI commands
+  and `[MDI_MACROS]` macros).
 
 *task_paused*:: '(returns integer)' -
   task paused flag.
@@ -598,6 +599,8 @@ def ok_for_mdi():
     return not s.estop and s.enabled and (s.homed.count(1) == s.joints) and (s.interp_state == linuxcnc.INTERP_IDLE)
 
 if ok_for_mdi():
+    c.mode(linuxcnc.MODE_MDI)
+    c.wait_complete() # wait until mode switch executed (or default timeout of 5s occurs!)
     c.mdi("G0 X10 Y20 Z30")
 ----
 
@@ -643,6 +646,10 @@ c.mdi("G0 X10 Y20 Z30")
 
 c.mist(linuxcnc.MIST_ON)
 c.mist(linuxcnc.MIST_OFF)
+
+c.mode(linuxcnc.MODE_MDI)
+c.mode(linuxcnc.MODE_AUTO)
+c.mode(linuxcnc.MODE_MANUAL)
 
 c.override_limits()
 
@@ -732,10 +739,17 @@ c.tool_offset(toolno, z_offset,  x_offset, diameter, frontangle, backangle, orie
       MIST_OFF
 
 `mode(int)`::
-  set the mode this process shows (MODE_MDI, MODE_MANUAL, MODE_AUTO), see
-  `task_mode`. Nothing is sent to task: it starts an MDI run on `mdi()`
-  and a program run on `auto(AUTO_RUN)` or `auto(AUTO_STEP)` when it is
-  idle, and jogs and homes whenever it is idle, whatever mode was set.
+  select the mode (MODE_MDI, MODE_MANUAL, MODE_AUTO). Manual allows jogs
+  and homing, MDI allows `mdi()`, Auto allows `auto(AUTO_RUN)` and
+  `auto(AUTO_STEP)`; each allows the `[MDI_MACROS]` macros that list it.
+  While idle any mode can be selected. While a program or MDI command is
+  paused only Manual, to jog, and the mode the run started in, to resume
+  or step. Otherwise the mode cannot change, and with `halui.mode.lock`
+  set only the halui mode pins change it.
+
+`macro(name)`::
+  run the `[MDI_MACROS]` macro called name, if the selected mode is one
+  the macro lists. It runs as MDI and leaves the mode as it is.
 
 `override_limits()`::
   set the override axis limits flag.

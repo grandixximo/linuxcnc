@@ -1179,6 +1179,14 @@ int emcTrajSetPauseReturnLast(unsigned axis_mask)
     return retval;
 }
 
+// No jogs while paused, set while task is not in Manual mode
+int emcTrajSetPauseJogInhibit(bool inhibit)
+{
+    emcmotCommand.command = EMCMOT_SET_PAUSE_JOG_INHIBIT;
+    emcmotCommand.flags = inhibit ? 1 : 0;
+    return usrmotWriteEmcmotCommand(&emcmotCommand);
+}
+
 int emcTrajPlannerType(int type)
 {
     emcmotCommand.command = EMCMOT_SET_PLANNER_TYPE;

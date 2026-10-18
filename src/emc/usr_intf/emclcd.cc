@@ -926,6 +926,7 @@ static int openProgram(char *s)
   widgetSetStr(PROG_WIDGET1, s, "");
   widgetSetStr(PROG_WIDGET2, s, "");
   if (sendTaskPlanInit() != 0) return -1;
+  sendAuto();
   return sendProgramOpen(fname);
 }
 
@@ -1142,6 +1143,7 @@ static int jog(int jnum, float speed)
   else stepSize = 1.0;
   if ((jnum < 0) || (jnum > 5)) return -1;
 //  if (runStatus == rsIdle) {
+//    sendManual();
     switch (jogMode) {
       case jtCont: 
         if (jogging == 1) {  // toggle if driver does not support key down / key up
@@ -1236,6 +1238,17 @@ static int stopKey()
 static int stepKey()
 {
   return sendProgramStep();
+}
+
+static int toggleMode()
+
+{
+  switch (emcStatus->task.mode) {
+    case EMC_TASK_MODE::MANUAL: sendAuto(); break;
+    case EMC_TASK_MODE::AUTO: sendManual(); break;
+    case EMC_TASK_MODE::MDI: sendAuto(); break;
+    }
+  return 0;
 }
 
 static int nextKey()
@@ -1334,7 +1347,9 @@ static int doKey(keyType k)
       stepKey();
       break;
     case ktStepRelease: break;
-    case ktTestPress: break;  // used to toggle the task mode, which cannot be set
+    case ktTestPress: 
+      toggleMode();
+      break;
     case ktTestRelease: break;
     case ktHelpPress: break;
     case ktHelpRelease: break;

@@ -69,9 +69,13 @@ Owner  Type  Dir Value  Name
 ====
 
 When a halui MDI pin is set (pulsed) true, halui will send the MDI
-command defined in the INI.
-This will not always succeed depending on what LinuxCNC is doing
+command defined in the INI. It runs in any mode and leaves the mode as it
+is. This will not always succeed depending on what LinuxCNC is doing
 (e.g., while a program runs or a jog is active task refuses MDI commands).
+
+The MDI commands listed in the '[MDI_MACROS]' section get a pin each,
+'halui.macro._<name>_', and run only in the modes they list, see
+<<sub:ini:sec:mdi-macros,[MDI_MACROS] section>>.
 
 == Example Configuration
 
@@ -155,6 +159,7 @@ that is set in the [TRAJ] section of the INI file.
   exported by halui.
 * 'halui.halui-mdi-is-running' (bool, out) - execution status of MDI commands sent by halui. The status is active
   from the press until the command finishes.
+* 'halui.macro._<name>_' (bool, in) - runs the '[MDI_MACROS]' macro called _<name>_, if the selected mode is one it lists.
   If no [HALUI]MDI_COMMAND variables are set in the ini file, this pins will not be exported by halui.
 
 === Joint
@@ -233,13 +238,19 @@ _L_ = axis letter (xyzabcuvw)
 
 === Mode
 
-* 'halui.mode.is-auto' (bool, out) - indicates a program runs, or is paused; the task mode follows what task runs and cannot be set
+* 'halui.mode.auto' (bool, in) - pin for selecting auto mode
+* 'halui.mode.is-auto' (bool, out) - indicates auto mode is selected
 * 'halui.mode.is-joint' (bool, out) - indicates joint by joint jog mode is on
-* 'halui.mode.is-manual' (bool, out) - indicates task is idle: neither a program nor MDI runs
-* 'halui.mode.is-mdi' (bool, out) - indicates MDI commands run
+* 'halui.mode.is-manual' (bool, out) - indicates manual mode is selected
+* 'halui.mode.is-mdi' (bool, out) - indicates MDI mode is selected
 * 'halui.mode.is-teleop' (bool, out) - indicates coordinated jog mode is on
 * 'halui.mode.joint' (bool, in) - pin for requesting joint by joint jog mode
+* 'halui.mode.lock' (bool, in) - while true only the 'halui.mode.manual', '.mdi' and '.auto' pins select the mode: user interfaces cannot, and 'halui.program.run', '.resume' and '.step' no longer select the mode they need. Setting it selects the mode whose pin is held, so a selector switch takes over where it stands.
+* 'halui.mode.manual' (bool, in) - pin for selecting manual mode
+* 'halui.mode.mdi' (bool, in) - pin for selecting MDI mode
 * 'halui.mode.teleop' (bool, in) - pin for requesting coordinated jog mode
+
+What a mode allows: Manual jogs and homing, MDI MDI commands, Auto program runs and steps; each also the '[MDI_MACROS]' macros that list it. While a program or MDI command is paused, Manual can be selected to jog, and the mode the run started in again to resume or step. 'halui.program.run', '.resume' and '.step' select the mode they need first, as a user interface would, unless 'halui.mode.lock' is set.
 
 === Program
 

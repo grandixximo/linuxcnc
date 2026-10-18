@@ -29,14 +29,15 @@ extern int emcTaskOnce(const char *inifile, EMC_IO_STAT &emcioStatus);
 int all_homed(void);
 bool jogging_is_active(void);
 
-// What task is running. The task mode reported in the status is derived
-// from it (determineMode()); nothing sets the mode directly.
-enum class TaskRun {
-    NONE,       // idle: jogs, homing, MDI and program starts are accepted
-    PROGRAM,    // a program run, from PLAN_RUN or PLAN_STEP
-    MDI,        // MDI commands, from PLAN_EXECUTE
-};
+// What task is running: NONE while idle, PROGRAM for a run from PLAN_RUN or
+// PLAN_STEP, MDI for PLAN_EXECUTE and macros. What may start depends on the
+// selected mode, see taskSetMode() in emctaskmain.cc.
+typedef EMC_TASK_RUN TaskRun;
 extern TaskRun taskRun;
+// The mode the operator selected, reported as the task mode
+extern EMC_TASK_MODE selectedMode;
+// The mode the current run started in: resume and step need it
+EMC_TASK_MODE taskRunMode(void);
 
 int emcTaskInit();
 int emcTaskHalt();

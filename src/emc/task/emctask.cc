@@ -53,6 +53,7 @@ static_assert(EMC_MAX_CALL_STACK >= INTERP_SUB_ROUTINE_LEVELS,
 //note:the +1 is for the PROGRAM_PREFIX or default directory==nc_files
 
 TaskRun taskRun = TaskRun::NONE;
+EMC_TASK_MODE selectedMode = EMC_TASK_MODE::MANUAL;
 
 InterpBase *pinterp=NULL;
 #define interp (*pinterp)
@@ -339,25 +340,12 @@ int emcTaskSetState(EMC_TASK_STATE state)
 /*
   determineMode()
 
-  The task mode is not set by anyone, it reports what task is running:
-
-  taskRun     task mode
-  -------     ---------
-  NONE        MANUAL
-  PROGRAM     AUTO
-  MDI         MDI
+  The task mode is the one the operator selected (EMC_TASK_SET_MODE). What
+  task runs is reported apart, in the run field.
   */
 EMC_TASK_MODE determineMode()
 {
-    switch (taskRun) {
-    case TaskRun::PROGRAM:
-        return EMC_TASK_MODE::AUTO;
-    case TaskRun::MDI:
-        return EMC_TASK_MODE::MDI;
-    case TaskRun::NONE:
-        break;
-    }
-    return EMC_TASK_MODE::MANUAL;
+    return selectedMode;
 }
 
 /*
@@ -629,6 +617,7 @@ int emcTaskPlanCommand(char *cmd)
 int emcTaskUpdate(EMC_TASK_STAT * stat)
 {
     stat->mode = determineMode();
+    stat->run = taskRun;
     EMC_TASK_STATE oldstate = stat->state;
     stat->state = determineState();
 

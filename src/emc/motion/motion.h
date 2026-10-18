@@ -129,6 +129,7 @@ extern "C" {
 	EMCMOT_SET_PLANNER_TYPE,	/* set planner type (0=trapezoidal, 1=S-curve) */
 	EMCMOT_SET_SCURVE_PEAK_SCALE,	/* set S-curve rest-to-rest peak scale (0.5=faithful..1.0=full) */
 	EMCMOT_SET_PAUSE_RETURN_LAST,	/* axes (flags mask) that return last after jogs while paused */
+	EMCMOT_SET_PAUSE_JOG_INHIBIT,	/* flags != 0: no jogs while paused (task is not in Manual) */
 	EMCMOT_SET_TERM_COND,	/* set termination condition (stop, blend) */
 	EMCMOT_SET_NUM_JOINTS,	/* set the number of joints */
 	EMCMOT_SET_NUM_SPINDLES, /* set the number of spindles */
@@ -801,6 +802,7 @@ typedef struct emcmot_internal_t {
     int pause_resume_cmd;
     int pause_resume_phase;  /* 0 spindles, 1 at speed, 2 return */
     int pause_spindles_saved;
+    int pause_jog_inhibit;   /* EMCMOT_SET_PAUSE_JOG_INHIBIT: jogs while paused refused */
     emcmot_pause_spindle_t pause_spindle[EMCMOT_MAX_SPINDLES];  /* the spindles when paused */
     } emcmot_internal_t;
 

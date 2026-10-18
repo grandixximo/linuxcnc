@@ -1438,6 +1438,11 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 	    axis_set_pause_return_last((unsigned)emcmotCommand->flags);
 	    break;
 
+	case EMCMOT_SET_PAUSE_JOG_INHIBIT:
+	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_PAUSE_JOG_INHIBIT");
+	    emcmotInternal->pause_jog_inhibit = emcmotCommand->flags != 0;
+	    break;
+
 	case EMCMOT_SET_SCURVE_PEAK_SCALE:
 		/* S-curve rest-to-rest peak velocity scale: 0.5 = faithful (original
 		 * behaviour), 1.0 = physically-correct (full jerk-feasible cornering).

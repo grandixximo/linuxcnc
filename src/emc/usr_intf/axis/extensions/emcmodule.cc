@@ -1134,6 +1134,10 @@ static PyMemberDef Stat_members[] = {
     { "state", T_INT, O(status), READONLY, NULL},
 
 // task
+    { "task_mode", T_INT, O(task.mode), READONLY, NULL},
+    { "task_run", T_INT, O(task.run), READONLY,
+        "What task runs, whatever mode is selected: RUN_NONE, RUN_PROGRAM\n"
+        "or RUN_MDI (MDI commands and macros)."},
     { "task_state", T_INT, O(task.state), READONLY,
         "Current Task state.  Possible values:\n"
         "    STATE_ESTOP: E-Stop is active.\n"
@@ -1374,21 +1378,6 @@ static PyObject *Stat_homed(pyStatChannel *s, void *) {
     return res;
 }
 
-// The page a user interface shows. Task's mode cannot be set: it reports
-// MDI or Auto while one runs and Manual while idle. mode() records the
-// page this process asked for instead, and task_mode returns it while task
-// is idle, so each user interface keeps its own page and the ones that
-// follow task_mode to switch pages keep working.
-static EMC_TASK_MODE view_mode = EMC_TASK_MODE::MANUAL;
-
-static PyObject *Stat_task_mode(pyStatChannel *s, void *) {
-    EMC_TASK_MODE mode = s->status.task.mode;
-    if (mode == EMC_TASK_MODE::MANUAL) {
-        mode = view_mode;
-    }
-    return PyLong_FromLong((long)mode);
-}
-
 static PyObject *Stat_ain(pyStatChannel *s, void *) {
     return double_array(s->status.motion.analog_input, EMCMOT_MAX_AIO);
 }
@@ -1601,7 +1590,6 @@ static PyGetSetDef Stat_getsetlist[] = {
     {(char*)"actual_position", (getter)Stat_actual, NULL, NULL, NULL},
     {(char*)"pause_offset", (getter)Stat_pause_offset, NULL, NULL, NULL},
     {(char*)"ain", (getter)Stat_ain, NULL, NULL, NULL},
-    {(char*)"task_mode", (getter)Stat_task_mode, NULL, NULL, NULL},
     {(char*)"aout", (getter)Stat_aout, NULL, NULL, NULL},
     {(char*)"joint", (getter)Stat_joint, NULL, NULL, NULL},
     {(char*)"axis", (getter)Stat_axis, NULL, NULL, NULL},
@@ -1771,11 +1759,10 @@ static PyObject *optional_stop(pyCommandChannel *s, PyObject *o) {
     return Py_None;
 }
 
-// Nothing goes to task, see view_mode.
-static PyObject *mode(pyCommandChannel * /*s*/, PyObject *o) {
-    EMC_TASK_MODE m;
-    if(!PyArg_ParseTuple(o, "i", &m)) return NULL;
-    switch(m) {
+static PyObject *mode(pyCommandChannel *s, PyObject *o) {
+    EMC_TASK_SET_MODE m;
+    if(!PyArg_ParseTuple(o, "i", &m.mode)) return NULL;
+    switch(m.mode) {
         case EMC_TASK_MODE::MDI:
         case EMC_TASK_MODE::MANUAL:
         case EMC_TASK_MODE::AUTO:
@@ -1784,7 +1771,7 @@ static PyObject *mode(pyCommandChannel * /*s*/, PyObject *o) {
             PyErr_Format(PyExc_ValueError,"Mode should be MODE_MDI, MODE_MANUAL, or MODE_AUTO");
             return NULL;
     }
-    view_mode = m;
+    emcSendCommand(s, m);
     Py_INCREF(Py_None);
     return Py_None;
 }
@@ -1891,6 +1878,21 @@ static PyObject *mdi(pyCommandChannel *s, PyObject *o) {
         return NULL;
     }
     strcpy(m.command, cmd);
+    emcSendCommand(s, m);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *macro(pyCommandChannel *s, PyObject *o) {
+    EMC_TASK_PLAN_MACRO m;
+    char *name;
+    Py_ssize_t len;
+    if(!PyArg_ParseTuple(o, "s#", &name, &len)) return NULL;
+    if(unsigned(len) > sizeof(m.name) - 1) {
+        PyErr_Format(PyExc_ValueError, "macro names limited to %zu characters", sizeof(m.name) - 1);
+        return NULL;
+    }
+    strcpy(m.name, name);
     emcSendCommand(s, m);
     Py_INCREF(Py_None);
     return Py_None;
@@ -2404,6 +2406,8 @@ static PyMethodDef Command_methods[] = {
         "    STATE_OFF: Power off (only works from STATE_ON state).\n"
     },
     {"mdi", (PyCFunction)mdi, METH_VARARGS, NULL},
+    {"macro", (PyCFunction)macro, METH_VARARGS,
+        "macro(name): run the [MDI_MACROS] macro called name, if the selected mode allows it"},
     {"mode", (PyCFunction)mode, METH_VARARGS, NULL},
     {"feedrate", (PyCFunction)feedrate, METH_VARARGS, NULL},
     {"rapidrate", (PyCFunction)rapidrate, METH_VARARGS, NULL},
@@ -3397,6 +3401,10 @@ PyMODINIT_FUNC PyInit_linuxcnc(void)
     PyModule_AddIntConstant(m, "MODE_MDI", (int)EMC_TASK_MODE::MDI);
     PyModule_AddIntConstant(m, "MODE_MANUAL", (int)EMC_TASK_MODE::MANUAL);
     PyModule_AddIntConstant(m, "MODE_AUTO", (int)EMC_TASK_MODE::AUTO);
+
+    PyModule_AddIntConstant(m, "RUN_NONE", (int)EMC_TASK_RUN::NONE);
+    PyModule_AddIntConstant(m, "RUN_PROGRAM", (int)EMC_TASK_RUN::PROGRAM);
+    PyModule_AddIntConstant(m, "RUN_MDI", (int)EMC_TASK_RUN::MDI);
 
     PyModule_AddIntConstant(m, "STATE_OFF", (int)EMC_TASK_STATE::OFF);
     PyModule_AddIntConstant(m, "STATE_ON", (int)EMC_TASK_STATE::ON);

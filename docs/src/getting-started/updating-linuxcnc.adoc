@@ -247,49 +247,47 @@ there is nothing to start. Remove these from existing configurations:
 The pins, `[HALUI]MDI_COMMAND` and the `[DISPLAY]` override limits work
 as before, see link:../gui/halui.html[HAL User Interface].
 
-=== The task mode cannot be set
+=== Task modes
 
-Manual, MDI and Auto are no longer modes a user interface switches
-between. Task accepts what fits what it is doing:
+The operator selects Manual, MDI or Auto, from a user interface or with
+the `halui.mode.manual`, `.mdi` and `.auto` pins. What task runs is
+reported apart from the mode, in the Python `task_run` field (`RUN_NONE`,
+`RUN_PROGRAM`, `RUN_MDI`). The selected mode decides what may start:
 
-* while idle: jogs, homing, an MDI command (which starts MDI) and a
-  program run or step (which starts the program);
-* while MDI runs: more MDI commands, which queue, pause and abort;
-* while a program runs: pause, step and abort, as before.
+* Manual: jogs, homing and overriding limits;
+* MDI: MDI commands;
+* Auto: program runs and steps.
 
-Immediate commands such as overrides, spindle and coolant are accepted
-as before. Several user interfaces can therefore show different pages at
-the same time without taking the machine away from each other.
+Each mode also allows the `[MDI_MACROS]` macros that list it, see
+link:../config/ini-config.html#sub:ini:sec:mdi-macros[[MDI_MACROS\] section].
+`[HALUI]MDI_COMMAND` commands run in any mode, as before.
 
 * Task's mode, and `halui.mode.is-manual`, `.is-mdi`, `.is-auto`, report
-  what runs: Auto while a program runs or is paused, MDI while MDI
-  commands run, Manual otherwise. They change on their own when a run
-  starts and ends.
-* The Python `mode()` command, Tcl `emc_mode` and linuxcncrsh `set mode`
-  no longer reach task. They set the mode that user interface (Python or
-  Tcl process, linuxcncrsh connection) shows, which `task_mode`,
-  `emc_mode` and `get mode` report while task is idle. User interfaces
-  that switch pages on the mode keep working, each with its own page.
-* The `halui.mode.manual`, `.mdi` and `.auto` pins are gone. Remove the
-  nets that connect them from HAL files: a program start button only
-  needs `halui.program.run`. The `.is-manual`, `.is-mdi` and `.is-auto`
-  pins stay.
-* Switching to Manual used to abort a running MDI command. It no longer
-  does: use abort.
-* Task puts motion into coordinated mode when a run starts and back into
-  joint or world mode when it ends, so wheel (MPG) jogs work whenever
-  nothing runs. A jog in progress, including a wheel jog, holds off MDI
-  and program starts, which are refused with an error.
-* A run started in Manual mode used to be ignored. It now runs the
-  program. A run or step with no program open is refused.
-* While MDI runs, jogs and switching between joint and world mode are
-  refused; they used to be passed to motion.
+  the selected mode. It stays as selected while a run starts and ends: a
+  halui MDI command from Manual no longer shows as MDI, and the mode no
+  longer goes back by itself.
+* A mode can be selected while nothing runs. While a program or MDI
+  command is paused, Manual can be selected to jog and the mode the run
+  started in to resume or step. Otherwise mode changes are refused with
+  an error; switching to Manual no longer aborts a running MDI command.
+* Jogs and homing outside Manual, MDI commands outside MDI and program
+  runs outside Auto are refused with an error. Jogs used to be accepted in
+  MDI and Auto while idle.
+* While idle in Manual, motion is in joint or world mode, so wheel (MPG)
+  jogs work; in MDI and Auto it is in coordinated mode. A joint or world
+  mode request outside Manual is kept for when Manual is selected again.
+* `halui.program.run`, `.resume` and `.step` select the mode they need
+  first, as before. The new `halui.mode.lock` pin leaves the mode to the
+  halui mode pins, for a mode selector switch: user interfaces cannot
+  change it then, and a cycle start in Manual does not run the program.
+* A run or step with no program open is refused.
 
 === Jogging while paused
 
 Axes can now be jogged, by keyboard, halui, linuxcncrsh or a wheel, while
 a program or MDI command is paused, including at M0 and M1, once the pause
-has stopped the motion. Joints cannot. On resume (or step) LinuxCNC first:
+has stopped the motion and Manual is selected. Joints cannot. Selecting
+the mode the run started in again allows resume or step, which first:
 
 . puts the spindles and the coolant back as they were at the pause, and
   waits for the spindles to be at speed;
@@ -301,7 +299,8 @@ has stopped the motion. Joints cannot. On resume (or step) LinuxCNC first:
 Pausing again during the return stops it; the axes can be jogged again
 from there. An abort keeps the machine where it was jogged to. Reverse
 run is refused while the axes are away from the paused position. AXIS
-enables its jog and spindle controls while paused.
+enables its jog and spindle controls while paused: a jog selects Manual,
+and resume selects the mode of the run again.
 
 
 == Preview renderer now requires OpenGL 3.3 core

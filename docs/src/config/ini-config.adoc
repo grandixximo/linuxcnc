@@ -72,6 +72,7 @@ The following sections are used by LinuxCNC:
 * <<sub:ini:sec:task,`[TASK]`>> settings used by the task controller
 * <<sub:ini:sec:hal,`[HAL]`>> specifies .hal files
 * <<sub:ini:sec:halui,`[HALUI]`>> MDI commands used by HALUI
+* <<sub:ini:sec:mdi-macros,`[MDI_MACROS]`>> MDI commands run by name, in the modes they list
 * <<sub:ini:sec:applications,`[APPLICATIONS]`>> Other applications to be started by LinuxCNC
 * <<sub:ini:sec:traj,`[TRAJ]`>> additional settings used by the real time motion controller
 * <<sub:ini:sec:joint-num,`[JOINT_n]`>> individual joint variables
@@ -785,6 +786,21 @@ For more information see the <<cha:hal-twopass,HAL TWOPASS>> chapter.
 * `MDI_COMMAND = G53 G0 X0 Y0 Z0` -
   An MDI command can be executed by using `halui.mdi-command-00`. Increment the number for each command listed in the [HALUI] section.
   It is also possible to start subroutines. `MDI_COMMAND = o<yoursub> CALL [#<yourvariable>]`
+  These commands run in any mode and leave the mode as it is.
+
+[[sub:ini:sec:mdi-macros]]
+=== [MDI_MACROS] section(((INI File,Sections,[MDI_MACROS] Section)))
+
+MDI commands the integrator makes available by name, each in the task modes it lists.
+A user interface runs one with the Python `macro()` command, a panel with its `halui.macro.<name>` pin.
+Task runs the command as MDI if the selected mode is one the macro lists, and leaves the mode as it is.
+Free MDI commands typed by the operator run only in MDI mode.
+
+Each macro is a `NAME`, a `COMMAND` and its `MODES`, in that order; the n-th `NAME` goes with the n-th `COMMAND` and `MODES`.
+
+* `NAME = tool_change_position` - the name of the macro: letters, digits, `_` and `-`.
+* `COMMAND = G53 G0 Z0` - the MDI command, which may call a subroutine.
+* `MODES = MANUAL MDI` - the modes the macro runs in: any of `MANUAL`, `MDI` and `AUTO`.
 
 [[sub:ini:sec:applications]]
 === [APPLICATIONS] Section(((INI File,Sections,[APPLICATIONS] Section)))

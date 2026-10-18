@@ -88,6 +88,7 @@ fpu_control_t __fpu_control = _FPU_IEEE & ~(_FPU_MASK_IM | _FPU_MASK_ZM | _FPU_M
 #include "ini/inihal.hh"
 #include "halui.hh"		// the HAL user interface, in task
 #include "cmd_queue.hh"		// commands from inside task (halui)
+#include "macros.hh"		// [MDI_MACROS]
 
 using namespace linuxcnc;
 using namespace std::chrono_literals;
@@ -786,14 +787,31 @@ void readahead_waiting(void)
         }
 }
 
-// Runs. Task is idle (taskRun NONE) until an MDI command or a program
-// starts a run, and idle again once the run is over. Nobody sets a task
-// mode; the one reported is derived from taskRun (determineMode()).
+// Modes and runs. The operator selects a mode (selectedMode, see
+// taskSetMode()); it decides what may start:
 //
-// Motion follows: while idle it is in free or teleop mode, so jogs, wheel
-// jogs and homing work; a run puts it in coordinated mode. Motion only
-// makes that switch once in position, so a run waits for it before the
-// first command leaves interp_list (see coordWaiting in emcTaskExecute()).
+//   Manual  jogs, homing, and the macros that list MANUAL
+//   MDI     MDI commands, and the macros that list MDI
+//   Auto    program runs and steps, and the macros that list AUTO
+//
+// Task is idle (taskRun NONE) until an MDI command, a macro or a program
+// starts a run, and idle again once the run is over. A run keeps the mode
+// it started in (runMode). While it is paused the operator may select
+// Manual to jog, and must select runMode again to resume or step.
+//
+// Motion follows: while idle it is in free or teleop mode in Manual, so
+// jogs, wheel jogs and homing work, and in coordinated mode otherwise; a
+// run puts it in coordinated mode. Motion only makes that switch once in
+// position, so a run waits for it before the first command leaves
+// interp_list (see coordWaiting in emcTaskExecute()).
+
+// selectedMode when the current run started
+static EMC_TASK_MODE runMode = EMC_TASK_MODE::MANUAL;
+
+EMC_TASK_MODE taskRunMode(void)
+{
+    return runMode;
+}
 
 // The coolant as it was when a program or MDI paused: resume puts it back,
 // as motion does with the spindles (pause_restore_spindles()).
@@ -840,8 +858,8 @@ static int taskRunStart(TaskRun run)
         return -1;
     }
 
-    // Right after a run the status can still show coordinated mode while
-    // motion is on its way back to idleMode, so send the switch anyway.
+    // Right after a run, or outside Manual, the status shows coordinated
+    // mode; idleMode is the Manual mode to go back to.
     runPriorMode = emcStatus->motion.traj.mode;
     if (runPriorMode == EMC_TRAJ_MODE::COORD) {
         runPriorMode = idleMode;
@@ -864,10 +882,12 @@ static int taskRunStart(TaskRun run)
     emcTaskPlanSynch();
 
     taskRun = run;
+    runMode = selectedMode;
     return 0;
 }
 
-// Back to idle: the motion mode the run started from, or, if homing
+// Back to idle. Outside Manual motion stays in coordinated mode. In Manual
+// it goes back to the motion mode the run started from, or, if homing
 // changed in between, world mode when homed and joint mode otherwise.
 static void taskRunEnd()
 {
@@ -875,6 +895,10 @@ static void taskRunEnd()
     coordWaiting = false;
     pauseCoolantSaved = false;
 
+    if (selectedMode != EMC_TASK_MODE::MANUAL) {
+	idleModePending = false;
+	return;
+    }
     EMC_TRAJ_MODE mode = all_homed() ? EMC_TRAJ_MODE::TELEOP : EMC_TRAJ_MODE::FREE;
     if (runPriorHomed == (bool)all_homed()) {
         mode = runPriorMode;
@@ -900,6 +924,196 @@ static void taskRunCheckDone()
         return;
     }
     taskRunEnd();
+}
+
+static const char *modeName(EMC_TASK_MODE mode)
+{
+    switch (mode) {
+    case EMC_TASK_MODE::MANUAL:
+	return _("Manual");
+    case EMC_TASK_MODE::MDI:
+	return _("MDI");
+    case EMC_TASK_MODE::AUTO:
+	return _("Auto");
+    }
+    return "?";
+}
+
+// Motion refuses coordinated mode until homed, unless the kinematics are
+// trivial
+static bool coordPossible()
+{
+    return emcStatus->motion.traj.kinematics_type == KINEMATICS_IDENTITY
+	|| all_homed();
+}
+
+// Motion while idle, see the comment at runMode. Manual goes back to the
+// joint or world mode it was last in (world only once homed).
+static void taskIdleMotionMode()
+{
+    if (selectedMode == EMC_TASK_MODE::MANUAL) {
+	EMC_TRAJ_MODE mode = idleMode;
+	if (mode == EMC_TRAJ_MODE::TELEOP && !all_homed()) {
+	    mode = EMC_TRAJ_MODE::FREE;
+	}
+	idleMode = mode;
+	emcTrajSetMode(mode);
+	return;
+    }
+    if (emcStatus->motion.traj.mode != EMC_TRAJ_MODE::COORD) {
+	idleMode = emcStatus->motion.traj.mode;
+    }
+    if (coordPossible()) {
+	emcTrajSetMode(EMC_TRAJ_MODE::COORD);
+    }
+}
+
+// Motion can leave coordinated mode behind task's back (it drops to free
+// mode when it is disabled). While idle outside Manual, ask for it again,
+// no more than twice a second: motion makes the switch only once in
+// position.
+static void taskIdleMotionCheck()
+{
+    static double lastAsk = 0.0;
+
+    if (taskRun != TaskRun::NONE || coordWaiting || idleModePending
+	|| selectedMode == EMC_TASK_MODE::MANUAL
+	|| emcStatus->task.state != EMC_TASK_STATE::ON
+	|| !emcStatus->motion.traj.enabled
+	|| emcStatus->motion.traj.mode == EMC_TRAJ_MODE::COORD
+	|| !coordPossible()
+	|| jogging_is_active()) {
+	return;
+    }
+    if (etime() - lastAsk < 0.5) {
+	return;
+    }
+    lastAsk = etime();
+    idleMode = emcStatus->motion.traj.mode;
+    emcTrajSetMode(EMC_TRAJ_MODE::COORD);
+}
+
+/*
+  taskSetMode()
+
+  Select a mode. While idle any mode can be selected. While a program or
+  MDI is paused only Manual, to jog, and the mode the run started in, to
+  resume. Otherwise the mode cannot change. With halui.mode.lock set only
+  the halui mode pins change it.
+  */
+static int taskSetMode(EMC_TASK_MODE mode)
+{
+    if (mode != EMC_TASK_MODE::MANUAL && mode != EMC_TASK_MODE::MDI
+	&& mode != EMC_TASK_MODE::AUTO) {
+	emcOperatorError(_("Unknown mode %d"), (int)mode);
+	return -1;
+    }
+    if (mode == selectedMode) {
+	return 0;
+    }
+    if (!emcCommandInternal && haluiModeLocked()) {
+	emcOperatorError(_("Can't select %s: the mode is locked to the mode selector"),
+	    modeName(mode));
+	return -1;
+    }
+    if (jogging_is_active()) {
+	emcOperatorError(_("Can't select %s while jogging"), modeName(mode));
+	return -1;
+    }
+    if (taskRun != TaskRun::NONE) {
+	if (emcStatus->task.interpState != EMC_TASK_INTERP::PAUSED) {
+	    emcOperatorError(taskRun == TaskRun::PROGRAM
+		? _("Can't select %s while a program runs")
+		: _("Can't select %s while MDI runs"), modeName(mode));
+	    return -1;
+	}
+	if (mode != EMC_TASK_MODE::MANUAL && mode != runMode) {
+	    emcOperatorError(_("Can't select %s while paused, only Manual or %s"),
+		modeName(mode), modeName(runMode));
+	    return -1;
+	}
+    }
+    selectedMode = mode;
+    emcTrajSetPauseJogInhibit(mode != EMC_TASK_MODE::MANUAL);
+    if (taskRun == TaskRun::NONE) {
+	taskIdleMotionMode();
+    }
+    return 0;
+}
+
+// The commands that need a mode, while idle. Returns 0 or -1 with an
+// operator error.
+static int checkIdleMode(NMLTYPE type)
+{
+    switch (type) {
+    case EMC_JOG_CONT_TYPE:
+    case EMC_JOG_INCR_TYPE:
+    case EMC_JOG_ABS_TYPE:
+	if (selectedMode != EMC_TASK_MODE::MANUAL) {
+	    emcOperatorError(_("Can't jog in %s mode, select Manual"), modeName(selectedMode));
+	    return -1;
+	}
+	break;
+    case EMC_JOINT_HOME_TYPE:
+    case EMC_JOINT_OVERRIDE_LIMITS_TYPE:
+	if (selectedMode != EMC_TASK_MODE::MANUAL) {
+	    emcOperatorError(_("Can't home or override limits in %s mode, select Manual"),
+		modeName(selectedMode));
+	    return -1;
+	}
+	break;
+    case EMC_TASK_PLAN_EXECUTE_TYPE:
+	// halui's [HALUI]MDI_COMMAND list is the integrator's, like a macro
+	if (!emcCommandInternal && selectedMode != EMC_TASK_MODE::MDI) {
+	    emcOperatorError(_("Can't run an MDI command in %s mode, select MDI"),
+		modeName(selectedMode));
+	    return -1;
+	}
+	break;
+    case EMC_TASK_PLAN_RUN_TYPE:
+    case EMC_TASK_PLAN_STEP_TYPE:
+	if (selectedMode != EMC_TASK_MODE::AUTO) {
+	    emcOperatorError(_("Can't run a program in %s mode, select Auto"),
+		modeName(selectedMode));
+	    return -1;
+	}
+	break;
+    }
+    return 0;
+}
+
+// Fill exec with the command of the macro cmd names, if the selected mode
+// allows it. Returns 0 or -1 with an operator error.
+static int macroCommand(NMLmsg *cmd, EMC_TASK_PLAN_EXECUTE &exec)
+{
+    const char *name = static_cast<EMC_TASK_PLAN_MACRO *>(cmd)->name;
+    int n = taskMacroFind(name);
+
+    if (n < 0) {
+	emcOperatorError(_("No macro '%s' in [MDI_MACROS]"), name);
+	return -1;
+    }
+    if (!taskMacroAllowed(n, selectedMode)) {
+	emcOperatorError(_("Can't run macro '%s' in %s mode, only in %s"),
+	    name, modeName(selectedMode), taskMacroModes(n));
+	return -1;
+    }
+    rtapi_strxcpy(exec.command, taskMacroCommand(n));
+    return 0;
+}
+
+// A resume, step or reverse/forward run of a paused run needs the mode the
+// run started in.
+static bool isResume(NMLTYPE type)
+{
+    switch (type) {
+    case EMC_TASK_PLAN_RESUME_TYPE:
+    case EMC_TASK_PLAN_STEP_TYPE:
+    case EMC_TASK_PLAN_REVERSE_TYPE:
+    case EMC_TASK_PLAN_FORWARD_TYPE:
+	return true;
+    }
+    return false;
 }
 
 /*
@@ -1054,6 +1268,10 @@ static int pausedJog(NMLmsg *cmd)
 	jjogmode = static_cast<EMC_JOG_ABS *>(cmd)->jjogmode;
 	break;
     }
+    if (selectedMode != EMC_TASK_MODE::MANUAL) {
+	emcOperatorError(_("Can't jog in %s mode, select Manual"), modeName(selectedMode));
+	return -1;
+    }
     if (jjogmode) {
 	emcOperatorError(_("Can't jog a joint while paused, jog an axis"));
 	return -1;
@@ -1097,16 +1315,24 @@ static int emcTaskPlan(void)
 	type = 0;
     }
 
-    // Always display messages
+    // Always display messages. A mode change is accepted in any state and
+    // does nothing, see EMC_TASK_SET_MODE_TYPE in emcTaskIssueCommand().
     switch (type) {
     case EMC_OPERATOR_ERROR_TYPE:
     case EMC_OPERATOR_TEXT_TYPE:
     case EMC_OPERATOR_DISPLAY_TYPE:
+    case EMC_TASK_SET_MODE_TYPE:
 	retval = emcTaskIssueCommand(emcCommand);
 	return retval;
     }
 
     taskRunCheckDone();
+    taskIdleMotionCheck();
+
+    if (taskRun != TaskRun::NONE && isResume(type) && selectedMode != runMode) {
+	emcOperatorError(_("Select %s to resume"), modeName(runMode));
+	return -1;
+    }
 
     // handle any new command: no command, the immediate ones (isImmediate()),
     // then what is special to the state task is in
@@ -1156,26 +1382,49 @@ static int emcTaskPlan(void)
 	    case EMC_JOINT_SET_MAX_POSITION_LIMIT_TYPE:
 	    case EMC_JOINT_SET_MIN_POSITION_LIMIT_TYPE:
 	    case EMC_JOINT_HALT_TYPE:
+	    case EMC_JOG_STOP_TYPE:
+		retval = emcTaskIssueCommand(emcCommand);
+		break;
+
 	    case EMC_JOINT_HOME_TYPE:
 	    case EMC_JOG_CONT_TYPE:
 	    case EMC_JOG_INCR_TYPE:
 	    case EMC_JOG_ABS_TYPE:
-	    case EMC_JOG_STOP_TYPE:
 	    case EMC_JOINT_OVERRIDE_LIMITS_TYPE:
-		retval = emcTaskIssueCommand(emcCommand);
+		retval = checkIdleMode(type);
+		if (retval == 0) {
+		    retval = emcTaskIssueCommand(emcCommand);
+		}
 		break;
 
 		// commands that start a run
 	    case EMC_TASK_PLAN_EXECUTE_TYPE:
-		retval = taskRunIssue(TaskRun::MDI, emcCommand);
+		retval = checkIdleMode(type);
+		if (retval == 0) {
+		    retval = taskRunIssue(TaskRun::MDI, emcCommand);
+		}
 		break;
 
+	    case EMC_TASK_PLAN_MACRO_TYPE: {
+		EMC_TASK_PLAN_EXECUTE exec;
+		retval = macroCommand(emcCommand, exec);
+		if (retval == 0) {
+		    retval = taskRunIssue(TaskRun::MDI, &exec);
+		}
+		break;
+	    }
+
 	    case EMC_TASK_PLAN_RUN_TYPE:
-		retval = taskRunIssue(TaskRun::PROGRAM, emcCommand);
+		retval = checkIdleMode(type);
+		if (retval == 0) {
+		    retval = taskRunIssue(TaskRun::PROGRAM, emcCommand);
+		}
 		break;
 
 	    case EMC_TASK_PLAN_STEP_TYPE:
 		// handles case where first action is to step the program
+		retval = checkIdleMode(type);
+		if (retval != 0) break;
 		taskPlanRunCmd.line = 0;	// run from start
 		/*! \todo FIXME-- can have GUI set this; send a run instead of a
 		   step */
@@ -1300,6 +1549,17 @@ static int emcTaskPlan(void)
 		break;
 
 	    case EMC_TASK_PLAN_EXECUTE_TYPE:
+	    case EMC_TASK_PLAN_MACRO_TYPE: {
+		EMC_TASK_PLAN_EXECUTE exec;
+		if (type == EMC_TASK_PLAN_MACRO_TYPE) {
+		    retval = macroCommand(emcCommand, exec);
+		} else {
+		    retval = checkIdleMode(type);
+		    rtapi_strxcpy(exec.command, static_cast<EMC_TASK_PLAN_EXECUTE*>(emcCommand)->command);
+		}
+		if (retval != 0) {
+		    break;
+		}
                 // If there are no queued MDI commands, no commands in
                 // interp_list, and waitFlag isn't set, then this new
                 // incoming MDI command can just be issued directly.
@@ -1311,15 +1571,16 @@ static int emcTaskPlan(void)
                     && (emcTaskCommand == NULL)
 		    && (emcTaskPlanIsWait() == 0)
                 ) {
-                    retval = emcTaskIssueCommand(emcCommand);
+                    retval = emcTaskIssueCommand(&exec);
                 } else {
 		    auto cmd = std::make_unique<EMC_TASK_PLAN_EXECUTE>();
-		    rtapi_strlcpy(cmd->command, static_cast<EMC_TASK_PLAN_EXECUTE*>(emcCommand)->command, sizeof(cmd->command));
+		    rtapi_strxcpy(cmd->command, exec.command);
                     mdi_execute_queue.append(std::move(cmd));
                     emcStatus->task.queuedMDIcommands = mdi_execute_queue.len();
                     retval = 0;
                 }
                 break;
+	    }
 
 	    case EMC_TOOL_LOAD_TOOL_TABLE_TYPE:
 	    case EMC_TOOL_SET_OFFSET_TYPE:
@@ -1882,13 +2143,21 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 		(reinterpret_cast<EMC_TRAJ_RIGID_TAP *>(cmd))->scale);
 	break;
 
-    case EMC_TRAJ_SET_TELEOP_ENABLE_TYPE:
-	if ((reinterpret_cast<EMC_TRAJ_SET_TELEOP_ENABLE *>(cmd))->enable) {
-	    retval = emcTrajSetMode(EMC_TRAJ_MODE::TELEOP);
-	} else {
-	    retval = emcTrajSetMode(EMC_TRAJ_MODE::FREE);
+    case EMC_TRAJ_SET_TELEOP_ENABLE_TYPE: {
+	EMC_TRAJ_MODE mode = (reinterpret_cast<EMC_TRAJ_SET_TELEOP_ENABLE *>(cmd))->enable
+	    ? EMC_TRAJ_MODE::TELEOP : EMC_TRAJ_MODE::FREE;
+	if (selectedMode != EMC_TASK_MODE::MANUAL) {
+	    // motion stays coordinated; Manual will use it
+	    idleMode = mode;
+	    retval = 0;
+	    break;
+	}
+	retval = emcTrajSetMode(mode);
+	if (retval == 0) {
+	    idleMode = mode;
 	}
 	break;
+    }
 
     case EMC_MOTION_SET_AOUT_TYPE:
 	retval = emcMotionSetAout((reinterpret_cast<EMC_MOTION_SET_AOUT *>(cmd))->index,
@@ -2032,7 +2301,11 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 	retval = 0;
 	break;
 
-	// state commands
+	// mode and state commands
+
+    case EMC_TASK_SET_MODE_TYPE:
+	retval = taskSetMode(reinterpret_cast<EMC_TASK_SET_MODE *>(cmd)->mode);
+	break;
 
     case EMC_TASK_SET_STATE_TYPE:
 	state_msg = reinterpret_cast<EMC_TASK_SET_STATE *>(cmd);
@@ -3172,6 +3445,8 @@ static int iniLoad(const char *filename)
     if (!inifile) {
         return -1;
     }
+
+    taskMacrosLoad(inifile);
 
     // FIXME: range limit [KINS]JOINTS
     joints = inifile.findSIntV("JOINTS", "KINS", 0);

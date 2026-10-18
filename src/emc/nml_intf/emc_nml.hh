@@ -1224,6 +1224,21 @@ class EMC_TASK_ABORT:public EMC_TASK_CMD_MSG {
     void update(CMS * cms);
 };
 
+class EMC_TASK_SET_MODE:public EMC_TASK_CMD_MSG {
+  public:
+    EMC_TASK_SET_MODE()
+      : EMC_TASK_CMD_MSG(EMC_TASK_SET_MODE_TYPE, sizeof(EMC_TASK_SET_MODE)),
+        mode(EMC_TASK_MODE::AUTO)
+    {};
+
+    // For internal NML/CMS use only.
+    // Sub-class update() calls base-class update()
+    // cppcheck-suppress duplInheritedMember
+    void update(CMS * cms);
+
+    EMC_TASK_MODE mode;
+};
+
 class EMC_TASK_SET_STATE:public EMC_TASK_CMD_MSG {
   public:
     EMC_TASK_SET_STATE()
@@ -1293,6 +1308,22 @@ class EMC_TASK_PLAN_EXECUTE:public EMC_TASK_CMD_MSG {
     void update(CMS * cms);
 
     char command[LINELEN];
+};
+
+// Run the [MDI_MACROS] macro called name, if the selected mode allows it
+class EMC_TASK_PLAN_MACRO:public EMC_TASK_CMD_MSG {
+  public:
+    EMC_TASK_PLAN_MACRO()
+      : EMC_TASK_CMD_MSG(EMC_TASK_PLAN_MACRO_TYPE, sizeof(EMC_TASK_PLAN_MACRO)),
+        name{}
+    {};
+
+    // For internal NML/CMS use only.
+    // Sub-class update() calls base-class update()
+    // cppcheck-suppress duplInheritedMember
+    void update(CMS * cms);
+
+    char name[LINELEN];
 };
 
 class EMC_TASK_PLAN_PAUSE:public EMC_TASK_CMD_MSG {
@@ -1483,7 +1514,8 @@ class EMC_TASK_STAT:public EMC_TASK_STAT_MSG {
     // cppcheck-suppress duplInheritedMember
     void update(CMS * cms);
 
-    EMC_TASK_MODE mode;	// EMC_TASK_MODE::MANUAL, etc.
+    EMC_TASK_MODE mode;	// the selected mode, EMC_TASK_MODE::MANUAL, etc.
+    EMC_TASK_RUN run;	// what runs, EMC_TASK_RUN::NONE, etc.
     EMC_TASK_STATE state;	// EMC_TASK_STATE::ESTOP, etc.
 
     EMC_TASK_EXEC execState;	// EMC_DONE,WAITING_FOR_MOTION, etc.

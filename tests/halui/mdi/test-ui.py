@@ -115,40 +115,61 @@ c.wait_complete()
 # wrong.
 #
 
-# The task mode cannot be set: halui's MDI commands run from whatever mode
-# a UI asked for, and task is back in Manual (idle) when they finish.
-# c.mode() only sets this process's view (what s.task_mode reports while
-# task is idle), so task's own mode is read from the halui pins.
-
-def mdi_then_manual(n, x, y, z):
-    log("running MDI command %d" % n)
-    h['mdi-%d' % n] = 1
-    wait_for_joint_to_stop_at(0, x);
-    wait_for_joint_to_stop_at(1, y);
-    wait_for_joint_to_stop_at(2, z);
-    h['mdi-%d' % n] = 0
-    wait_for_halui_mode('is-manual')
-
-log("asking for Manual mode")
+log("setting mode to Manual")
 c.mode(linuxcnc.MODE_MANUAL)
 wait_for_halui_mode('is-manual')
-mdi_then_manual(0, -1, 0, 0)
+log("running MDI command 0")
+h['mdi-0'] = 1
+wait_for_joint_to_stop_at(0, -1);
+wait_for_joint_to_stop_at(1, 0);
+wait_for_joint_to_stop_at(2, 0);
+h['mdi-0'] = 0
+wait_for_task_mode(linuxcnc.MODE_MANUAL)
+wait_for_halui_mode('is-manual')
 
-log("asking for Auto mode, which only sets this process's view")
+log("setting mode to Auto")
 c.mode(linuxcnc.MODE_AUTO)
-c.wait_complete()
+wait_for_halui_mode('is-auto')
+log("running MDI command 1")
+h['mdi-1'] = 1
+wait_for_joint_to_stop_at(0, 1);
+wait_for_joint_to_stop_at(1, 0);
+wait_for_joint_to_stop_at(2, 0);
+h['mdi-1'] = 0
 wait_for_task_mode(linuxcnc.MODE_AUTO)
-wait_for_halui_mode('is-manual')
-mdi_then_manual(1, 1, 0, 0)
+wait_for_halui_mode('is-auto')
 
-log("asking for MDI mode, which only sets this process's view")
+log("setting mode to MDI")
 c.mode(linuxcnc.MODE_MDI)
-c.wait_complete()
+wait_for_halui_mode('is-mdi')
+log("running MDI command 2")
+h['mdi-2'] = 1
+wait_for_joint_to_stop_at(0, 1);
+wait_for_joint_to_stop_at(1, 2);
+wait_for_joint_to_stop_at(2, 0);
+h['mdi-2'] = 0
+s.poll()
 wait_for_task_mode(linuxcnc.MODE_MDI)
-wait_for_halui_mode('is-manual')
-mdi_then_manual(2, 1, 2, 0)
-mdi_then_manual(3, 1, 2, 3)
-mdi_then_manual(0, -1, 0, 0)
+wait_for_halui_mode('is-mdi')
+
+log("running MDI command 3")
+h['mdi-3'] = 1
+wait_for_joint_to_stop_at(0, 1);
+wait_for_joint_to_stop_at(1, 2);
+wait_for_joint_to_stop_at(2, 3);
+h['mdi-3'] = 0
+wait_for_task_mode(linuxcnc.MODE_MDI)
+wait_for_halui_mode('is-mdi')
+
+log("running MDI command 0")
+h['mdi-0'] = 1
+wait_for_joint_to_stop_at(0, -1);
+wait_for_joint_to_stop_at(1, 0);
+wait_for_joint_to_stop_at(2, 0);
+h['mdi-0'] = 0
+wait_for_task_mode(linuxcnc.MODE_MDI)
+wait_for_halui_mode('is-mdi')
 
 
 sys.exit(0)
+
