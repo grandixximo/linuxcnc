@@ -995,6 +995,22 @@ The `ARC_BLEND_` settings tune the default trajectory planner, `tpmod`. The `tpn
   `STOP` (the default) refuses the move when it is queued, with an error naming its line and the joint, and the motion stops before it.
   `FLOOR` runs the move at `SINGULAR_FLOOR` of its feed there, faster than that joint's limits allow, with a message naming its line and the joint.
 * `SINGULAR_FLOOR = 0.001` - (((SINGULAR FLOOR))) The fraction of the programmed feed below which a move counts as passing a singular pose, see `SINGULAR_MODE`.
+* `ORIENT_SMOOTH = 0` - (((ORIENT SMOOTH))) Set to 1 to smooth the rotary axes along runs of short moves.
+  Five axis CAM output often programs the tool orientation in short moves whose rotary axes jitter about the intended sweep, and every move end is then a corner the rotary axes have to turn, which their jerk limits make the whole machine slow down for.
+  With `ORIENT_SMOOTH`, the continuous (G64) feed lines and arcs no longer than `ORIENT_SMOOTH_MAX_LENGTH` that move X, Y or Z are held back in a run, and each `ANGULAR` axis among A, B and C becomes one smooth curve of the path length along the run.
+  The curve keeps within `ORIENT_SMOOTH_SHARE` of the angular tolerance of the programmed moves, over all the rotary axes together, ends where the run ends, and stays within the axis position limits; the moves are sent on it and the planner follows the curve instead of the programmed moves.
+  A run is smoothed only where the curve is estimated to run faster under the axis jerk limits.
+  A stretch the curve cannot follow within the tolerance, such as a fast swing of a rotary axis near the pole of the kinematics, where the tool points along that axis and turning it barely turns the tool, a sharp change of the orientation or a rotary axis at its limit, stays as programmed, and the moves before and after it are smoothed on their own, each part ending on its programmed end.
+  The angular tolerance is the E of <<gcode:g64,G64>>, or `ORIENT_SMOOTH_TOLERANCE` where E is 0 or not programmed and `[RS274NGC]G64_DEFAULT_ANGULAR_TOLERANCE` gives none.
+  X, Y and Z stay as programmed: with kinematics that keep the tool tip on the path, such as `5axiskins` or the `-trt` modules, the tool tip does not move, while with `trivkins` moving a rotary axis moves the tool tip with it, so choose the tolerance with the distance from the rotary axes to the tool tip in mind.
+  The moves of a run go to the planner once the program comes to anything other than such a move, such as a rapid, a longer move, an M code or a change of G64, or once the run is full; the preview shows the programmed moves.
+  Only the `tpnextmod` trajectory planner follows the curve; with any other planner `ORIENT_SMOOTH` is off, with a message.
+* `ORIENT_SMOOTH_MAX_LENGTH = 5` - (((ORIENT SMOOTH MAX LENGTH))) The longest move a run takes, in machine units. Default 5 mm, or its equivalent in inch.
+* `ORIENT_SMOOTH_SHARE = 0.8` - (((ORIENT SMOOTH SHARE))) The share of the angular tolerance the curve may use; the rest is left to the corner blends between the moves.
+* `ORIENT_SMOOTH_TOLERANCE = 0.05` - (((ORIENT SMOOTH TOLERANCE))) The angular tolerance of the smoothing where G64 E is 0 or not programmed, in machine angular units. Default 0.05 degrees.
+* `ORIENT_SMOOTH_SPACING = 4` - (((ORIENT SMOOTH SPACING))) The spacing of the breakpoints of the curve along the path, in machine units; the smoothing also tries a half, a quarter and an eighth of it. Default 4 mm, or its equivalent in inch.
+* `ORIENT_SMOOTH_MAX_LINES = 200` - (((ORIENT SMOOTH MAX LINES))) The most moves a run holds back.
+  A full run sends its first three quarters and goes on from the curve where it leaves off, so a long run of short moves is smoothed without a corner where it is cut.
 * `MAX_LINEAR_JERK = 10000.0` - (((MAX JERK))) The maximum jerk (rate of change of acceleration) for coordinated moves, in 'machine units' per second cubed.
   Default is 1e9 (1 billion) if not specified, which effectively disables jerk limiting while avoiding numerical instability.
   Values are clamped to a maximum of 1e9 to prevent numerical issues in S-curve calculations.

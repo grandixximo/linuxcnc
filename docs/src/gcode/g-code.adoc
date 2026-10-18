@@ -2386,6 +2386,9 @@ G64 <P- <Q-> <R->> <E->
   ones. Without E the default is `G64_DEFAULT_ANGULAR_TOLERANCE` in
   <<sub:ini:sec:rs274ngc,RS274NGC>>. Only the `tpnextmod` trajectory
   planner honors E; the default planner ignores it.
+  With <<sub:ini:sec:traj,[TRAJ]ORIENT_SMOOTH>>, E also bounds how far the
+  rotary axes of a run of short moves are smoothed from the programmed
+  ones.
 
 === G64 R: planner selection (((G64 R Planner)))
 
