@@ -892,7 +892,6 @@ class LivePlotter:
         root_window.update_idletasks()
         vupdate(vars.exec_state, self.stat.exec_state)
         vupdate(vars.interp_state, self.stat.interp_state)
-        vupdate(vars.pause_jog_ok, self.stat.pause_jog_ok)
         vupdate(vars.queued_mdi_commands, self.stat.queued_mdi_commands)
         if hal_present == 1:
             notifications_clear = comp["notifications-clear"]
@@ -1001,8 +1000,7 @@ class LivePlotter:
 
 def running(do_poll=True):
     if do_poll: s.poll()
-    return ( (s.task_mode == linuxcnc.MODE_AUTO or s.task_mode == linuxcnc.MODE_MDI)
-             and s.interp_state != linuxcnc.INTERP_IDLE)
+    return s.task_run != linuxcnc.RUN_NONE and s.interp_state != linuxcnc.INTERP_IDLE
 
 
 def manual_tab_visible():
@@ -1020,15 +1018,25 @@ This means this function returns True when the mdi tab is visible."""
     if s.task_state != linuxcnc.STATE_ON: return False
     return s.interp_state == linuxcnc.INTERP_IDLE or (s.task_mode == linuxcnc.MODE_MDI and s.queued_mdi_commands < vars.max_queued_mdi_commands.get())
 
-# If AXIS does not already show one of the modes given, show the first
-# MANUAL,MDI,AUTO. The mode is AXIS's own (see stat.task_mode): nothing goes
-# to task, so there is nothing to wait for.
+# If LinuxCNC is not already in one of the modes given, switch it to the
+# first (task) mode MANUAL,MDI,AUTO. A paused run resumes only in its own
+# mode: leaving it for Manual (to jog) remembers it, see ensure_run_mode().
+paused_mode = [None]
 def ensure_mode(m, *p):
     s.poll()
+    if not s.paused: paused_mode[0] = None
     if s.task_mode == m or s.task_mode in p: return True
+    if s.paused and s.task_run != linuxcnc.RUN_NONE and m == linuxcnc.MODE_MANUAL:
+        paused_mode[0] = s.task_mode
     c.mode(m) # task_mode
     s.poll()
     return True
+
+# Back to the mode of a paused run, before resuming or stepping it
+def ensure_run_mode():
+    s.poll()
+    if s.paused and s.task_mode == linuxcnc.MODE_MANUAL and paused_mode[0] is not None:
+        ensure_mode(paused_mode[0])
 
 class DummyProgress:
     def update(self, count): pass
@@ -1479,7 +1487,7 @@ widgets.axis_v.configure(value="v")
 widgets.axis_w.configure(value="w")
 
 def activate_ja_widget(i, force=0):
-    if not force and not (manual_ok() or s.pause_jog_ok): return
+    if not force and not (manual_ok() or s.interp_state == linuxcnc.INTERP_PAUSED): return
     if get_jog_mode() and (not kins_is_trivkins or (kins_is_trivkins and s.kinematics_type == linuxcnc.KINEMATICS_BOTH)):
         # free jogging (joints) if:
         #   non-trivkins config or
@@ -2438,6 +2446,11 @@ class TclCommands(nf.TclCommands):
         o.set_highlight_line(None)
 
     def task_step(*event):
+        s.poll()
+        if s.paused:
+            ensure_run_mode()
+            c.auto(linuxcnc.AUTO_STEP)
+            return
         if s.task_mode != linuxcnc.MODE_AUTO or s.interp_state != linuxcnc.INTERP_IDLE:
             o.set_highlight_line(None)
             if run_warn(): return
@@ -2451,7 +2464,7 @@ class TclCommands(nf.TclCommands):
         c.auto(linuxcnc.AUTO_PAUSE)
 
     def task_reverse(*event):
-        s.poll()
+        ensure_run_mode()
         if s.task_mode != linuxcnc.MODE_AUTO:
             return
 
@@ -2459,7 +2472,7 @@ class TclCommands(nf.TclCommands):
         c.auto(linuxcnc.AUTO_REVERSE)
 
     def task_forward(*event):
-        s.poll()
+        ensure_run_mode()
         if s.task_mode != linuxcnc.MODE_AUTO:
             return
 
@@ -2470,21 +2483,17 @@ class TclCommands(nf.TclCommands):
         s.poll()
         if not s.paused:
             return
-        if s.task_mode not in (linuxcnc.MODE_AUTO, linuxcnc.MODE_MDI):
-            return
-        ensure_mode(linuxcnc.MODE_AUTO, linuxcnc.MODE_MDI)
+        ensure_run_mode()
         c.auto(linuxcnc.AUTO_RESUME)
 
     def task_pauseresume(*event):
-        if s.task_mode not in (linuxcnc.MODE_AUTO, linuxcnc.MODE_MDI):
-            return
-        ensure_mode(linuxcnc.MODE_AUTO, linuxcnc.MODE_MDI)
         s.poll()
         if s.paused:
             global resume_inhibit
             if resume_inhibit: return
+            ensure_run_mode()
             c.auto(linuxcnc.AUTO_RESUME)
-        elif s.interp_state != linuxcnc.INTERP_IDLE:
+        elif running(False):
             c.auto(linuxcnc.AUTO_PAUSE)
 
     def task_stop(*event):
@@ -3099,7 +3108,6 @@ vars = nf.Variables(root_window,
     ("task_state", IntVar),
     ("task_paused", IntVar),
     ("interp_state", IntVar),
-    ("pause_jog_ok", IntVar),
     ("task_mode", IntVar),
     ("has_ladder", IntVar),
     ("has_editor", IntVar),
@@ -3316,11 +3324,13 @@ try:
 except IOError:
     pass
 
-# Jogs are fine while idle and, for axes, while a paused program or MDI has
-# stopped: the machine goes back to the paused position on resume.
+# Jogs are fine while idle and, for axes, while a program or MDI is paused:
+# they select Manual, and the machine goes back to the paused position on
+# resume.
 def jog_ok():
     s.poll()
-    return (manual_ok(False) and not running(False)) or s.pause_jog_ok
+    return ((manual_ok(False) and not running(False))
+            or (s.task_state == linuxcnc.STATE_ON and s.interp_state == linuxcnc.INTERP_PAUSED))
 
 # Spindle commands are fine while idle and while paused.
 def spindle_ok():
@@ -3331,11 +3341,12 @@ def spindle_ok():
 def jog(*args):
     if not jog_ok(): return
     if not manual_tab_visible(): return
+    ensure_mode(linuxcnc.MODE_MANUAL)
     c.jog(*args)
 
 def get_jog_mode():
     s.poll()
-    if s.pause_jog_ok:
+    if s.interp_state == linuxcnc.INTERP_PAUSED:
         # while paused only axes jog, in coordinated mode
         return False
     if  (    (s.kinematics_type == linuxcnc.KINEMATICS_IDENTITY)
@@ -3361,6 +3372,7 @@ jog_cont  = [False] * linuxcnc.MAX_JOINTS
 jogging   = [0]     * linuxcnc.MAX_JOINTS
 def jog_on(a, b):
     if not jog_ok() or not manual_tab_visible(): return
+    ensure_mode(linuxcnc.MODE_MANUAL)
     if (joint_type[a] == "LINEAR") if get_jog_mode() else not axis_angular[a]:
         if vars.metric.get(): b = b / 25.4
         b = from_internal_linear_unit(b)
