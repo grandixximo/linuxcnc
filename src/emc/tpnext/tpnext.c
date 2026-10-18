@@ -71,10 +71,13 @@ void tpMotFunctions(void (*pDioWrite)(int, char)
     tpn.axis_is_angular = paxis_is_angular;
 }
 
-/* set while the planner bounds the joints itself, which canon reads to
- * leave its own per segment cap out */
+/* joint_limits is set while the planner bounds the joints itself, which
+ * canon reads to leave its own per segment cap out; orient_shape tells
+ * canon the planner follows the orientation shape of a move, see
+ * tpSetOrientShape() */
 static struct {
     hal_bool_t joint_limits;
+    hal_bool_t orient_shape;
 } *pins;
 
 void tpMotKins(tp_kins_t const *kins)
@@ -1116,11 +1119,14 @@ int rtapi_app_main(void)
     }
     pins = hal_malloc(sizeof(*pins));
     if (!pins || hal_pin_new_bool(tpnext_id, HAL_OUT, &pins->joint_limits, 0,
-                "tpnextmod.joint-limits") < 0) {
+                "tpnextmod.joint-limits") < 0
+            || hal_pin_new_bool(tpnext_id, HAL_OUT, &pins->orient_shape, 0,
+                "tpnextmod.orient-shape") < 0) {
         pins = 0;
         hal_exit(tpnext_id);
         return -1;
     }
+    hal_set_bool(pins->orient_shape, 1);
     hal_ready(tpnext_id);
     return 0;
 }
