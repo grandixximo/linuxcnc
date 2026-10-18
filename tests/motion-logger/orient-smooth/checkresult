@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Check what canon sends with [TRAJ]ORIENT_SMOOTH (motion-logger output)
-against orient.ngc: every short line under G64 E carries a curve for A and
-C, its points and the quintic along each line stay within 0.8 E of the
-programmed lines over both axes, the curve is continuous in value, rate and
-second derivative from line to line within a run, across the windows the
-run is held back in, ends exactly where a run ends, and the synced output
-stays between the lines it was programmed between."""
+against orient.ngc: the short lines and arcs under G64 carry a curve for A
+and C, its points and the quintic along each move stay within 0.8 of the
+angular tolerance (G64 E, or ORIENT_SMOOTH_TOLERANCE 0.06 without E) over
+both axes, the curve is continuous in value, rate and second derivative
+from move to move within a run and across the windows the run is held back
+in, it ends exactly where a run ends, A stays within its limit of 30 along
+the curve, the moves under G61 and the long line stay as programmed, and
+the synced output stays between the lines it was programmed between."""
 import math
 import os
 import re
 import sys
 
 os.chdir(os.path.dirname(os.path.abspath(sys.argv[1])))
-TOL = 0.8 * 0.05
 EPS = 1e-9
+A_MAX = 30.0
+KNEE = range(176, 216)          # the run into the limit may stay as programmed
 fail = []
 
 
@@ -22,27 +25,55 @@ def check(ok, msg):
         fail.append(msg)
 
 
-# the programmed lines: file line number => end, and whether a run takes it
+def close(a, b):
+    """equal as the motion-logger prints positions, to 6 digits"""
+    return abs(a - b) <= 1e-5 * max(1.0, abs(b))
+
+
+def arc_length(start, end, center, ccw):
+    """the length of an arc in the XY plane as tpnextmod takes it"""
+    r = math.hypot(start[0] - center[0], start[1] - center[1])
+    re_ = math.hypot(end[0] - center[0], end[1] - center[1])
+    a0 = math.atan2(start[1] - center[1], start[0] - center[0])
+    a1 = math.atan2(end[1] - center[1], end[0] - center[0])
+    ang = (a1 - a0) if ccw else (a0 - a1)
+    while ang <= 1e-12:
+        ang += 2 * math.pi
+    arc = ang * (r + 0.5 * (re_ - r))
+    return math.hypot(arc, end[2] - start[2])
+
+
+# the programmed moves: file line number => start, end, length, taken, tolerance
 prog = {}
 pos = [0.0] * 5
-cont = True
+cont, E = True, 0.05
 for n, l in enumerate(open("orient.ngc"), 1):
-    w = dict((k, float(v)) for k, v in re.findall(r"([XYZAC])(-?[0-9.]+)", l))
+    w = dict((k, float(v)) for k, v in re.findall(r"([XYZACIJEP])(-?[0-9.]+)", l))
     if "G61" in l:
         cont = False
     if "G64" in l:
         cont = True
-    if re.match(r"G[01] ", l):
+        E = w.get("E", 0.0)
+    m = re.match(r"G([0-3]) ", l)
+    if m:
         end = [w.get(k, pos[i]) for i, k in enumerate("XYZAC")]
-        L = math.dist(end[:3], pos[:3])
-        prog[n] = (pos, end, l.startswith("G1") and cont and 0 < L <= 5.0)
+        if m.group(1) in "23":
+            L = arc_length(pos, end, (pos[0] + w["I"], pos[1] + w["J"]), m.group(1) == "3")
+        else:
+            L = math.dist(end[:3], pos[:3])
+        takes = m.group(1) != "0" and cont and 0 < L <= 5.0
+        prog[n] = dict(start=pos, end=end, length=L, takes=takes, tol=0.8 * (E if E > 0 else 0.06))
         pos = end
 
-# the log: lines with their shape, and what comes between them
+# the log: moves with their shape, and what comes between them
 cmds = []
-for l in open("out.motion-logger"):
-    if l.startswith("SET_LINE"):
-        f = dict(re.findall(r"(\w+)=(-?[0-9.e+-]+)", l))
+log = open("out.motion-logger").read().split("\n")
+for i, l in enumerate(log):
+    if l.startswith("SET_LINE") or l.startswith("SET_CIRCLE"):
+        if l.startswith("SET_LINE"):
+            f = dict(re.findall(r"(\w+)=(-?[0-9.e+-]+)", l))
+        else:
+            f = dict(re.findall(r"(\w+)=(-?[0-9.e+-]+)", log[i + 1] + " " + log[i + 4]))
         cmds.append({"id": int(f["id"]), "end": [float(f[k]) for k in "xyzac"], "shape": None})
     elif l.startswith("ORIENT_SHAPE"):
         m = re.match(r"ORIENT_SHAPE mask=(\d+), end=(\S+) (\S+) (\S+), shape=(.*)", l)
@@ -51,10 +82,12 @@ for l in open("out.motion-logger"):
         cmds[-1]["shape"] = [float(v) for v in m.group(5).split()]
     elif l.startswith("SET_DOUT"):
         cmds.append({"dout": True})
+    elif l.startswith("SET_TERM_COND"):
+        cmds.append({"barrier": True})
 
-lines = [c for c in cmds if "id" in c]
-check([c["id"] for c in lines] == sorted(n for n in prog if prog[n][1] != prog[n][0]),
-      "the lines sent are not the lines programmed, in order")
+moves = [c for c in cmds if "id" in c]
+check([c["id"] for c in moves] == sorted(n for n in prog if prog[n]["end"] != prog[n]["start"]),
+      "the moves sent are not the moves programmed, in order")
 douts = [i for i, c in enumerate(cmds) if "dout" in c]
 check(len(douts) == 1 and cmds[douts[0] - 1].get("id") == 66 and cmds[douts[0] + 1].get("id") == 69,
       "the synced output is not between lines 66 and 69")
@@ -67,54 +100,71 @@ def hermite(v0, d0, a0, v1, d1, a1, H):
             -15 * D + 8 * r0 + 7 * r1 + 1.5 * q0 - q1, 6 * D - 3 * r0 - 3 * r1 - 0.5 * q0 + 0.5 * q1]
 
 
-prev = None             # the line before, as sent
-shaped = 0
+def poly(c, t):
+    return sum(c[j] * t ** j for j in range(6))
+
+
+prev = None             # the move before, as sent
+shaped = {"lines": 0, "knee": 0}
+a_top = -1e9
 for i, c in enumerate(cmds):
     if "id" not in c:
         prev = None
         continue
-    start, end, takes = prog[c["id"]]
-    check(all(abs(c["end"][k] - end[k]) < 1e-6 for k in range(3)), "line %d: XYZ moved" % c["id"])
-    if not takes:
-        check(c["shape"] is None, "line %d: a curve on a line no run takes" % c["id"])
-        check(all(abs(c["end"][k] - end[k]) < 1e-6 for k in (3, 4)), "line %d: A or C moved" % c["id"])
+    p = prog[c["id"]]
+    start, end = p["start"], p["end"]
+    check(all(close(c["end"][k], end[k]) for k in range(3)), "line %d: XYZ moved" % c["id"])
+    if c["shape"] is None:
+        check(not p["takes"] or c["id"] in KNEE, "line %d: no curve for A and C" % c["id"])
+        check(all(close(c["end"][k], end[k]) for k in (3, 4)), "line %d: A or C moved" % c["id"])
+        a0 = prev["abc"][0] if prev else start[3]
+        a_top = max(a_top, a0, end[3])
         prev = None
         continue
-    shaped += 1
-    if c["shape"] is None or c["mask"] != 5:
-        check(False, "line %d: no curve for A and C" % c["id"])
-        prev = None
-        continue
+    check(p["takes"], "line %d: a curve on a move no run takes" % c["id"])
+    shaped["knee" if c["id"] in KNEE else "lines"] += 1
+    # A at its limit stays put in the limit run, the curve then for C alone
+    check(c["mask"] == 5 or (c["id"] in KNEE and c["mask"] == 4),
+          "line %d: the curve is not for A and C" % c["id"])
     sh = c["shape"]
     a1, c1 = c["abc"][0], c["abc"][2]
-    check(math.hypot(a1 - end[3], c1 - end[4]) <= TOL + EPS, "line %d: end off by more than 0.8 E" % c["id"])
-    # the run ends exactly where the next line is no longer taken
+    tol = p["tol"]
+    check(math.hypot(a1 - end[3], c1 - end[4]) <= tol + EPS, "line %d: end off by more than the tolerance" % c["id"])
     nxt = cmds[i + 1] if i + 1 < len(cmds) else None
-    if nxt is None or "id" not in nxt or not prog[nxt["id"]][2]:
+    if nxt is None or "id" not in nxt or nxt["shape"] is None:
         check(abs(a1 - end[3]) < EPS and abs(c1 - end[4]) < EPS, "line %d: run does not end exactly" % c["id"])
     if prev is not None:
         ps = prev["shape"]
         for k in (0, 2):
-            check(abs(ps[6 + k] - sh[k]) < EPS and abs(ps[9 + k] - sh[3 + k]) < EPS,
-                  "line %d: rate or second derivative jumps from line %d" % (c["id"], prev["id"]))
+            if c["mask"] & prev["mask"] & (1 << k):
+                check(abs(ps[6 + k] - sh[k]) < EPS and abs(ps[9 + k] - sh[3 + k]) < EPS,
+                      "line %d: rate or second derivative jumps from line %d" % (c["id"], prev["id"]))
         a0, c0 = prev["abc"][0], prev["abc"][2]
     else:
         a0, c0 = start[3], start[4]
-        check(True, "")
-    # the quintic along the line against the programmed line, over A and C
-    H = math.dist(start[:3], end[:3])
-    qa = hermite(a0, sh[0], sh[3], a1, sh[6], sh[9], H)
-    qc = hermite(c0, sh[2], sh[5], c1, sh[8], sh[11], H)
+    # the quintic along the move against the programmed move, over A and C;
+    # an axis without a curve goes straight
+    H = p["length"]
+
+    def along(v0, v1, k):
+        if c["mask"] & (1 << k):
+            return hermite(v0, sh[k], sh[3 + k], v1, sh[6 + k], sh[9 + k], H)
+        return [v0, v1 - v0, 0, 0, 0, 0]
+    qa = along(a0, a1, 0)
+    qc = along(c0, c1, 2)
     worst = 0.0
-    for q in range(1, 64):
+    for q in range(0, 65):
         t = q / 64
-        ea = sum(qa[j] * t ** j for j in range(6)) - (start[3] + t * (end[3] - start[3]))
-        ec = sum(qc[j] * t ** j for j in range(6)) - (start[4] + t * (end[4] - start[4]))
+        va = poly(qa, t)
+        a_top = max(a_top, va)
+        ea = va - (start[3] + t * (end[3] - start[3]))
+        ec = poly(qc, t) - (start[4] + t * (end[4] - start[4]))
         worst = max(worst, math.hypot(ea, ec))
-    check(worst <= TOL * 1.02, "line %d: curve %.4g off the programmed line, over 0.8 E" % (c["id"], worst))
+    check(worst <= tol * 1.02, "line %d: curve %.4g off the programmed move, over the tolerance" % (c["id"], worst))
     prev = c
 
-check(shaped == 100, "%d lines taken, expected 100" % shaped)
+check(shaped["lines"] == 160, "%d moves smoothed outside the limit run, expected 160" % shaped["lines"])
+check(a_top <= A_MAX + EPS, "A reaches %.6f, over its limit of 30" % a_top)
 for f in fail[:20]:
     print(f)
 sys.exit(1 if fail else 0)
