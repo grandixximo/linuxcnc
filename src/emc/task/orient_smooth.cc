@@ -33,6 +33,7 @@ const int BISECT_MAX = 30;
 const int SPACINGS = 4;             // spacing, spacing / 2, / 4 and / 8
 const int SEG_PER_LINE = 4;         // at most this many breakpoint intervals per line
 const int MAX_LINES = 100000;
+const size_t MIN_PART = 8;          // the fewest moves a part of a run is fitted in
 const int CHECKS = 8;               // the tolerance is checked at t = k / CHECKS along a line
 const double VBIG = 1e9;            // speed estimate where an axis does not bend
 
@@ -363,8 +364,9 @@ class Fit {
     std::vector<std::vector<double>> b_;
 };
 
-/* Does the curve keep within tol of the programmed lines over all the
- * axes, at the points and along each line? */
+/* Does the curve keep within tol of the programmed moves over all the
+ * axes, and each axis within its limits, at the points and along each
+ * move? */
 bool within(const std::vector<double> &s, const std::vector<OrientSmoothAxis> &axes, double tol)
 {
     size_t n = s.size(), na = axes.size();
@@ -372,7 +374,10 @@ bool within(const std::vector<double> &s, const std::vector<OrientSmoothAxis> &a
     for (size_t j = 1; j + 1 < n; j++) {
         double e2 = 0.0;
         for (size_t k = 0; k < na; k++) {
-            double e = axes[k].val[j] - axes[k].y[j];
+            double v = axes[k].val[j], e = v - axes[k].y[j];
+            if (v < axes[k].min || v > axes[k].max) {
+                return false;
+            }
             e2 += e * e;
         }
         if (e2 > tol2) {
@@ -393,8 +398,13 @@ bool within(const std::vector<double> &s, const std::vector<OrientSmoothAxis> &a
         for (int q = 1; q < CHECKS; q++) {
             double t = (double)q / CHECKS, e2 = 0.0;
             for (size_t k = 0; k < na; k++) {
+                const OrientSmoothAxis &a = axes[k];
                 const double *ck = &c[6 * k];
                 double e = ck[0] + t * (ck[1] + t * (ck[2] + t * (ck[3] + t * (ck[4] + t * ck[5]))));
+                double v = a.y[j] + t * (a.y[j + 1] - a.y[j]) + e;
+                if (v < a.min || v > a.max) {
+                    return false;
+                }
                 e2 += e * e;
             }
             if (e2 > tol2) {
@@ -519,14 +529,14 @@ bool orientSmooth(const std::vector<double> &s, std::vector<OrientSmoothAxis> &a
     return true;
 }
 
-bool orientSmoothRun(const double start_xyz[3], const double start_abc[3], unsigned angular,
-        const double jerk[3], std::vector<OrientLine> &lines, size_t emit, double tol,
-        double spacing, const OrientCarry &in, OrientCarry &out, OrientSmoothInfo *info)
+bool orientSmoothRun(const double start_abc[3], const OrientAxes &ax,
+        std::vector<OrientMove> &moves, size_t emit, double tol, double spacing,
+        const OrientCarry &in, OrientCarry &out, OrientSmoothInfo *info)
 {
-    size_t n = lines.size();
+    size_t n = moves.size();
     out.mask = 0;
-    for (OrientLine &l : lines) {
-        l.mask = 0;
+    for (OrientMove &m : moves) {
+        m.mask = 0;
     }
     if (info) {
         *info = OrientSmoothInfo{0.0, 0.0, 0.0, 0.0};
@@ -535,59 +545,57 @@ bool orientSmoothRun(const double start_xyz[3], const double start_abc[3], unsig
         return false;
     }
     std::vector<double> s(n + 1);
-    const double *prev = start_xyz;
     s[0] = 0.0;
     for (size_t i = 0; i < n; i++) {
-        const double *p = lines[i].xyz;
-        s[i + 1] = s[i] + std::sqrt((p[0] - prev[0]) * (p[0] - prev[0])
-                + (p[1] - prev[1]) * (p[1] - prev[1]) + (p[2] - prev[2]) * (p[2] - prev[2]));
-        prev = p;
+        s[i + 1] = s[i] + moves[i].length;
     }
     /* the angular axes that move along the run or start on the curve */
     std::vector<OrientSmoothAxis> axes;
     int which[3];
     unsigned mask = 0;
     for (int k = 0; k < 3; k++) {
-        if (!(angular & (1u << k))) {
+        if (!(ax.angular & (1u << k))) {
             continue;
         }
-        OrientSmoothAxis ax;
-        bool moves = false;
-        ax.y.resize(n + 1);
-        ax.y[0] = start_abc[k];
+        OrientSmoothAxis a;
+        bool moves_k = false;
+        a.y.resize(n + 1);
+        a.y[0] = start_abc[k];
         for (size_t i = 0; i < n; i++) {
-            ax.y[i + 1] = lines[i].abc[k];
-            moves = moves || ax.y[i + 1] != ax.y[0];
+            a.y[i + 1] = moves[i].abc[k];
+            moves_k = moves_k || a.y[i + 1] != a.y[0];
         }
         if (in.mask & (1u << k)) {
-            ax.start_fixed = true;
-            ax.start_val = in.val[k];
-            ax.start_d1 = in.d1[k];
-            ax.start_d2 = in.d2[k];
-        } else if (!moves) {
+            a.start_fixed = true;
+            a.start_val = in.val[k];
+            a.start_d1 = in.d1[k];
+            a.start_d2 = in.d2[k];
+        } else if (!moves_k) {
             continue;
         }
-        ax.jerk = jerk[k];
+        a.jerk = ax.jerk[k];
+        a.min = ax.min[k];
+        a.max = ax.max[k];
         which[axes.size()] = k;
-        axes.push_back(std::move(ax));
+        axes.push_back(std::move(a));
         mask |= 1u << k;
     }
     if (!mask || !orientSmooth(s, axes, tol, spacing, info)) {
         return false;
     }
     for (size_t i = 0; i < emit; i++) {
-        OrientLine &l = lines[i];
-        l.mask = mask;
+        OrientMove &m = moves[i];
+        m.mask = mask;
         for (int q = 0; q < 12; q++) {
-            l.shape[q] = 0.0;
+            m.shape[q] = 0.0;
         }
         for (size_t a = 0; a < axes.size(); a++) {
             int k = which[a];
-            l.out[k] = axes[a].val[i + 1];
-            l.shape[k] = axes[a].d1[i];
-            l.shape[3 + k] = axes[a].d2[i];
-            l.shape[6 + k] = axes[a].d1[i + 1];
-            l.shape[9 + k] = axes[a].d2[i + 1];
+            m.out[k] = axes[a].val[i + 1];
+            m.shape[k] = axes[a].d1[i];
+            m.shape[3 + k] = axes[a].d2[i];
+            m.shape[6 + k] = axes[a].d1[i + 1];
+            m.shape[9 + k] = axes[a].d2[i + 1];
         }
     }
     if (emit < n) {
@@ -600,4 +608,80 @@ bool orientSmoothRun(const double start_xyz[3], const double start_abc[3], unsig
         }
     }
     return true;
+}
+
+size_t orientSmoothSend(const double start_abc[3], const OrientAxes &ax,
+        std::vector<OrientMove> &moves, size_t emit, double tol, double spacing,
+        const OrientCarry &in, OrientCarry &out)
+{
+    /* the parts smoothed so far: where each starts, what it starts on, and
+     * whether it hands its curve on to the moves after it */
+    struct Part {
+        size_t begin, end;
+        double start[3];
+        OrientCarry in;
+        bool open;
+    };
+    std::vector<Part> parts;
+    size_t n = moves.size(), done = 0, want = n;
+    double start[3] = {start_abc[0], start_abc[1], start_abc[2]};
+    OrientCarry carry = in;
+    std::vector<OrientMove> part;
+    out.mask = 0;
+    for (OrientMove &m : moves) {
+        m.mask = 0;
+    }
+    emit = std::min(emit, n);
+    while (done < emit) {
+        size_t avail = n - done, m = std::min(avail, want);
+        /* a part short of the moves held leaves its last quarter to the next */
+        size_t e = m == avail ? emit - done : std::min(emit - done, std::max<size_t>(1, m - m / 4));
+        part.assign(moves.begin() + done, moves.begin() + done + m);
+        OrientCarry next;
+        if (orientSmoothRun(start, ax, part, e, tol, spacing, carry, next)) {
+            std::copy(part.begin(), part.begin() + e, moves.begin() + done);
+            parts.push_back({done, done + e, {start[0], start[1], start[2]}, carry, next.mask != 0});
+            carry = next;
+            done += e;
+            want = std::min(n, 2 * m);
+        } else if (m > MIN_PART) {
+            want = m / 2;
+            continue;
+        } else {
+            /* Even a few moves fail, and the first of them stay as
+             * programmed. A part running into them on its curve would
+             * leave them off their programmed start, a corner the planner
+             * blends on top of that: it ends on the programmed point
+             * instead, or stays as programmed too. */
+            size_t at = done;
+            while (!parts.empty() && parts.back().end == at && parts.back().open) {
+                Part &p = parts.back();
+                part.assign(moves.begin() + p.begin, moves.begin() + at);
+                OrientCarry none;
+                if (orientSmoothRun(p.start, ax, part, part.size(), tol, spacing, p.in, none)) {
+                    std::copy(part.begin(), part.end(), moves.begin() + p.begin);
+                    p.open = false;
+                    break;
+                }
+                for (size_t i = p.begin; i < at; i++) {
+                    moves[i].mask = 0;
+                }
+                at = p.begin;
+                parts.pop_back();
+            }
+            e = std::min(emit - done, std::max<size_t>(1, m / 2));
+            carry.mask = 0;
+            done += e;
+            want = MIN_PART;
+        }
+        for (int k = 0; k < 3; k++) {
+            start[k] = moves[done - 1].abc[k];
+        }
+    }
+    out = carry;
+    size_t smoothed = 0;
+    for (size_t i = 0; i < emit; i++) {
+        smoothed += moves[i].mask != 0;
+    }
+    return smoothed;
 }
