@@ -1063,8 +1063,8 @@ static int checkIdleMode(NMLTYPE type)
 	}
 	break;
     case EMC_TASK_PLAN_EXECUTE_TYPE:
-	// halui's [HALUI]MDI_COMMAND list is the integrator's, like a macro
-	if (!emcCommandInternal && selectedMode != EMC_TASK_MODE::MDI) {
+	// [HALUI]MDI_COMMAND runs as a macro, see taskMacrosLoad()
+	if (selectedMode != EMC_TASK_MODE::MDI) {
 	    emcOperatorError(_("Can't run an MDI command in %s mode, select MDI"),
 		modeName(selectedMode));
 	    return -1;

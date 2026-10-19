@@ -7,6 +7,10 @@
 *   COMMAND = G53 G0 Z0
 *   MODES = MANUAL MDI
 *
+*   [HALUI]MDI_COMMAND entries are macros too, named mdi-command-NN like
+*   their halui pins and allowed in every mode, so that every MDI command
+*   goes through the same mode check.
+*
 * License: GPL Version 2
 ********************************************************************/
 
@@ -18,6 +22,7 @@
 #include <rtapi.h>
 
 #include <cctype>
+#include <cstdio>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -29,6 +34,7 @@ struct Macro {
     std::string command;
     std::string modes;      /* for messages */
     bool manual = false, mdi = false, autom = false;
+    bool pin = true;        /* halui.macro.<name>; MDI_COMMAND has its own */
 };
 
 std::vector<Macro> macros;
@@ -76,6 +82,21 @@ bool parseModes(const std::string &text, Macro &m)
 int taskMacrosLoad(linuxcnc::IniFile &inifile)
 {
     macros.clear();
+    for (int n = 1; n <= TASK_MACRO_MDI_COMMAND_MAX; n++) {
+        auto command = inifile.findString(n, "MDI_COMMAND", "HALUI");
+        if (!command) {
+            break;
+        }
+        Macro m;
+        char name[32];
+        snprintf(name, sizeof(name), "mdi-command-%02d", n - 1);
+        m.name = name;
+        m.command = *command;
+        m.manual = m.mdi = m.autom = true;
+        m.modes = "Manual, MDI, Auto";
+        m.pin = false;
+        macros.push_back(m);
+    }
     for (int n = 1; ; n++) {
         auto name = inifile.findString(n, "NAME", "MDI_MACROS");
         auto command = inifile.findString(n, "COMMAND", "MDI_MACROS");
@@ -127,6 +148,11 @@ int taskMacrosLoad(linuxcnc::IniFile &inifile)
 int taskMacroCount(void)
 {
     return (int)macros.size();
+}
+
+bool taskMacroHasPin(int n)
+{
+    return macros[n].pin;
 }
 
 const char *taskMacroName(int n)

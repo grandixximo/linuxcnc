@@ -249,7 +249,7 @@ wait(idle)
 errors()
 
 # --- halui's MDI_COMMAND list runs in any mode and leaves it
-for m in (linuxcnc.MODE_MANUAL, linuxcnc.MODE_AUTO):
+for m in (linuxcnc.MODE_MANUAL, linuxcnc.MODE_AUTO, linuxcnc.MODE_MDI):
     mode(m)
     c.wait_complete()
     hal.set_p('halui.mdi-command-00', '1')
@@ -262,6 +262,19 @@ for m in (linuxcnc.MODE_MANUAL, linuxcnc.MODE_AUTO):
     wait(lambda: abs(x() - 1) < 1e-6)
     wait(idle)
 check('no errors from halui MDI', not errors())
+mode(linuxcnc.MODE_MANUAL)
+c.macro('mdi-command-00')
+check('MDI_COMMAND is the macro mdi-command-00, in Manual too', wait(lambda: abs(x()) < 1e-6), x())
+wait(idle)
+try:
+    hal.get_value('halui.macro.mdi-command-00')
+    check('MDI_COMMAND has no second pin', False)
+except Exception:
+    check('MDI_COMMAND has no second pin', True)
+mode(linuxcnc.MODE_MDI)
+c.mdi('G0 X1')
+wait(lambda: idle() and abs(x() - 1) < 1e-6)
+check('no errors from the MDI_COMMAND macro', not errors())
 
 # --- halui's mode pins and halui.program.run
 mode(linuxcnc.MODE_MANUAL)

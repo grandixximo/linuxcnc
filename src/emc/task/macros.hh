@@ -20,8 +20,14 @@ namespace linuxcnc { class IniFile; }
    0, or -1 with the macros dropped if the section is inconsistent. */
 int taskMacrosLoad(linuxcnc::IniFile &inifile);
 
+/* [HALUI]MDI_COMMAND entries load first, as macros mdi-command-NN
+   allowed in every mode; halui gives them their own pins */
+#define TASK_MACRO_MDI_COMMAND_MAX 64
+
 int taskMacroCount(void);
 const char *taskMacroName(int n);
+/* false for the MDI_COMMAND macros: no halui.macro.<name> pin */
+bool taskMacroHasPin(int n);
 
 /* The macro called name, or -1 */
 int taskMacroFind(const char *name);

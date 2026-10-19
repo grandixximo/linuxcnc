@@ -73,6 +73,7 @@ static int axis_mask = 0;
 #define JOGTELEOP 0
 
 #define MDI_MAX 64
+#define MACRO_MAX (MDI_MAX + 64)
 
 #define HAL_FIELDS \
     FIELD(bool,machine_on) /* pin for setting machine On */ \
@@ -222,7 +223,7 @@ static int axis_mask = 0;
     FIELD(bool,home_all) /* pin for homing all joints in sequence */ \
     FIELD(bool,abort) /* pin for aborting */ \
     ARRAY(bool,mdi_commands,MDI_MAX) \
-    ARRAY(bool,macros,MDI_MAX) /* [MDI_MACROS], by name */ \
+    ARRAY(bool,macros,MACRO_MAX) /* [MDI_MACROS], by name */ \
 \
     FIELD(real,units_per_mm) \
 
@@ -599,8 +600,10 @@ int halui_hal_init(void)
         CHK(hal_pin_new_bool(comp_id, HAL_IN, &(halui_data->mdi_commands[n]), 0, "halui.mdi-command-%02d", n));
     }
 
-    for (int n = 0; n < taskMacroCount() && n < MDI_MAX; n++) {
-        CHK(hal_pin_new_bool(comp_id, HAL_IN, &(halui_data->macros[n]), 0, "halui.macro.%s", taskMacroName(n)));
+    for (int n = 0; n < taskMacroCount() && n < MACRO_MAX; n++) {
+        if (taskMacroHasPin(n)) {
+            CHK(hal_pin_new_bool(comp_id, HAL_IN, &(halui_data->macros[n]), 0, "halui.macro.%s", taskMacroName(n)));
+        }
     }
 
     hal_ready(comp_id);
@@ -639,9 +642,10 @@ static int sendEstopReset()
     return emcCommandSend(state_msg);
 }
 
-// Start an [HALUI]MDI_COMMAND. Task needs no mode for it: an MDI command
-// starts an MDI run when task is idle, and queues behind the running one
-// during MDI. Task refuses it while a program runs or a jog is active.
+// Start an [HALUI]MDI_COMMAND. It is the macro mdi-command-NN, allowed in
+// every mode: it starts an MDI run when task is idle, and queues behind the
+// running one during MDI. Task refuses it while a program runs or a jog is
+// active.
 //
 // What the pins do is unchanged, including the two known quirks the tests
 // pin down: halui-mdi-is-running goes true at the press, before task has
@@ -655,9 +659,10 @@ static void sendMdiCommand(int n)
         hal_set_bool(halui_data->halui_mdi_is_running, halui_sent_mdi);
     }
 
-    EMC_TASK_PLAN_EXECUTE emc_task_plan_execute_msg;
-    rtapi_strxcpy(emc_task_plan_execute_msg.command, mdi_commands[n]);
-    mdi_exec_ticket = taskcmd::push(emc_task_plan_execute_msg);
+    // the macro mdi-command-NN, see taskMacrosLoad()
+    EMC_TASK_PLAN_MACRO msg;
+    snprintf(msg.name, sizeof(msg.name), "mdi-command-%02d", n);
+    mdi_exec_ticket = taskcmd::push(msg);
 }
 
 // True once the MDI command halui started has actually been issued by task
@@ -1727,8 +1732,9 @@ static void check_hal_changes()
             sendMdiCommand(n);
     }
 
-    for (int n = 0; n < taskMacroCount() && n < MDI_MAX; n++) {
-        if (check_bit_changed(new_halui_data.macros[n], old_halui_data.macros[n]) != 0)
+    for (int n = 0; n < taskMacroCount() && n < MACRO_MAX; n++) {
+        if (taskMacroHasPin(n)
+            && check_bit_changed(new_halui_data.macros[n], old_halui_data.macros[n]) != 0)
             sendMacro(n);
     }
 }

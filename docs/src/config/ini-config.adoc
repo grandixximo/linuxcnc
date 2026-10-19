@@ -786,7 +786,7 @@ For more information see the <<cha:hal-twopass,HAL TWOPASS>> chapter.
 * `MDI_COMMAND = G53 G0 X0 Y0 Z0` -
   An MDI command can be executed by using `halui.mdi-command-00`. Increment the number for each command listed in the [HALUI] section.
   It is also possible to start subroutines. `MDI_COMMAND = o<yoursub> CALL [#<yourvariable>]`
-  These commands run in any mode and leave the mode as it is.
+  These commands run in any mode and leave the mode as it is: each is the macro `mdi-command-NN` of the <<sub:ini:sec:mdi-macros,[MDI_MACROS] section>>, allowed in Manual, MDI and Auto.
 
 [[sub:ini:sec:mdi-macros]]
 === [MDI_MACROS] section(((INI File,Sections,[MDI_MACROS] Section)))
@@ -799,6 +799,7 @@ Free MDI commands typed by the operator run only in MDI mode.
 Each macro is a `NAME`, a `COMMAND` and its `MODES`, in that order; the n-th `NAME` goes with the n-th `COMMAND` and `MODES`.
 
 * `NAME = tool_change_position` - the name of the macro: letters, digits, `_` and `-`.
+  The names `mdi-command-00` and up are taken by the `[HALUI]MDI_COMMAND` entries.
 * `COMMAND = G53 G0 Z0` - the MDI command, which may call a subroutine.
 * `MODES = MANUAL MDI` - the modes the macro runs in: any of `MANUAL`, `MDI` and `AUTO`.
 
