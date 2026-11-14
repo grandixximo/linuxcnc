@@ -680,14 +680,21 @@ static void jointsAt(tpn_seg const *sg, double S, int n, double *q)
  * ends and the limits of the slowest joint scaled onto the joint space
  * distance, which is the path parameter along the move. */
 int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
-        int num_joints, EmcPose world_end, int canon_motion_type,
+        int num_joints, EmcPose world_end, int path_type,
+        const EmcPose *path_start, const EmcPose *path_end, double path_length,
+        int canon_motion_type,
         double vel, double ini_maxvel, double acc, double ini_maxjerk,
         unsigned char enables, struct state_tag_t tag)
 {
     double L = 0.0;
     int j;
+    (void)path_start; (void)path_end; (void)path_length;
     if (!tp || !start || !end || num_joints <= 0 || num_joints > TPN_NJ) {
         return TP_ERR_MISSING_INPUT;
+    }
+    if (path_type >= 0) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "tpnextmod: a line on another kinematics type is not supported\n");
+        return TP_ERR_FAIL;
     }
     if (tpn.q_len >= TPN_QSIZE) {
         return TP_ERR_FAIL;
@@ -743,6 +750,17 @@ int tpGetJointPos(TP_STRUCT const * const tp, double * const joints)
     }
     jointsAt(sg, tpn.cur_s, sg->joint, joints);
     return sg->joint;
+}
+
+int tpGetJointPath(TP_STRUCT const * const tp, EmcPose * const pose)
+{
+    (void)tp; (void)pose;
+    return -1;
+}
+
+void tpSetJointPos(TP_STRUCT * const tp, const double * const joints)
+{
+    (void)tp; (void)joints;
 }
 
 int tpTakeJointEnd(TP_STRUCT * const tp, double * const joints)
@@ -1152,6 +1170,7 @@ EXPORT_SYMBOL(tpGetExecId);
 EXPORT_SYMBOL(tpGetExecTag);
 EXPORT_SYMBOL(tpGetGoalPos);
 EXPORT_SYMBOL(tpGetJointPos);
+EXPORT_SYMBOL(tpGetJointPath);
 EXPORT_SYMBOL(tpGetMotionType);
 EXPORT_SYMBOL(tpGetPos);
 EXPORT_SYMBOL(tpGetQueueEndJoints);
@@ -1166,6 +1185,7 @@ EXPORT_SYMBOL(tpSetAout);
 EXPORT_SYMBOL(tpSetCycleTime);
 EXPORT_SYMBOL(tpSetDout);
 EXPORT_SYMBOL(tpSetId);
+EXPORT_SYMBOL(tpSetJointPos);
 EXPORT_SYMBOL(tpSetPos);
 EXPORT_SYMBOL(tpSetRunDir);
 EXPORT_SYMBOL(tpSetSpindleSync);
