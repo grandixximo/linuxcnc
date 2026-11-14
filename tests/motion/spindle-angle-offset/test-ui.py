@@ -48,14 +48,16 @@ def fail(msg):
 def index_resets(data):
     """Split the samples at each index pulse.
 
-    sim_spindle clears index-enable at the moment it zeroes its position, so a
-    falling edge of that pin is the index reset.  Returns a list of sample
-    lists, one per synchronized move that waited for an index.
+    sim_spindle zeroes its position on the index it was asked for, so the
+    revolution count falling back is the index reset.  index-enable is no
+    use for this: asked for in the cycle the index passes, it is set and
+    cleared again before the sampler runs.  Returns a list of sample lists,
+    one per synchronized move that waited for an index.
     """
     groups = []
     start = None
     for i in range(1, len(data)):
-        if data[i - 1][INDEX] and not data[i][INDEX]:
+        if data[i][REVS] < data[i - 1][REVS] - 0.5:
             if start is not None:
                 groups.append(data[start:i])
             start = i
