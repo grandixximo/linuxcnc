@@ -163,6 +163,9 @@ typedef struct {
     unsigned dep[2];
     double epoch;           /* the queue build that added it */
     int active;
+    /* the interior is straight and bounded by the axes alone: its limits
+     * are exact and taken in full */
+    int exact;
     int rev_ok;             /* may be run backwards: no tap, sync or indexer */
     double hump_t;          /* speed humps shorter than this are flattened, s */
     /* A point-to-point move (G53.4 to G53.7) has its joint count here, 0
@@ -253,7 +256,8 @@ double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, doubl
 #define TPN_BIG 1e30
 #define TPN_TINY 1e-12
 /* braking is planned with this fraction of the tangential limits so the
- * cycle by cycle controller has headroom to follow the curve */
+ * cycle by cycle controller has headroom to follow the curve; a stop
+ * inside a piece with exact limits is braked in full, see gridDist() */
 #define TPN_BRAKE_SCALE 0.97
 /* queue builds kept that lowered the limits of the end of the queue */
 #define TPN_GENS 32

@@ -2,7 +2,8 @@
 * Description: tpn_run.c
 *   Per cycle controller of the tpnext trajectory planner: picks the
 *   largest jerk that keeps every speed cap and stop in the braking
-*   horizon reachable, and lands stops on a cycle boundary.
+*   horizon reachable, and lands stops on a cycle boundary. In a straight
+*   piece bounded by the axes alone it runs at the limits in full.
 *
 * License: GPL Version 2
 * System: Linux
@@ -44,6 +45,7 @@ typedef struct {
     double Jentry;  /* jerk limit from S on */
     double ae;      /* largest acceleration either way S may be met with */
     int own;        /* carried by the envelopes of the constraints before */
+    int grid;       /* a stop braked on the cycle grid, see gridDist() */
     tpn_ramp r;     /* the ramp its envelope comes from, r.J = 0: none */
 } tpn_con;
 
@@ -306,6 +308,7 @@ typedef struct {
                          * at their limit */
     double Vs;          /* soft cap there, < 0 for none */
     double Sstop;       /* nearest stop ahead */
+    int exact;          /* every piece the step touches has exact limits */
     double hump_t;      /* speed humps shorter than this are flattened */
 } tpn_step;
 
@@ -323,6 +326,7 @@ static void addCon(double S, double Vh, double Vs, double Aentry, double Jentry,
     con[ncon].Arun = Arun;
     con[ncon].Jrun = Jrun;
     con[ncon].own = 1;
+    con[ncon].grid = 0;
     con[ncon].r.J = 0.0;
     ncon++;
 }
@@ -347,6 +351,7 @@ static void conBudget(void)
 }
 
 static void const *rp_n, *ae_n;
+static int grid_on;
 
 static void stepInit(tpn_step *st)
 {
@@ -360,7 +365,9 @@ static void stepInit(tpn_step *st)
     st->Jhi = TPN_BIG;
     st->Vs = -1.0;
     st->Sstop = TPN_BIG;
+    st->exact = 1;
     st->hump_t = 0.0;
+    grid_on = 0;
 }
 
 /* beyond the braking distance of the fastest next state every
@@ -464,6 +471,7 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
                 actAdd(rp);
             }
             if (Pa <= tpn.cur_s) {
+                st->exact = st->exact && piece >= TPN_NSUB && sg->exact;
                 st->hump_t = tpnMax(st->hump_t, sg->hump_t);
                 st->V = tpnMin(st->V, lim->V);
                 st->A = tpnMin(st->A, lim->A);
@@ -526,6 +534,9 @@ static void gather(TP_STRUCT const *tp, double scale, int stepping, tpn_step *st
     if (nrun >= 0) {
         ncon = nrun;
     }
+    if (st->A >= TPN_BIG) {
+        st->exact = 0;
+    }
     conBudget();
 }
 
@@ -571,6 +582,7 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
                 lim = hi;
             }
             if (Pb >= s) {
+                st->exact = st->exact && piece >= TPN_NSUB && sg->exact;
                 st->V = tpnMin(st->V, lim->V);
                 st->A = tpnMin(st->A, lim->A);
                 st->J = tpnMin(st->J, lim->J);
@@ -624,6 +636,7 @@ static void gatherReverse(TP_STRUCT const *tp, double scale, int stepping, tpn_s
         while (!tpnPiece(sg, k, &Pa, &Pb, &lim, &hi, &E, &E_hi) && k < tpnPieces(sg) - 1) {
             k++;
         }
+        st->exact = k >= TPN_NSUB && sg->exact;
         st->V = lim->V;
         st->A = lim->A;
         st->J = lim->J;
@@ -1003,8 +1016,259 @@ static int carried(int k, tpn_next const *n, tpn_step const *st)
     return k >= cf_from;
 }
 
+/* ------------------------------------------------- stop on the cycle grid */
+
+/*
+ * A stop inside a piece with exact limits is braked at the full limits,
+ * with every change of jerk on a cycle boundary, so nothing is left for
+ * a margin to cover. The brake is a rule on the state alone:
+ *
+ *   The ramp-out from a deceleration a, at the jerk limit a cycle at a
+ *   time with the rest of a cycle last, takes the speed gridLow(a): a
+ *   state below that line cannot come to rest without reversing. Each
+ *   cycle takes the lowest jerk that leaves the next state on or above
+ *   the line: the jerk limit down to the acceleration limit, that
+ *   deceleration held, one cycle of jerk that lands on the line, then
+ *   the line to rest.
+ *
+ * gridDist() is how far that brake travels. A stop no nearer can be met,
+ * and the brake from a state at exactly that distance ends on the stop,
+ * at rest, on a cycle.
+ */
+static double g_A, g_J;
+/* the next state of the lowest jerk the rule allows this cycle */
+static double grid_v1, grid_a1;
+/* the stop the grid brake was taken for, and the one it was refused for */
+static double grid_S = -TPN_BIG, grid_no = -TPN_BIG;
+
+static double gridLow(double a)
+{
+    if (a >= 0.0) {
+        return 0.0;
+    }
+    double jd = g_J * g_dt, n = floor(-a / jd);
+    return -a * g_dt * (n + 0.5) - 0.5 * jd * g_dt * n * (n + 1.0);
+}
+
+static int gridAlive(double v, double a)
+{
+    return v >= gridLow(a) - 1e-9 * g_A * g_dt;
+}
+
+/* the lowest jerk within the limits that leaves the next state alive */
+static double gridJerk(double v, double a)
+{
+    double dt = g_dt, jd = g_J * dt;
+    double hard = a < -g_A ? tpnMin(g_J, (-g_A - a) / dt) : tpnMax(-g_J, (-g_A - a) / dt);
+    tpn_next n;
+    int k;
+    stepFrom(0.0, v, a, hard, dt, &n);
+    if (gridAlive(n.v1, n.a1)) {
+        return hard;
+    }
+    /* onto the line, which is straight between multiples of jd */
+    double m = floor(-n.a1 / jd);
+    for (k = 0; k < 4 && m >= 0.0; k++, m -= 1.0) {
+        double j = -(v + a * dt * (m + 1.5) + 0.5 * jd * dt * m * (m + 1.0))
+            / (dt * dt * (m + 1.0));
+        double x = -(a + j * dt) / jd;
+        if (j >= hard && j <= g_J && x >= m - 1e-9 && x <= m + 1.0 + 1e-9) {
+            return j;
+        }
+    }
+    /* at rest with acceleration left to ramp out */
+    double j = -2.0 * (v + a * dt) / (dt * dt);
+    if (j >= hard && j <= g_J && a + j * dt >= 0.0) {
+        return j;
+    }
+    return g_J;
+}
+
+/* k cycles at the jerk j */
+static void gridRun(double k, double j, double *s, double *v, double *a)
+{
+    double T = k * g_dt;
+    *s += *v * T + 0.5 * *a * T * T + j * T * T * T / 6.0;
+    *v += *a * T + 0.5 * j * T * T;
+    *a += j * T;
+}
+
+static double gridDist(double v, double a)
+{
+    double dt = g_dt, A = g_A, J = g_J, jd = J * dt, s = 0.0;
+    tpn_next n;
+    int it;
+    for (it = 0; it < 8; it++) {
+        if (a < -A * (1.0 + 1e-12)) {
+            /* more deceleration than the piece takes: back to its limit */
+            double k = floor((-A - a) / jd);
+            if (k >= 1.0) {
+                gridRun(k, J, &s, &v, &a);
+            } else {
+                gridRun(1.0, (-A - a) / dt, &s, &v, &a);
+                a = -A;
+            }
+            continue;
+        }
+        double hard = tpnMax(-J, (-A - a) / dt);
+        stepFrom(0.0, v, a, hard, dt, &n);
+        if (!gridAlive(n.v1, n.a1)) {
+            break;
+        }
+        if (hard > -J) {
+            if (a > -A * (1.0 - 1e-12)) {
+                /* the rest of a cycle onto the acceleration limit */
+                s += n.s1;
+                v = n.v1;
+                a = -A;
+                continue;
+            }
+            /* held down to where the line is a cycle away */
+            double p = floor((v - gridLow(-A)) / (A * dt) + 1e-9);
+            gridRun(tpnMax(p, 1.0), 0.0, &s, &v, &a);
+            continue;
+        }
+        /* full cycles of jerk, as many as stay alive short of the
+         * acceleration limit: alive up to one count, not after */
+        double hi = floor((a + A) / jd + 1e-9), lo = 1.0;
+        double sk = 0.0, vk = v, ak = a;
+        gridRun(hi, -J, &sk, &vk, &ak);
+        if (gridAlive(vk, ak)) {
+            lo = hi;
+        }
+        while (hi - lo > 1.5) {
+            double mid = floor(0.5 * (lo + hi));
+            sk = 0.0; vk = v; ak = a;
+            gridRun(mid, -J, &sk, &vk, &ak);
+            if (gridAlive(vk, ak)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        gridRun(lo, -J, &s, &v, &a);
+    }
+    /* the cycle onto the line, then the line */
+    double j = gridJerk(v, a);
+    stepFrom(0.0, v, a, j, dt, &n);
+    if (!gridAlive(n.v1, n.a1)) {
+        return TPN_BIG;
+    }
+    s += n.s1;
+    v = n.v1;
+    a = n.a1;
+    if (a < 0.0) {
+        double k = floor(-a / jd);
+        gridRun(k, J, &s, &v, &a);
+        s += v * dt + a * dt * dt / 3.0;
+    }
+    return s;
+}
+
+/* the next state can still brake to rest by a stop at distance d */
+static int gridOk(tpn_next const *n, double d)
+{
+    if (n->v1 == grid_v1 && n->a1 == grid_a1) {
+        /* the hardest brake the rule has is always open */
+        return 1;
+    }
+    return gridAlive(n->v1, n->a1) && gridDist(n->v1, n->a1) <= d + 1e-10;
+}
+
+/* how much nearer than the stop at S the grid brake ends after a cycle
+ * at the jerk j */
+static double gridSpare(double j, double S)
+{
+    tpn_next n;
+    stepState(j, g_dt, &n);
+    return S - n.s1 - gridDist(n.v1, n.a1);
+}
+
+/* The highest jerk in [jlo, jhi] whose next state can still stop by S:
+ * the root of gridSpare(), by false position, kept on the side that
+ * can. jlo is the hardest brake the rule has, open whatever is left. */
+static double gridTop(double jlo, double jhi, double S)
+{
+    double a = jlo, b = jhi, fa = gridSpare(a, S), fb, f;
+    int it, side = 0;
+    if (fa <= 1e-12) {
+        return jlo;
+    }
+    fb = gridSpare(b, S);
+    if (fb >= 0.0) {
+        return jhi;
+    }
+    f = fa;
+    for (it = 0; it < 40 && b - a > 1e-10 * g_J && f > 1e-13; it++) {
+        double c = fb < -1e20 ? 0.5 * (a + b) : (a * fb - b * fa) / (fb - fa);
+        double fc = gridSpare(c, S);
+        if (fc >= 0.0) {
+            a = c;
+            fa = f = fc;
+            if (side > 0 && fb > -1e20) {
+                fb *= 0.5;
+            }
+            side = 1;
+        } else {
+            b = c;
+            fb = fc;
+            if (side < 0) {
+                fa *= 0.5;
+            }
+            side = -1;
+        }
+    }
+    return a;
+}
+
+/* Whether the nearest stop is braked on the grid: it is the first thing
+ * ahead, inside a piece with exact limits, and the motion is not braking
+ * yet when the stop is first seen that way; a brake begun under the
+ * margins is finished under them. */
+static void gridStart(tpn_step const *st)
+{
+    int k;
+    grid_on = 0;
+    if (!st->exact || ncon == 0 || con[0].Vh > 0.0 || con[0].S != st->Sstop) {
+        return;
+    }
+    if (st->Sstop != grid_S) {
+        if (st->Sstop == grid_no && (tpn.cur_v != 0.0 || tpn.cur_a != 0.0)) {
+            return;
+        }
+        if (tpn.cur_a < 0.0 || tpn.cur_a > g_A || !gridAlive(tpn.cur_v, tpn.cur_a)
+                || gridDist(tpn.cur_v, tpn.cur_a) > st->Sstop - cx) {
+            grid_no = st->Sstop;
+            return;
+        }
+        grid_S = st->Sstop;
+    }
+    grid_on = 1;
+    /* a stop may be there twice: the end of a single step and the start
+     * of the next move */
+    for (k = 0; k < ncon && con[k].S == st->Sstop; k++) {
+        if (con[k].Vh <= 0.0) {
+            con[k].grid = 1;
+            con[k].own = 0;
+        }
+    }
+}
+
+/* The same rule turned over lands a speed-up on a speed cap V: seen from
+ * the cap, the speed left to it and the acceleration are a brake to rest. */
+static int gridCapOk(tpn_next const *n, double V)
+{
+    return n->a1 > 0.0 ? gridAlive(V - n->v1, -n->a1) : n->v1 <= V + 1e-12;
+}
+
 static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
 {
+    if (k < 0 && st->exact) {
+        if (what == CHK_HARD || what == CHK_SPEED) {
+            return gridCapOk(n, st->V);
+        }
+        return st->Vs < 0.0 || gridCapOk(n, st->Vs);
+    }
     if (k < 0) {
         double A = st->A * TPN_BRAKE_SCALE, J = st->J * TPN_BRAKE_SCALE;
         if (what == CHK_HARD || what == CHK_SPEED) {
@@ -1014,6 +1278,9 @@ static int checkOne(int k, int what, tpn_next const *n, tpn_step const *st)
     }
     tpn_con const *c = &con[k];
     double d = c->S - n->s1;
+    if (c->grid) {
+        return what == CHK_SOFT || gridOk(n, d);
+    }
     /* inside a chain of caps stepping down, a cap may be met still
      * braking: the speed only goes on down to the next one. Met at rest
      * in acceleration, each would be a small plateau of its own, and the
@@ -1189,6 +1456,20 @@ static double jerkAhead(tpn_step const *st, double dt)
     return J;
 }
 
+/* The deceleration such a tracked brake may hold: no more than the
+ * pieces it reaches before it is ramped out with J may be entered with.
+ * The step that crosses into a piece runs part of the cycle there. */
+static double accAhead(tpn_step const *st, double J, double jlo, double dt)
+{
+    double A = st->A, a = tpnMin(tpn.cur_a, tpn.cur_a + jlo * dt);
+    double reach = tpn.cur_v * (tpnMax(-a, 0.0) / J + 2.0 * dt);
+    int k;
+    for (k = 0; k < ncon && con[k].S - cx <= reach && con[k].Vh > 0.0; k++) {
+        A = tpnMin(A, con[k].Aentry);
+    }
+    return A;
+}
+
 /*
  * A speed-up that has to turn into braking within [TRAJ]SPEED_HUMP_TIME
  * (over G64 R) is only a burst of jerk, as good as a vibration. While
@@ -1294,6 +1575,23 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
         return tpn.cur_a > 0.0 ? -J : J;
     }
     jlo = jerkNoReverse(jlo, jhi, J, dt);
+    if (st->exact) {
+        /* the highest jerk that still lands on the cap, and on the
+         * requested speed while that is ahead; at the cap it is the one
+         * that stays there */
+        double Vt = st->Vs >= 0.0 ? tpnMin(st->Vs, st->V) : st->V;
+        if (!gridAlive(Vt - tpn.cur_v, -tpn.cur_a)) {
+            Vt = st->V;
+        }
+        jhi = tpnMax(jlo, tpnMin(jhi, -gridJerk(Vt - tpn.cur_v, -tpn.cur_a)));
+    }
+    if (grid_on) {
+        jlo = tpnMax(jlo, tpnMin(gridJerk(tpn.cur_v, tpn.cur_a), jhi));
+        stepState(jlo, dt, &n);
+        grid_v1 = n.v1;
+        grid_a1 = n.a1;
+        jhi = tpnMax(jlo, tpnMin(jhi, gridTop(jlo, jhi, st->Sstop)));
+    }
 
     /* everything that holds at jhi holds for any smaller jerk */
     stepState(jhi, dt, &n);
@@ -1414,7 +1712,9 @@ static double chooseJerk(TP_STRUCT const *tp, tpn_step const *st)
     if (Vtrack < TPN_BIG) {
         /* a requested stop or a lower override ramps its deceleration
          * out with the jerk limit ahead */
-        j = tpnMin(j, jerkTrack(Vtrack, jlo, jhi, jerkAhead(st, dt), dt));
+        double Ja = jerkAhead(st, dt);
+        double jt = tpnMin(jhi, tpnMax(jlo, (-accAhead(st, Ja, jlo, dt) - tpn.cur_a) / dt));
+        j = tpnMin(j, jerkTrack(Vtrack, jt, jhi, Ja, dt));
     }
     return j;
 }
@@ -1451,7 +1751,8 @@ static double landJerk(TP_STRUCT const *tp, tpn_step const *st, double j)
     double Jf = st->J, sg = a > 0.0 ? 1.0 : -1.0;
     tpn_next n;
     int n0, N, i;
-    if (Vt >= TPN_BIG || a == 0.0 || (a > 0.0) != (v < Vt)) {
+    if (Vt >= TPN_BIG || a == 0.0 || (a > 0.0) != (v < Vt) || (st->exact && a > 0.0)) {
+        /* nothing to land, or a speed-up the grid rule lands */
         return j;
     }
     n0 = (int)ceil(fabs(a) / (Jf * dt));
@@ -1721,6 +2022,11 @@ static int finishStop(TP_STRUCT const *tp, tpn_step const *st, double *j)
     double d = st->Sstop - cx;
     double pj[3], pt[3];
     int nph, N, k;
+    if (grid_on) {
+        /* the grid brake ends on a cycle by itself */
+        db_n = db_i = 0;
+        return 0;
+    }
     if (db_i < db_n && db_S == st->Sstop) {
         *j = db_seq[db_i++];
         return 1;
@@ -1773,6 +2079,7 @@ void tpnRunReset(void)
     db_n = db_i = 0;
     nact = nact_old = 0;
     act_id = -1;
+    grid_S = grid_no = -TPN_BIG;
 }
 
 void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
@@ -1793,6 +2100,13 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
         gatherReverse(tp, scale, stepping, &st);
     } else {
         gather(tp, scale, stepping, &st);
+    }
+    if (st.exact) {
+        g_A = st.A;
+        g_J = st.J;
+    }
+    if (!tpn.track) {
+        gridStart(&st);
     }
     double j = chooseJerk(tp, &st);
     double jf;
@@ -1825,6 +2139,15 @@ void tpnAdvance(TP_STRUCT const *tp, double scale, int stepping)
      * there itself, snapping early drops its last deceleration in one cycle */
     if (fin && db_i < db_n) {
         n.s1 = tpnMin(n.s1, st.Sstop);
+    } else if (grid_on) {
+        /* the grid brake comes to rest on the stop by itself: only what
+         * rounding left is taken up */
+        n.s1 = tpnMin(n.s1, st.Sstop);
+        if (st.Sstop - n.s1 < 1e-9 && n.v1 <= 1e-6 * st.A * dt && fabs(n.a1) <= 1e-6 * st.J * dt) {
+            n.s1 = st.Sstop;
+            n.v1 = 0.0;
+            n.a1 = 0.0;
+        }
     } else if (n.s1 >= st.Sstop - 1e-9 || (n.v1 < 1e-6 && st.Sstop - n.s1 < 1e-6 && n.a1 <= 0.0)) {
         n.s1 = tpnMin(n.s1, st.Sstop);
         if (st.Sstop - n.s1 < 1e-6) {

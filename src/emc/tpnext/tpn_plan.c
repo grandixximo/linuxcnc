@@ -14,7 +14,8 @@
 #include "../tp/tp.h"
 #include "tpn.h"
 
-/* fraction of the INI limits the planner aims at */
+/* fraction of the INI limits the planner aims at where its bounds of a
+ * piece are approximate: curved pieces, blends, and any the joints bound */
 #define TPN_LIMIT_SCALE 0.99
 /* fraction of the blend tolerance the blend may use */
 #define TPN_TOL_SCALE 0.98
@@ -28,7 +29,7 @@
 /* A position synchronized move takes the trapezoid jerk whatever the
  * planner: it must follow the spindle, and a lower jerk only delays the
  * catch-up and the turns of a thread chain. */
-static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
+static void readAxisLimits(TP_STRUCT const *tp, double scale, tpn_axlim *ax)
 {
     int i;
     int trapezoid = tpn.emcmotStatus->planner_type != 1
@@ -39,12 +40,12 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
         double j = tpn.axis_get_jerk_limit ? tpn.axis_get_jerk_limit(i) : 0.0;
         /* an axis without limits is not part of the machine; it can
          * only appear in a move with zero displacement */
-        ax->vel[i] = v > 0.0 ? v * TPN_LIMIT_SCALE : TPN_BIG;
-        ax->acc[i] = a > 0.0 ? a * TPN_LIMIT_SCALE : TPN_BIG;
+        ax->vel[i] = v > 0.0 ? v * scale : TPN_BIG;
+        ax->acc[i] = a > 0.0 ? a * scale : TPN_BIG;
         /* acceleration may change within two cycles, and no faster:
          * a higher jerk cannot be shaped at this cycle time */
         double jtrap = ax->acc[i] / (2.0 * tp->cycleTime);
-        ax->jerk[i] = trapezoid || j <= 0.0 ? jtrap : tpnMin(j * TPN_LIMIT_SCALE, jtrap);
+        ax->jerk[i] = trapezoid || j <= 0.0 ? jtrap : tpnMin(j * scale, jtrap);
     }
     if (tpn.axis_is_angular) {
         tpn.lin_mask = tpn.ang_mask = 0;
@@ -56,6 +57,18 @@ static void readAxisLimits(TP_STRUCT const *tp, tpn_axlim *ax)
             }
         }
     }
+}
+
+/* no axis bends along the piece */
+static int straight(tpn_vec const *G1, tpn_vec const *G2)
+{
+    int i;
+    for (i = 0; i < TPN_NAX; i++) {
+        if (G1->v[i] > TPN_TINY || G2->v[i] > TPN_TINY) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static double speedFactor(TP_STRUCT const *tp)
@@ -1865,7 +1878,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
         rtapi_print_msg(RTAPI_MSG_ERR, "tpnext: queue full\n");
         return TP_ERR_FAIL;
     }
-    readAxisLimits(tp, &ax);
+    readAxisLimits(tp, TPN_LIMIT_SCALE, &ax);
 
     sg->id = tp->nextId;
     sg->tag = tag;
@@ -1894,6 +1907,7 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
     sg->h_in = sg->h_out = 0.0;
     sg->stop_in = 0;
     sg->active = 0;
+    sg->exact = 0;
     sg->tap = 0;
     if (tp->syncdio.anychanged) {
         sg->syncdio = tp->syncdio;
@@ -1997,6 +2011,14 @@ int tpnAddSegment(TP_STRUCT * const tp, tpn_seg *sg, int canon_type, double vel,
                         sg->id, sg->lim_ip[low].V, jw);
             }
         }
+    } else if (straight(&G1, &G2)) {
+        /* every axis moves in proportion to the path: the limits of the
+         * axes are those of the path, with nothing to leave a margin for */
+        tpn_axlim axf;
+        readAxisLimits(tp, 1.0, &axf);
+        tpnLimits(&axf, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
+        tpnLimits(&axf, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
+        sg->exact = 1;
     } else {
         tpnLimits(&ax, &G, &G1, &G2, vmax, sg->vreq, &sg->lim_int);
         tpnLimits(&ax, &G, &G1, &G2, vmax, vmax, &sg->lim_int_hi);
