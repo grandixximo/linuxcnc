@@ -182,6 +182,14 @@ typedef struct {
      * stops at both ends and is not run backwards. */
     int joint;
     double jq0[TPN_NJ], jq1[TPN_NJ];
+    /* Or a line on another kinematics type, jpath, -1 for none: the pose
+     * runs straight from jp0 to jp1 as that type has them, s is the length
+     * canon measured it with, and motion solves the joints with that
+     * type's inverse every cycle, seeded from and kept in jnow. */
+    int jpath;
+    EmcPose jp0, jp1;
+    double jnow[TPN_NJ];
+    int jnow_valid;
 } tpn_seg;
 
 /* geometry */

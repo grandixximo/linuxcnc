@@ -665,20 +665,29 @@ int tpAddRigidTap(TP_STRUCT * const tp, EmcPose end, double vel, double ini_maxv
     return res;
 }
 
-/* the first n joints of point-to-point move sg at S */
+/* the first n joints of point-to-point move sg at S; on a line on another
+ * kinematics type the ones motion last solved, and the ends exact */
 static void jointsAt(tpn_seg const *sg, double S, int n, double *q)
 {
     double f = sg->geom.L > 0.0 ? (S - sg->S0) / sg->geom.L : 1.0;
     int j;
     f = tpnMin(tpnMax(f, 0.0), 1.0);
     for (j = 0; j < n; j++) {
-        q[j] = sg->jq0[j] + f * (sg->jq1[j] - sg->jq0[j]);
+        if (sg->jpath < 0) {
+            q[j] = sg->jq0[j] + f * (sg->jq1[j] - sg->jq0[j]);
+        } else if (f >= 1.0) {
+            q[j] = sg->jq1[j];
+        } else {
+            q[j] = sg->jnow_valid ? sg->jnow[j] : sg->jq0[j];
+        }
     }
 }
 
 /* A point-to-point move (G53.4 to G53.7): motion hands the joints at both
  * ends and the limits of the slowest joint scaled onto the joint space
- * distance, which is the path parameter along the move. */
+ * distance, which is the path parameter along the move. With path_type a
+ * kinematics type it is a line on that type from path_start to path_end,
+ * path_length long as canon measured it, the path parameter instead. */
 int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
         int num_joints, EmcPose world_end, int path_type,
         const EmcPose *path_start, const EmcPose *path_end, double path_length,
@@ -688,13 +697,9 @@ int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
 {
     double L = 0.0;
     int j;
-    (void)path_start; (void)path_end; (void)path_length;
-    if (!tp || !start || !end || num_joints <= 0 || num_joints > TPN_NJ) {
+    if (!tp || !start || !end || num_joints <= 0 || num_joints > TPN_NJ
+            || (path_type >= 0 && (!path_start || !path_end))) {
         return TP_ERR_MISSING_INPUT;
-    }
-    if (path_type >= 0) {
-        rtapi_print_msg(RTAPI_MSG_ERR, "tpnextmod: a line on another kinematics type is not supported\n");
-        return TP_ERR_FAIL;
     }
     if (tpn.q_len >= TPN_QSIZE) {
         return TP_ERR_FAIL;
@@ -702,7 +707,7 @@ int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
     for (j = 0; j < num_joints; j++) {
         L += (end[j] - start[j]) * (end[j] - start[j]);
     }
-    L = sqrt(L);
+    L = path_type >= 0 ? path_length : sqrt(L);
     if (L < TP_POS_EPSILON) {
         return TP_ERR_ZERO_LENGTH;
     }
@@ -713,6 +718,12 @@ int tpAddJointLine(TP_STRUCT * const tp, const double *start, const double *end,
         sg->jq0[j] = j < num_joints ? start[j] : 0.0;
         sg->jq1[j] = j < num_joints ? end[j] : 0.0;
     }
+    sg->jpath = path_type < 0 ? -1 : path_type;
+    if (path_type >= 0) {
+        sg->jp0 = *path_start;
+        sg->jp1 = *path_end;
+    }
+    sg->jnow_valid = 0;
     sg->lim_int.A = acc;
     sg->lim_int.J = ini_maxjerk;
     /* the max velocity slider caps the tool as canon measures a straight
@@ -752,15 +763,48 @@ int tpGetJointPos(TP_STRUCT const * const tp, double * const joints)
     return sg->joint;
 }
 
+/* the pose the active move is at, when it is a line on another kinematics
+ * type and between its ends: motion solves the joints there with that
+ * type's inverse. Returns the type, or -1. */
 int tpGetJointPath(TP_STRUCT const * const tp, EmcPose * const pose)
 {
-    (void)tp; (void)pose;
-    return -1;
+    tpn_seg const *sg = seg(0);
+    EmcPose d;
+    double f;
+    if (!tp || !pose || tpn.q_len == 0 || !sg->joint || !sg->active || sg->jpath < 0
+            || sg->geom.L <= 0.0) {
+        return -1;
+    }
+    f = (tpn.cur_s - sg->S0) / sg->geom.L;
+    if (f <= 0.0 || f >= 1.0) {
+        return -1;
+    }
+    emcPoseSub(&sg->jp1, &sg->jp0, &d);
+    pose->tran.x = sg->jp0.tran.x + f * d.tran.x;
+    pose->tran.y = sg->jp0.tran.y + f * d.tran.y;
+    pose->tran.z = sg->jp0.tran.z + f * d.tran.z;
+    pose->a = sg->jp0.a + f * d.a;
+    pose->b = sg->jp0.b + f * d.b;
+    pose->c = sg->jp0.c + f * d.c;
+    pose->u = sg->jp0.u + f * d.u;
+    pose->v = sg->jp0.v + f * d.v;
+    pose->w = sg->jp0.w + f * d.w;
+    return sg->jpath;
 }
 
+/* the joints motion solved for that pose, the next cycle's seed and where
+ * an abort holds the joints */
 void tpSetJointPos(TP_STRUCT * const tp, const double * const joints)
 {
-    (void)tp; (void)joints;
+    tpn_seg *sg = seg(0);
+    int j;
+    if (!tp || !joints || tpn.q_len == 0 || !sg->joint || !sg->active) {
+        return;
+    }
+    for (j = 0; j < sg->joint; j++) {
+        sg->jnow[j] = joints[j];
+    }
+    sg->jnow_valid = 1;
 }
 
 int tpTakeJointEnd(TP_STRUCT * const tp, double * const joints)
