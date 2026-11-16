@@ -1748,7 +1748,8 @@ static double landJerk(TP_STRUCT const *tp, tpn_step const *st, double j)
 {
     double dt = tp->cycleTime, a = tpn.cur_a, v = tpn.cur_v;
     double Vt = st->Vs >= 0.0 ? tpnMin(st->Vs, st->V) : st->V;
-    double Jf = st->J, sg = a > 0.0 ? 1.0 : -1.0;
+    /* a deceleration is ramped out over the pieces ahead as well */
+    double Jf = jerkAhead(st, dt), sg = a > 0.0 ? 1.0 : -1.0;
     tpn_next n;
     int n0, N, i;
     if (Vt >= TPN_BIG || a == 0.0 || (a > 0.0) != (v < Vt) || (st->exact && a > 0.0)) {
