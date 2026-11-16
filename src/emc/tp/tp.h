@@ -94,6 +94,7 @@ void tpMotFunctions(void(*pDioWrite)(int,char)
                    ,double(*paxis_get_vel_limit)(int)
                    ,double(*paxis_get_acc_limit)(int)
                    ,double(*paxis_get_jerk_limit)(int)
+                   ,int(*paxis_is_angular)(int)
                    );
 
 // These are here so we don't need to include "motion/motion.h"

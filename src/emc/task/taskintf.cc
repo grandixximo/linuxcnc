@@ -532,6 +532,22 @@ int emcAxisSetMaxJerk(int axis, double jerk)
     return 0;
 }
 
+int emcAxisSetAngular(int axis, int angular)
+{
+
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+	return 0;
+    }
+
+    emcmotCommand.command = EMCMOT_SET_AXIS_TYPE;
+    emcmotCommand.axis    = axis;
+    emcmotCommand.flags   = angular != 0;
+    int retval = usrmotWriteEmcmotCommand(&emcmotCommand);
+
+    log_debug(EMC_DEBUG_CONFIG, "{}({}, {}) returned {}\n", __FUNCTION__, axis, angular, retval);
+    return retval;
+}
+
 int emcAxisSetLockingJoint(int axis, int joint)
 {
 

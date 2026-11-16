@@ -2320,6 +2320,17 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 			axis_set_jerk_limit(emcmotCommand->axis, emcmotCommand->jerk);
 			break;
 
+        case EMCMOT_SET_AXIS_TYPE:
+            /* set from [AXIS_n]TYPE at startup */
+            rtapi_print_msg(RTAPI_MSG_DBG, "SET_AXIS_TYPE");
+            rtapi_print_msg(RTAPI_MSG_DBG, " %d angular(%d)", emcmotCommand->axis, emcmotCommand->flags);
+            emcmot_config_change();
+            if ((emcmotCommand->axis < 0) || (emcmotCommand->axis >= EMCMOT_MAX_AXIS)) {
+                break;
+            }
+            axis_set_angular(emcmotCommand->axis, emcmotCommand->flags != 0);
+            break;
+
         case EMCMOT_SET_AXIS_LOCKING_JOINT:
 	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_AXIS_ACC_LOCKING_JOINT %d", emcmotCommand->axis);
 	    emcmot_config_change();

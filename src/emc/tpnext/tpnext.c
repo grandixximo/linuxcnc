@@ -55,6 +55,7 @@ static int (*_GetRotaryIsUnlocked)(int);
 static double (*_axis_get_vel_limit)(int);
 static double (*_axis_get_acc_limit)(int);
 static double (*_axis_get_jerk_limit)(int);
+static int (*_axis_is_angular)(int);
 
 void tpMotFunctions(void (*pDioWrite)(int, char)
                    ,void (*pAioWrite)(int, double)
@@ -63,6 +64,7 @@ void tpMotFunctions(void (*pDioWrite)(int, char)
                    ,double (*paxis_get_vel_limit)(int)
                    ,double (*paxis_get_acc_limit)(int)
                    ,double (*paxis_get_jerk_limit)(int)
+                   ,int (*paxis_is_angular)(int)
                    )
 {
     _DioWrite = pDioWrite;
@@ -72,6 +74,7 @@ void tpMotFunctions(void (*pDioWrite)(int, char)
     _axis_get_vel_limit = paxis_get_vel_limit;
     _axis_get_acc_limit = paxis_get_acc_limit;
     _axis_get_jerk_limit = paxis_get_jerk_limit;
+    _axis_is_angular = paxis_is_angular;
 }
 
 void tpMotData(emcmot_status_t *pstatus, emcmot_config_t *pconfig)

@@ -290,6 +290,7 @@ extern int emcAxisSetMaxAcceleration(int axis, double acc, double ext_offset_acc
 extern double emcAxisGetMaxVelocity(int axis);
 extern double emcAxisGetMaxAcceleration(int axis);
 extern int emcAxisSetLockingJoint(int axis,int joint);
+extern int emcAxisSetAngular(int axis, int angular);
 
 extern int emcAxisUpdate(EMC_AXIS_STAT stat[], int numAxes);
 

@@ -77,9 +77,11 @@ void tpMotFunctions(void(  *pDioWrite)(int,char)
                    ,double(*paxis_get_vel_limit)(int)
                    ,double(*paxis_get_acc_limit)(int)
                    ,double(*paxis_get_jerk_limit)(int)
+                   ,int(   *paxis_is_angular)(int)
                    )
 {
     (void)paxis_get_jerk_limit;
+    (void)paxis_is_angular;
     _DioWrite            = pDioWrite;
     _AioWrite            = pAioWrite;
     _SetRotaryUnlock     = pSetRotaryUnlock;
