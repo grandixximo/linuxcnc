@@ -1,7 +1,7 @@
 /********************************************************************
 * Description: tpn_plan.c
 *   Queue build of the tpnext trajectory planner: per piece limits,
-*   corner blends sized to G64 P, and the backward envelope.
+*   corner blends sized to G64 P and E, and the backward envelope.
 *
 * License: GPL Version 2
 * System: Linux
@@ -661,9 +661,9 @@ static double blendDevAt(tpn_seg const *prev, tpn_seg const *sg, tpn_blend const
 }
 
 /* Largest distance of the blend from the programmed path, the linear
- * axes in units of G64 P and the angular ones in units of their own
- * tolerance, so a value up to 1 keeps every blend point within both of
- * one point of the path. Sampled, then refined around the worst sample. */
+ * axes in units of G64 P and the angular ones in units of G64 E, so a
+ * value up to 1 keeps every blend point within P and E of one point of
+ * the path. Sampled, then refined around the worst sample. */
 static double blendDeviation(tpn_seg const *prev, tpn_seg const *sg, tpn_blend const *b,
         tpn_vec const *w)
 {

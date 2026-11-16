@@ -40,7 +40,7 @@ int tpSetAmax(TP_STRUCT * tp, double amax);
 int tpSetId(TP_STRUCT * tp, int id);
 int tpGetExecId(TP_STRUCT * tp);
 struct state_tag_t tpGetExecTag(TP_STRUCT * const tp);
-int tpSetTermCond(TP_STRUCT * tp, int cond, double tolerance);
+int tpSetTermCond(TP_STRUCT * tp, int cond, double tolerance, double angular_tolerance);
 int tpSetPos(TP_STRUCT * tp, EmcPose const * const pos);
 int tpRunCycle(TP_STRUCT * tp, long period);
 int tpPause(TP_STRUCT * tp);

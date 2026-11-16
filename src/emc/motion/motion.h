@@ -235,6 +235,7 @@ extern "C" {
 	int id;			/* id for motion */
 	int termCond;		/* termination condition */
 	double tolerance;	/* tolerance for path deviation in CONTINUOUS mode */
+	double angular_tolerance; /* same for the angular axes, 0 = none */
 	int joint;		/* which joint index to use for below */
 	int axis;		/* which axis index to use for below */
 	int spindle; 	/* which spindle to use */

@@ -664,8 +664,9 @@ struct state_tag_t tpGetExecTag(TP_STRUCT * const tp)
  * begins. If cond is TC_TERM_COND_PARABOLIC, the following move is begun when the
  * current move slows below a calculated blend velocity.
  */
-int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance)
+int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance, double angular_tolerance)
 {
+    (void)angular_tolerance;
     if (!tp) {
         return TP_ERR_FAIL;
     }

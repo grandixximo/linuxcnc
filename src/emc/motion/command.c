@@ -1145,7 +1145,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 	case EMCMOT_SET_TERM_COND:
 	    /* sets termination condition for motion emcmotInternal->coord_tp */
 	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_TERM_COND");
-	    tpSetTermCond(&emcmotInternal->coord_tp, emcmotCommand->termCond, emcmotCommand->tolerance);
+	    tpSetTermCond(&emcmotInternal->coord_tp, emcmotCommand->termCond, emcmotCommand->tolerance,
+	                  emcmotCommand->angular_tolerance);
 	    break;
 
 	case EMCMOT_SET_SPINDLESYNC:

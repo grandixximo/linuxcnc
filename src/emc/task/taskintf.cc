@@ -1548,12 +1548,13 @@ int emcTrajSetSpindleSync(int spindle, double fpr, bool wait_for_index, double a
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
-int emcTrajSetTermCond(int cond, double tolerance)
+int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance)
 {
     emcmotCommand.command = EMCMOT_SET_TERM_COND;
     // Direct passthrough since TP can handle the distinction now
     emcmotCommand.termCond = cond;
     emcmotCommand.tolerance = tolerance;
+    emcmotCommand.angular_tolerance = angular_tolerance;
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }

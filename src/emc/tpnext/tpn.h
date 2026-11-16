@@ -3,8 +3,8 @@
 *   Internal types of the tpnext trajectory planner.
 *
 *   tpnext plans one path parameter s along the programmed nine axis
-*   path. Corners are replaced by quintic blends inside the G64 P
-*   tolerance, every piece of the path gets tangential limits projected
+*   path. Corners are replaced by quintic blends inside the G64 P and E
+*   tolerances, every piece of the path gets tangential limits projected
 *   from the per axis velocity, acceleration and jerk limits, and a jerk
 *   limited controller advances s every servo cycle.
 *
@@ -118,7 +118,7 @@ typedef struct {
     int indexer_jnum;
     int term_cond;
     double tolerance;       /* G64 P, linear axes, 0 = none */
-    double ang_tolerance;   /* angular axes, 0 = none; no G-code sets it yet */
+    double ang_tolerance;   /* G64 E, angular axes, 0 = none */
     int sync;               /* TC_SYNC_* */
     int spindle;            /* the spindle it follows */
     double uu_per_rev;
@@ -289,7 +289,7 @@ typedef struct {
     int q_start, q_len;
     /* moves already run, kept before q_start for a reverse run */
     int h_len;
-    /* blend tolerance of the angular axes, 0 = none; no G-code sets it yet */
+    /* G64 E for the moves queued next */
     double ang_tolerance;
     /* axes of each type, bit n = axis n, from [AXIS_n]TYPE */
     unsigned lin_mask, ang_mask;

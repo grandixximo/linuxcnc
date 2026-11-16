@@ -4,7 +4,7 @@
 *
 *   The queued moves form one path parameterised by s, the RS274NGC feed
 *   length. Where two moves blend, the corner is replaced by a quintic
-*   inside the G64 P tolerance. Every piece of the path (a blend or the
+*   inside the G64 P and E tolerances. Every piece of the path (a blend or the
 *   unblended interior of a move) gets a velocity cap and tangential
 *   acceleration and jerk limits projected from the per axis limits, so
 *   no axis can exceed its own limits whatever the path direction.
@@ -272,7 +272,7 @@ struct state_tag_t tpGetExecTag(TP_STRUCT * const tp)
     return tp->execTag;
 }
 
-int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance)
+int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance, double angular_tolerance)
 {
     if (!tp) {
         return TP_ERR_FAIL;
@@ -284,6 +284,7 @@ int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance)
     case TC_TERM_COND_STOP:
         tp->termCond = cond;
         tp->tolerance = tolerance;
+        tpn.ang_tolerance = tpnMax(0.0, angular_tolerance);
         break;
     default:
         return -1;
