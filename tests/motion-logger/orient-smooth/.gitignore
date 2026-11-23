@@ -1,2 +1,6 @@
 out.motion-logger
+out-v.motion-logger
+orient-v.ngc
+test-v.ini
+mock-motion-v.hal
 sim.var*

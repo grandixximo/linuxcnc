@@ -1577,6 +1577,10 @@ int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance)
 
 /* the orientation shape of a line or circle into the motion command,
  * none for a null shape */
+static_assert(sizeof(EMC_TRAJ_LINEAR_MOVE::orient_shape) == sizeof(emcmotCommand.orient_shape)
+        && sizeof(EMC_TRAJ_CIRCULAR_MOVE::orient_shape) == sizeof(emcmotCommand.orient_shape),
+        "the orientation shape of the NML moves and of the motion command differ");
+
 static void setOrientShape(int orient_mask, const double *orient_shape)
 {
     emcmotCommand.orient_mask = orient_shape ? orient_mask : 0;

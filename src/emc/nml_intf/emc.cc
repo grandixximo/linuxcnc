@@ -1038,7 +1038,7 @@ void EMC_TRAJ_LINEAR_MOVE::update(CMS * cms)
     cms->update(feed_mode);
     cms->update(indexer_jnum);
     cms->update(orient_mask);
-    cms->update(orient_shape, 12);
+    cms->update(orient_shape, 24);
 }
 
 /*
@@ -1064,7 +1064,7 @@ void EMC_TRAJ_CIRCULAR_MOVE::update(CMS * cms)
     cms->update(vlimit_scale);
     cms->update(feed_mode);
     cms->update(orient_mask);
-    cms->update(orient_shape, 12);
+    cms->update(orient_shape, 24);
 }
 
 /*

@@ -1424,7 +1424,8 @@ static double orientArcLength(EmcPose const &start, EMC_TRAJ_CIRCULAR_MOVE const
 
 static double *orientAxis(EmcPose &p, int k)
 {
-    return k == 0 ? &p.a : k == 1 ? &p.b : &p.c;
+    double *rot[ORIENT_NAX] = {&p.a, &p.b, &p.c, &p.u, &p.v, &p.w};
+    return rot[k];
 }
 
 /* the deviation a run keeps to: G64 E, or ORIENT_SMOOTH_TOLERANCE without */
@@ -1469,21 +1470,22 @@ static void orient_send_moves(size_t count)
     std::vector<OrientMove> moves(n);
     for (size_t i = 0; i < n; i++) {
         moves[i].length = orient_run[i].length;
-        for (int k = 0; k < 3; k++) {
-            moves[i].abc[k] = *orientAxis(*orient_run[i].end, k);
+        for (int k = 0; k < ORIENT_NAX; k++) {
+            moves[i].rot[k] = *orientAxis(*orient_run[i].end, k);
         }
     }
-    double sabc[3] = {orient_start.a, orient_start.b, orient_start.c};
+    double srot[ORIENT_NAX];
     OrientAxes axes;
     axes.angular = 0;
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < ORIENT_NAX; k++) {
+        srot[k] = *orientAxis(orient_start, k);
         axes.angular |= AXIS_ANG(3 + k) ? 1u << k : 0u;
         axes.jerk[k] = emcAxisGetMaxJerk(3 + k);
         axes.min[k] = emcAxisGetMinPositionLimit(3 + k);
         axes.max[k] = emcAxisGetMaxPositionLimit(3 + k);
     }
     OrientCarry next;
-    orientSmoothSend(sabc, axes, moves, count, orient.share * orientTolerance(), orient.spacing,
+    orientSmoothSend(srot, axes, moves, count, orient.share * orientTolerance(), orient.spacing,
             orient_carry, next);
     orient_carry = next;
     if (count < n) {
@@ -1494,12 +1496,12 @@ static void orient_send_moves(size_t count)
         OrientMove const &o = moves[i];
         if (o.mask) {
             *m.mask = o.mask;
-            for (int k = 0; k < 3; k++) {
+            for (int k = 0; k < ORIENT_NAX; k++) {
                 if (o.mask & (1u << k)) {
                     *orientAxis(*m.end, k) = o.out[k];
                 }
             }
-            for (int q = 0; q < 12; q++) {
+            for (int q = 0; q < 4 * ORIENT_NAX; q++) {
                 m.shape[q] = o.shape[q];
             }
         }

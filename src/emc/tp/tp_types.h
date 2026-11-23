@@ -20,8 +20,10 @@
 #include "tc_types.h"
 #include "tcq.h"
 
-/* numbers in an orientation shape, see tpSetOrientShape() */
-#define TP_ORIENT_SHAPE_N 12
+/* axes an orientation shape may bend, A, B, C, U, V and W, and the
+ * numbers in it, see tpSetOrientShape() */
+#define TP_ORIENT_AXES 6
+#define TP_ORIENT_SHAPE_N (4 * TP_ORIENT_AXES)
 
 #define TP_DEFAULT_QUEUE_SIZE 32
 /* Minimum length of a segment in cycles (must be greater than 1 to ensure each

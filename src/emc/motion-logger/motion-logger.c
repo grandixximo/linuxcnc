@@ -272,8 +272,8 @@ static void log_orient_shape(emcmot_command_t const *c)
     if (!c->orient_mask) {
         return;
     }
-    log_print("ORIENT_SHAPE mask=%u, end=%.17g %.17g %.17g, shape=", c->orient_mask,
-            c->pos.a, c->pos.b, c->pos.c);
+    log_print("ORIENT_SHAPE mask=%u, end=%.17g %.17g %.17g %.17g %.17g %.17g, shape=",
+            c->orient_mask, c->pos.a, c->pos.b, c->pos.c, c->pos.u, c->pos.v, c->pos.w);
     for (k = 0; k < TP_ORIENT_SHAPE_N; k++) {
         log_print(" %.17g", c->orient_shape[k]);
     }

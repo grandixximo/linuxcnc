@@ -12,6 +12,9 @@
 #include <cmath>
 #include <vector>
 
+/* the axes a curve may bend: A, B, C, U, V and W, slot k for A + k */
+#define ORIENT_NAX 6
+
 /* One rotary axis of a run: the programmed value at each point, its jerk
  * limit (0 = none) and position limits, whether the run starts on a curve
  * sent before, with its value, rate and second derivative there, and on
@@ -49,30 +52,30 @@ bool orientSmooth(const std::vector<double> &s, std::vector<OrientSmoothAxis> &a
  * planner takes it and its programmed end, in; on the curve, out. */
 struct OrientMove {
     double length;
-    double abc[3];              // programmed A, B and C at its end
-    unsigned mask;              // the rotary axes on the curve, bit k for A + k
-    double out[3];              // their end on the curve
-    double shape[12];           // d0[3], dd0[3], d1[3], dd1[3], see tpSetOrientShape()
+    double rot[ORIENT_NAX];     // programmed A to W at its end
+    unsigned mask;              // the axes on the curve, bit k for A + k
+    double out[ORIENT_NAX];     // their end on the curve
+    double shape[4 * ORIENT_NAX]; // d0, dd0, d1, dd1, see tpSetOrientShape()
 };
 
-/* the angular axes among A, B and C (bit k for A + k) and their limits */
+/* the angular axes among A to W (bit k for A + k) and their limits */
 struct OrientAxes {
     unsigned angular;
-    double jerk[3];
-    double min[3], max[3];
+    double jerk[ORIENT_NAX];
+    double min[ORIENT_NAX], max[ORIENT_NAX];
 };
 
 /* where a run sent in part leaves the curve for the rest of it */
 struct OrientCarry {
     unsigned mask;              // axes on the curve there
-    double val[3], d1[3], d2[3];
+    double val[ORIENT_NAX], d1[ORIENT_NAX], d2[ORIENT_NAX];
 };
 
-/* Fit the run of moves from start (programmed A, B and C), on the curve in
+/* Fit the run of moves from start (programmed A to W), on the curve in
  * leaves off, and fill mask, out and shape of the first emit moves; out is
  * where the rest of the run then starts. False, leaving the moves as
  * programmed, when the run is not smoothed. */
-bool orientSmoothRun(const double start_abc[3], const OrientAxes &axes,
+bool orientSmoothRun(const double start_rot[ORIENT_NAX], const OrientAxes &axes,
         std::vector<OrientMove> &moves, size_t emit, double tol, double spacing,
         const OrientCarry &in, OrientCarry &out, OrientSmoothInfo *info = nullptr);
 
@@ -82,7 +85,7 @@ bool orientSmoothRun(const double start_abc[3], const OrientAxes &axes,
  * fail the first of them stay as programmed and the fits go on after them,
  * so that what cannot be smoothed (a fast swing near a pole, a corner, a
  * limit) leaves the rest of the run smoothed. Returns the moves smoothed. */
-size_t orientSmoothSend(const double start_abc[3], const OrientAxes &axes,
+size_t orientSmoothSend(const double start_rot[ORIENT_NAX], const OrientAxes &axes,
         std::vector<OrientMove> &moves, size_t emit, double tol, double spacing,
         const OrientCarry &in, OrientCarry &out);
 

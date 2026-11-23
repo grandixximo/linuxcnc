@@ -725,7 +725,7 @@ class EMC_TRAJ_LINEAR_MOVE:public EMC_TRAJ_CMD_MSG {
     int feed_mode;
     int indexer_jnum;
     int orient_mask;            // see emcmot_command_t
-    double orient_shape[12];
+    double orient_shape[24];
 };
 
 class EMC_TRAJ_CIRCULAR_MOVE:public EMC_TRAJ_CMD_MSG {
@@ -761,7 +761,7 @@ class EMC_TRAJ_CIRCULAR_MOVE:public EMC_TRAJ_CMD_MSG {
     double vlimit_scale;        // see emcmot_command_t
     int feed_mode;
     int orient_mask;            // see emcmot_command_t
-    double orient_shape[12];
+    double orient_shape[24];
 };
 
 class EMC_TRAJ_SET_TERM_COND:public EMC_TRAJ_CMD_MSG {

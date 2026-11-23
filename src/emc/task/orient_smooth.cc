@@ -529,7 +529,7 @@ bool orientSmooth(const std::vector<double> &s, std::vector<OrientSmoothAxis> &a
     return true;
 }
 
-bool orientSmoothRun(const double start_abc[3], const OrientAxes &ax,
+bool orientSmoothRun(const double start_rot[ORIENT_NAX], const OrientAxes &ax,
         std::vector<OrientMove> &moves, size_t emit, double tol, double spacing,
         const OrientCarry &in, OrientCarry &out, OrientSmoothInfo *info)
 {
@@ -551,18 +551,18 @@ bool orientSmoothRun(const double start_abc[3], const OrientAxes &ax,
     }
     /* the angular axes that move along the run or start on the curve */
     std::vector<OrientSmoothAxis> axes;
-    int which[3];
+    int which[ORIENT_NAX];
     unsigned mask = 0;
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < ORIENT_NAX; k++) {
         if (!(ax.angular & (1u << k))) {
             continue;
         }
         OrientSmoothAxis a;
         bool moves_k = false;
         a.y.resize(n + 1);
-        a.y[0] = start_abc[k];
+        a.y[0] = start_rot[k];
         for (size_t i = 0; i < n; i++) {
-            a.y[i + 1] = moves[i].abc[k];
+            a.y[i + 1] = moves[i].rot[k];
             moves_k = moves_k || a.y[i + 1] != a.y[0];
         }
         if (in.mask & (1u << k)) {
@@ -586,16 +586,16 @@ bool orientSmoothRun(const double start_abc[3], const OrientAxes &ax,
     for (size_t i = 0; i < emit; i++) {
         OrientMove &m = moves[i];
         m.mask = mask;
-        for (int q = 0; q < 12; q++) {
+        for (int q = 0; q < 4 * ORIENT_NAX; q++) {
             m.shape[q] = 0.0;
         }
         for (size_t a = 0; a < axes.size(); a++) {
             int k = which[a];
             m.out[k] = axes[a].val[i + 1];
             m.shape[k] = axes[a].d1[i];
-            m.shape[3 + k] = axes[a].d2[i];
-            m.shape[6 + k] = axes[a].d1[i + 1];
-            m.shape[9 + k] = axes[a].d2[i + 1];
+            m.shape[ORIENT_NAX + k] = axes[a].d2[i];
+            m.shape[2 * ORIENT_NAX + k] = axes[a].d1[i + 1];
+            m.shape[3 * ORIENT_NAX + k] = axes[a].d2[i + 1];
         }
     }
     if (emit < n) {
@@ -610,7 +610,7 @@ bool orientSmoothRun(const double start_abc[3], const OrientAxes &ax,
     return true;
 }
 
-size_t orientSmoothSend(const double start_abc[3], const OrientAxes &ax,
+size_t orientSmoothSend(const double start_rot[ORIENT_NAX], const OrientAxes &ax,
         std::vector<OrientMove> &moves, size_t emit, double tol, double spacing,
         const OrientCarry &in, OrientCarry &out)
 {
@@ -618,13 +618,14 @@ size_t orientSmoothSend(const double start_abc[3], const OrientAxes &ax,
      * whether it hands its curve on to the moves after it */
     struct Part {
         size_t begin, end;
-        double start[3];
+        double start[ORIENT_NAX];
         OrientCarry in;
         bool open;
     };
     std::vector<Part> parts;
     size_t n = moves.size(), done = 0, want = n;
-    double start[3] = {start_abc[0], start_abc[1], start_abc[2]};
+    double start[ORIENT_NAX];
+    std::copy(start_rot, start_rot + ORIENT_NAX, start);
     OrientCarry carry = in;
     std::vector<OrientMove> part;
     out.mask = 0;
@@ -640,7 +641,8 @@ size_t orientSmoothSend(const double start_abc[3], const OrientAxes &ax,
         OrientCarry next;
         if (orientSmoothRun(start, ax, part, e, tol, spacing, carry, next)) {
             std::copy(part.begin(), part.begin() + e, moves.begin() + done);
-            parts.push_back({done, done + e, {start[0], start[1], start[2]}, carry, next.mask != 0});
+            parts.push_back({done, done + e, {}, carry, next.mask != 0});
+            std::copy(start, start + ORIENT_NAX, parts.back().start);
             carry = next;
             done += e;
             want = std::min(n, 2 * m);
@@ -674,8 +676,8 @@ size_t orientSmoothSend(const double start_abc[3], const OrientAxes &ax,
             done += e;
             want = MIN_PART;
         }
-        for (int k = 0; k < 3; k++) {
-            start[k] = moves[done - 1].abc[k];
+        for (int k = 0; k < ORIENT_NAX; k++) {
+            start[k] = moves[done - 1].rot[k];
         }
     }
     out = carry;

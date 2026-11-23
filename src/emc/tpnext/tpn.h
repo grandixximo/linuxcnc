@@ -18,8 +18,8 @@
 #include "../tp/tp.h"
 
 #define TPN_NAX 9
-/* axes an orientation shape may bend: A, B and C */
-#define TPN_NOSH 3
+/* axes an orientation shape may bend: A, B, C, U, V and W */
+#define TPN_NOSH TP_ORIENT_AXES
 
 typedef struct {
     double v[TPN_NAX];
