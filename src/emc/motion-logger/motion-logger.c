@@ -265,6 +265,21 @@ void log_print(const char *fmt, ...) {
     fflush(logfile);
 }
 
+/* the orientation shape a line or circle carries, if any */
+static void log_orient_shape(emcmot_command_t const *c)
+{
+    int k;
+    if (!c->orient_mask) {
+        return;
+    }
+    log_print("ORIENT_SHAPE mask=%u, end=%.17g %.17g %.17g %.17g %.17g %.17g, shape=",
+            c->orient_mask, c->pos.a, c->pos.b, c->pos.c, c->pos.u, c->pos.v, c->pos.w);
+    for (k = 0; k < TP_ORIENT_SHAPE_N; k++) {
+        log_print(" %.17g", c->orient_shape[k]);
+    }
+    log_print("\n");
+}
+
 
 int main(int argc, char* argv[]) {
     if (argc == 1) {
@@ -463,6 +478,7 @@ int main(int argc, char* argv[]) {
                     c->vel, c->ini_maxvel,
                     c->acc, c->turn
                 );
+                log_orient_shape(c);
                 break;
 
             case EMCMOT_SET_CIRCLE:
@@ -480,6 +496,7 @@ int main(int argc, char* argv[]) {
                     c->vel, c->ini_maxvel,
                     c->acc, c->turn
                 );
+                log_orient_shape(c);
                 break;
 
             case EMCMOT_CLEAR_PROBE_FLAGS:
@@ -522,6 +539,10 @@ int main(int argc, char* argv[]) {
 
             case EMCMOT_SET_AXIS_JERK_LIMIT:
                 log_print("SET_AXIS_JERK_LIMIT axis=%d, jerk=%.6g\n", c->axis, c->jerk);
+                break;
+
+            case EMCMOT_SET_AXIS_TYPE:
+                log_print("SET_AXIS_TYPE axis=%d, angular=%d\n", c->axis, c->flags != 0);
                 break;
 
             case EMCMOT_SET_JOINT_BACKLASH:
@@ -692,6 +713,11 @@ int main(int argc, char* argv[]) {
 
             case EMCMOT_SETUP_ARC_BLENDS:
                 log_print("SETUP_ARC_BLENDS\n");
+                break;
+
+            case EMCMOT_SETUP_TP_OPTIONS:
+                log_print("SETUP_TP_OPTIONS singular_stop=%d singular_floor=%.6g speed_hump_time=%.6g\n",
+                          c->singularStop, c->singularFloor, c->speedHumpTime);
                 break;
 
             case EMCMOT_SET_PROBE_ERR_INHIBIT:

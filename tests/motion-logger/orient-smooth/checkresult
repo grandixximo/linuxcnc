@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Check what canon sends with [TRAJ]ORIENT_SMOOTH (motion-logger output)
+against orient.ngc: the short lines and arcs under G64 carry a curve for A
+and C, its points and the quintic along each move stay within 0.8 of the
+angular tolerance (G64 E, or ORIENT_SMOOTH_TOLERANCE 0.06 without E) over
+both axes, the curve is continuous in value, rate and second derivative
+from move to move within a run and across the windows the run is held back
+in, it ends exactly where a run ends, A stays within its limit of 30 along
+the curve, the moves under G61 and the long line stay as programmed, and
+the synced output stays between the lines it was programmed between. The
+same program with the tilt axis on V (test.sh makes it) gets the same curve
+for V as for A."""
+import math
+import os
+import re
+import sys
+
+os.chdir(os.path.dirname(os.path.abspath(sys.argv[1])))
+EPS = 1e-9
+A_MAX = 30.0
+KNEE = range(176, 216)          # the run into the limit may stay as programmed
+fail = []
+
+
+def check(ok, msg):
+    if not ok:
+        fail.append(msg)
+
+
+def close(a, b):
+    """equal as the motion-logger prints positions, to 6 digits"""
+    return abs(a - b) <= 1e-5 * max(1.0, abs(b))
+
+
+def arc_length(start, end, center, ccw):
+    """the length of an arc in the XY plane as tpnextmod takes it"""
+    r = math.hypot(start[0] - center[0], start[1] - center[1])
+    re_ = math.hypot(end[0] - center[0], end[1] - center[1])
+    a0 = math.atan2(start[1] - center[1], start[0] - center[0])
+    a1 = math.atan2(end[1] - center[1], end[0] - center[0])
+    ang = (a1 - a0) if ccw else (a0 - a1)
+    while ang <= 1e-12:
+        ang += 2 * math.pi
+    arc = ang * (r + 0.5 * (re_ - r))
+    return math.hypot(arc, end[2] - start[2])
+
+
+N = 6                           # A, B, C, U, V, W in an orientation shape
+SLOT = {"A": 0, "V": 4}
+
+
+def check_run(ngc, logname, T):
+    """one run with the tilt axis on T; its moves as sent"""
+    ts = SLOT[T]
+    letters = "XYZ" + T + "C"
+    # the programmed moves: file line number => start, end, length, taken, tolerance
+    prog = {}
+    pos = [0.0] * 5
+    cont, E = True, 0.05
+    for n, l in enumerate(open(ngc), 1):
+        w = dict((k, float(v)) for k, v in re.findall(r"([XYZ" + T + "CIJEP])(-?[0-9.]+)", l))
+        if "G61" in l:
+            cont = False
+        if "G64" in l:
+            cont = True
+            E = w.get("E", 0.0)
+        m = re.match(r"G([0-3]) ", l)
+        if m:
+            end = [w.get(k, pos[i]) for i, k in enumerate(letters)]
+            if m.group(1) in "23":
+                L = arc_length(pos, end, (pos[0] + w["I"], pos[1] + w["J"]), m.group(1) == "3")
+            else:
+                L = math.dist(end[:3], pos[:3])
+            takes = m.group(1) != "0" and cont and 0 < L <= 5.0
+            prog[n] = dict(start=pos, end=end, length=L, takes=takes, tol=0.8 * (E if E > 0 else 0.06))
+            pos = end
+
+    # the log: moves with their shape, and what comes between them
+    cmds = []
+    log = open(logname).read().split("\n")
+    for i, l in enumerate(log):
+        if l.startswith("SET_LINE") or l.startswith("SET_CIRCLE"):
+            if l.startswith("SET_LINE"):
+                f = dict(re.findall(r"(\w+)=(-?[0-9.e+-]+)", l))
+            else:
+                f = dict(re.findall(r"(\w+)=(-?[0-9.e+-]+)", log[i + 1] + " " + log[i + 4]))
+            cmds.append({"id": int(f["id"]), "end": [float(f[k]) for k in letters.lower()], "shape": None})
+        elif l.startswith("ORIENT_SHAPE"):
+            m = re.match(r"ORIENT_SHAPE mask=(\d+), end=(\S+)" + r" (\S+)" * (N - 1) + r", shape=(.*)", l)
+            cmds[-1]["mask"] = int(m.group(1))
+            cmds[-1]["rot"] = [float(m.group(2 + k)) for k in range(N)]
+            cmds[-1]["shape"] = [float(v) for v in m.group(2 + N).split()]
+        elif l.startswith("SET_DOUT"):
+            cmds.append({"dout": True})
+        elif l.startswith("SET_TERM_COND"):
+            cmds.append({"barrier": True})
+
+    moves = [c for c in cmds if "id" in c]
+    check([c["id"] for c in moves] == sorted(n for n in prog if prog[n]["end"] != prog[n]["start"]),
+          "the moves sent are not the moves programmed, in order")
+    douts = [i for i, c in enumerate(cmds) if "dout" in c]
+    check(len(douts) == 1 and cmds[douts[0] - 1].get("id") == 66 and cmds[douts[0] + 1].get("id") == 69,
+          "the synced output is not between lines 66 and 69")
+
+
+    def hermite(v0, d0, a0, v1, d1, a1, H):
+        D = v1 - v0
+        r0, r1, q0, q1 = H * d0, H * d1, H * H * a0, H * H * a1
+        return [v0, r0, 0.5 * q0, 10 * D - 6 * r0 - 4 * r1 - 1.5 * q0 + 0.5 * q1,
+                -15 * D + 8 * r0 + 7 * r1 + 1.5 * q0 - q1, 6 * D - 3 * r0 - 3 * r1 - 0.5 * q0 + 0.5 * q1]
+
+
+    def poly(c, t):
+        return sum(c[j] * t ** j for j in range(6))
+
+
+    prev = None             # the move before, as sent
+    shaped = {"lines": 0, "knee": 0}
+    a_top = -1e9
+    for i, c in enumerate(cmds):
+        if "id" not in c:
+            prev = None
+            continue
+        p = prog[c["id"]]
+        start, end = p["start"], p["end"]
+        check(all(close(c["end"][k], end[k]) for k in range(3)), "line %d: XYZ moved" % c["id"])
+        if c["shape"] is None:
+            check(not p["takes"] or c["id"] in KNEE, "line %d: no curve for %s and C" % (c["id"], T))
+            check(all(close(c["end"][k], end[k]) for k in (3, 4)), "line %d: %s or C moved" % (c["id"], T))
+            a0 = prev["rot"][ts] if prev else start[3]
+            a_top = max(a_top, a0, end[3])
+            prev = None
+            continue
+        check(p["takes"], "line %d: a curve on a move no run takes" % c["id"])
+        shaped["knee" if c["id"] in KNEE else "lines"] += 1
+        # the tilt axis at its limit stays put in the limit run, the curve then for C alone
+        check(c["mask"] == (1 << ts) | 4 or (c["id"] in KNEE and c["mask"] == 4),
+              "line %d: the curve is not for %s and C" % (c["id"], T))
+        sh = c["shape"]
+        a1, c1 = c["rot"][ts], c["rot"][2]
+        tol = p["tol"]
+        check(math.hypot(a1 - end[3], c1 - end[4]) <= tol + EPS, "line %d: end off by more than the tolerance" % c["id"])
+        nxt = cmds[i + 1] if i + 1 < len(cmds) else None
+        if nxt is None or "id" not in nxt or nxt["shape"] is None:
+            check(abs(a1 - end[3]) < EPS and abs(c1 - end[4]) < EPS, "line %d: run does not end exactly" % c["id"])
+        if prev is not None:
+            ps = prev["shape"]
+            for k in (ts, 2):
+                if c["mask"] & prev["mask"] & (1 << k):
+                    check(abs(ps[2 * N + k] - sh[k]) < EPS and abs(ps[3 * N + k] - sh[N + k]) < EPS,
+                          "line %d: rate or second derivative jumps from line %d" % (c["id"], prev["id"]))
+            a0, c0 = prev["rot"][ts], prev["rot"][2]
+        else:
+            a0, c0 = start[3], start[4]
+        # the quintic along the move against the programmed move, over both axes;
+        # an axis without a curve goes straight
+        H = p["length"]
+
+        def along(v0, v1, k):
+            if c["mask"] & (1 << k):
+                return hermite(v0, sh[k], sh[N + k], v1, sh[2 * N + k], sh[3 * N + k], H)
+            return [v0, v1 - v0, 0, 0, 0, 0]
+        qa = along(a0, a1, ts)
+        qc = along(c0, c1, 2)
+        worst = 0.0
+        for q in range(0, 65):
+            t = q / 64
+            va = poly(qa, t)
+            a_top = max(a_top, va)
+            ea = va - (start[3] + t * (end[3] - start[3]))
+            ec = poly(qc, t) - (start[4] + t * (end[4] - start[4]))
+            worst = max(worst, math.hypot(ea, ec))
+        check(worst <= tol * 1.02, "line %d: curve %.4g off the programmed move, over the tolerance" % (c["id"], worst))
+        prev = c
+
+    check(shaped["lines"] == 160, "%d moves smoothed outside the limit run, expected 160" % shaped["lines"])
+    check(a_top <= A_MAX + EPS, "%s reaches %.6f, over its limit of 30" % (T, a_top))
+    return moves
+
+
+ma = check_run("orient.ngc", "out.motion-logger", "A")
+mv = check_run("orient-v.ngc", "out-v.motion-logger", "V")
+# the V run: the curve of the A run, on V
+check(len(ma) == len(mv), "the V run sends %d moves, the A run %d" % (len(mv), len(ma)))
+for a, v in zip(ma, mv):
+    if a["shape"] is None or v["shape"] is None:
+        check(a["shape"] is None and v["shape"] is None, "line %d: a curve in one run only" % a["id"])
+        continue
+    same = v["mask"] == (a["mask"] & ~1) | (16 if a["mask"] & 1 else 0)
+    for j in range(4):
+        same = same and abs(v["shape"][j * N + 4] - a["shape"][j * N]) <= EPS
+        same = same and abs(v["shape"][j * N + 2] - a["shape"][j * N + 2]) <= EPS
+    same = same and abs(v["rot"][4] - a["rot"][0]) <= EPS and abs(v["rot"][2] - a["rot"][2]) <= EPS
+    check(same, "line %d: the curve on V is not the curve on A" % a["id"])
+for f in fail[:20]:
+    print(f)
+sys.exit(1 if fail else 0)

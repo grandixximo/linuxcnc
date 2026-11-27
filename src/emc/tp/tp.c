@@ -76,14 +76,24 @@ void tpMotFunctions(void(  *pDioWrite)(int,char)
                    ,int (  *pGetRotaryIsUnlocked)(int)
                    ,double(*paxis_get_vel_limit)(int)
                    ,double(*paxis_get_acc_limit)(int)
+                   ,double(*paxis_get_jerk_limit)(int)
+                   ,int(   *paxis_is_angular)(int)
                    )
 {
+    (void)paxis_get_jerk_limit;
+    (void)paxis_is_angular;
     _DioWrite            = pDioWrite;
     _AioWrite            = pAioWrite;
     _SetRotaryUnlock     = pSetRotaryUnlock;
     _GetRotaryIsUnlocked = pGetRotaryIsUnlocked;
     _axis_get_vel_limit  = paxis_get_vel_limit;
     _axis_get_acc_limit  = paxis_get_acc_limit;
+}
+
+/* the joints are bounded in canon for this planner */
+void tpMotKins(tp_kins_t const *kins)
+{
+    (void)kins;
 }
 
 void tpMotData(emcmot_status_t *pstatus
@@ -648,14 +658,24 @@ struct state_tag_t tpGetExecTag(TP_STRUCT * const tp)
 }
 
 
+/* tpmod runs every move straight in all axes */
+int tpSetOrientShape(TP_STRUCT * const tp, unsigned mask, double const *shape)
+{
+    (void)tp;
+    (void)mask;
+    (void)shape;
+    return TP_ERR_OK;
+}
+
 /**
  * Sets the termination condition for all subsequent queued moves.
  * If cond is TC_TERM_COND_STOP, motion comes to a stop before a subsequent move
  * begins. If cond is TC_TERM_COND_PARABOLIC, the following move is begun when the
  * current move slows below a calculated blend velocity.
  */
-int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance)
+int tpSetTermCond(TP_STRUCT * const tp, int cond, double tolerance, double angular_tolerance)
 {
+    (void)angular_tolerance;
     if (!tp) {
         return TP_ERR_FAIL;
     }
@@ -4819,6 +4839,7 @@ int tpIsMoving(TP_STRUCT const * const tp)
 
 // api: functions called by motion:
 EXPORT_SYMBOL(tpMotFunctions);
+EXPORT_SYMBOL(tpMotKins);
 EXPORT_SYMBOL(tpMotData);
 
 EXPORT_SYMBOL(tpAbort);
@@ -4850,6 +4871,7 @@ EXPORT_SYMBOL(tpSetAout);
 EXPORT_SYMBOL(tpSetCycleTime);
 EXPORT_SYMBOL(tpSetDout);
 EXPORT_SYMBOL(tpSetId);
+EXPORT_SYMBOL(tpSetOrientShape);
 EXPORT_SYMBOL(tpSetPos);
 EXPORT_SYMBOL(tpSetRunDir);
 EXPORT_SYMBOL(tpSetSpindleSync);

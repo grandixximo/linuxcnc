@@ -40,7 +40,7 @@ int tpSetAmax(TP_STRUCT * tp, double amax);
 int tpSetId(TP_STRUCT * tp, int id);
 int tpGetExecId(TP_STRUCT * tp);
 struct state_tag_t tpGetExecTag(TP_STRUCT * const tp);
-int tpSetTermCond(TP_STRUCT * tp, int cond, double tolerance);
+int tpSetTermCond(TP_STRUCT * tp, int cond, double tolerance, double angular_tolerance);
 int tpSetPos(TP_STRUCT * tp, EmcPose const * const pos);
 int tpRunCycle(TP_STRUCT * tp, long period);
 int tpPause(TP_STRUCT * tp);
@@ -55,6 +55,12 @@ int tpAddRigidTap(TP_STRUCT * const tp,
         unsigned char enables,
         double scale,
         struct state_tag_t tag);
+// The orientation shape of the next line or circle added: with bit k of
+// mask set, axis A + k (A, B, C, U, V, W) follows a curve with the rates and second
+// derivatives per unit of path length in shape, as d0, dd0, d1 and dd1,
+// TP_ORIENT_AXES each, at its start (0) and end (1), instead of a straight line.
+// A planner may ignore it.
+int tpSetOrientShape(TP_STRUCT * const tp, unsigned mask, double const *shape);
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
 	      double vel, double ini_maxvel, double acc, double ini_maxjerk,
               double vlimit_scale, unsigned char enables,
@@ -97,7 +103,29 @@ void tpMotFunctions(void(*pDioWrite)(int,char)
                    ,int( *pGetRotaryUnlock)(int)
                    ,double(*paxis_get_vel_limit)(int)
                    ,double(*paxis_get_acc_limit)(int)
+                   ,double(*paxis_get_jerk_limit)(int)
+                   ,int(*paxis_is_angular)(int)
                    );
+
+// The kinematics a planner may bound the joints with.  The joint count
+// is that of the kinematics, extra joints excluded; jac rows are joints,
+// columns the nine axes.  inverse reads joints as the seed.  identity is
+// nonzero while the kinematics in force is the identity, and then the
+// axis limits are all there is.  end_joints gives the joints motion found
+// for the endpoint it checked last, when pos is that endpoint: 1, or 0.
+#define TP_KINS_MAX_JOINTS 16
+typedef struct {
+    int (*identity)(void);
+    int (*joints)(void);
+    int (*inverse)(EmcPose const *pos, double *joints);
+    int (*jacobian)(double const *joints, EmcPose const *pos, double jac[][9]);
+    void (*joint_pos)(double *joints);
+    double (*joint_vel_limit)(int);
+    double (*joint_acc_limit)(int);
+    double (*joint_jerk_limit)(int);
+    int (*end_joints)(EmcPose const *pos, double *joints);
+} tp_kins_t;
+void tpMotKins(tp_kins_t const *kins);
 
 // These are here so we don't need to include "motion/motion.h"
 // because that feels very wrong. The real solution is to untangle

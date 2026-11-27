@@ -183,7 +183,30 @@ static int path_end_pose(int type, const double *joint, const EmcPose *asked, Em
    last endpoint checked came out with.  Returns 0, and the joints the
    machine stands in, when there is nothing queued to ask. */
 static double planned_joints[EMCMOT_MAX_JOINTS];
+static EmcPose planned_pose;
 static int planned_joints_ok = 0;
+
+/* the joints the last endpoint checked came out with, for a planner that
+   wants them for the same pose: 1 and the joints, or 0 */
+int motPlannedJoints(EmcPose const *pos, double *joints_out)
+{
+    double const *a = &pos->tran.x, *b = &planned_pose.tran.x;
+    double d[9], e[9];
+    int j;
+
+    if (!planned_joints_ok) { return 0; }
+    d[0] = a[0]; d[1] = a[1]; d[2] = a[2];
+    e[0] = b[0]; e[1] = b[1]; e[2] = b[2];
+    d[3] = pos->a; d[4] = pos->b; d[5] = pos->c;
+    d[6] = pos->u; d[7] = pos->v; d[8] = pos->w;
+    e[3] = planned_pose.a; e[4] = planned_pose.b; e[5] = planned_pose.c;
+    e[6] = planned_pose.u; e[7] = planned_pose.v; e[8] = planned_pose.w;
+    for (j = 0; j < 9; j++) {
+        if (fabs(d[j] - e[j]) > 1e-9 * (1.0 + fabs(e[j]))) { return 0; }
+    }
+    for (j = 0; j < NO_OF_KINS_JOINTS; j++) { joints_out[j] = planned_joints[j]; }
+    return 1;
+}
 
 static int queue_end_joints(double *joints_out)
 {
@@ -417,6 +440,7 @@ STATIC int inRange(EmcPose pos, int id, char *move_type)
 	for (joint_num = 0; joint_num < EMCMOT_MAX_JOINTS; joint_num++) {
 	    planned_joints[joint_num] = joint_pos[joint_num];
 	}
+	planned_pose = pos;
 	planned_joints_ok = 1;
     }
     return in_range;
@@ -1155,7 +1179,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 	case EMCMOT_SET_TERM_COND:
 	    /* sets termination condition for motion emcmotInternal->coord_tp */
 	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_TERM_COND");
-	    tpSetTermCond(&emcmotInternal->coord_tp, emcmotCommand->termCond, emcmotCommand->tolerance);
+	    tpSetTermCond(&emcmotInternal->coord_tp, emcmotCommand->termCond, emcmotCommand->tolerance,
+	                  emcmotCommand->angular_tolerance);
 	    break;
 
 	case EMCMOT_SET_SPINDLESYNC:
@@ -1196,6 +1221,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 
 	    /* append it to the emcmotInternal->coord_tp */
 	    tpSetId(&emcmotInternal->coord_tp, emcmotCommand->id);
+	    if (emcmotCommand->orient_mask) {
+		tpSetOrientShape(&emcmotInternal->coord_tp, emcmotCommand->orient_mask,
+			emcmotCommand->orient_shape);
+	    }
 	    int res_addline = tpAddLine(&emcmotInternal->coord_tp,
 					emcmotCommand->pos,
 					emcmotCommand->motion_type,
@@ -1464,6 +1493,10 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
             }
 	    /* append it to the emcmotInternal->coord_tp */
 	    tpSetId(&emcmotInternal->coord_tp, emcmotCommand->id);
+	    if (emcmotCommand->orient_mask) {
+		tpSetOrientShape(&emcmotInternal->coord_tp, emcmotCommand->orient_mask,
+			emcmotCommand->orient_shape);
+	    }
 	    int res_addcircle = tpAddCircle(&emcmotInternal->coord_tp, emcmotCommand->pos,
                             emcmotCommand->center, emcmotCommand->normal,
                             emcmotCommand->turn, emcmotCommand->motion_type,
@@ -2396,6 +2429,17 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 			axis_set_jerk_limit(emcmotCommand->axis, emcmotCommand->jerk);
 			break;
 
+        case EMCMOT_SET_AXIS_TYPE:
+            /* set from [AXIS_n]TYPE at startup */
+            rtapi_print_msg(RTAPI_MSG_DBG, "SET_AXIS_TYPE");
+            rtapi_print_msg(RTAPI_MSG_DBG, " %d angular(%d)", emcmotCommand->axis, emcmotCommand->flags);
+            emcmot_config_change();
+            if ((emcmotCommand->axis < 0) || (emcmotCommand->axis >= EMCMOT_MAX_AXIS)) {
+                break;
+            }
+            axis_set_angular(emcmotCommand->axis, emcmotCommand->flags != 0);
+            break;
+
         case EMCMOT_SET_AXIS_LOCKING_JOINT:
 	    rtapi_print_msg(RTAPI_MSG_DBG, "SET_AXIS_ACC_LOCKING_JOINT %d", emcmotCommand->axis);
 	    emcmot_config_change();
@@ -2466,6 +2510,12 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
             emcmotConfig->arcBlendGapCycles = emcmotCommand->arcBlendGapCycles;
             emcmotConfig->arcBlendRampFreq = emcmotCommand->arcBlendRampFreq;
             emcmotConfig->arcBlendTangentKinkRatio = emcmotCommand->arcBlendTangentKinkRatio;
+            break;
+        case EMCMOT_SETUP_TP_OPTIONS:
+            rtapi_print_msg(RTAPI_MSG_DBG, "SETUP_TP_OPTIONS");
+            emcmotConfig->singularStop = emcmotCommand->singularStop;
+            emcmotConfig->singularFloor = emcmotCommand->singularFloor;
+            emcmotConfig->speedHumpTime = emcmotCommand->speedHumpTime;
             break;
         case EMCMOT_SET_PROBE_ERR_INHIBIT:
             rtapi_print_msg(RTAPI_MSG_DBG, "SET_PROBE_ERR_INHIBIT");

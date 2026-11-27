@@ -708,7 +708,9 @@ class EMC_TRAJ_LINEAR_MOVE:public EMC_TRAJ_CMD_MSG {
         ini_maxjerk(0.0),
         vlimit_scale(1.0),
         feed_mode(0),
-        indexer_jnum(0)
+        indexer_jnum(0),
+        orient_mask(0),
+        orient_shape{}
     {};
 
     // For internal NML/CMS use only.
@@ -722,6 +724,8 @@ class EMC_TRAJ_LINEAR_MOVE:public EMC_TRAJ_CMD_MSG {
     double vlimit_scale;        // see emcmot_command_t
     int feed_mode;
     int indexer_jnum;
+    int orient_mask;            // see emcmot_command_t
+    double orient_shape[24];
 };
 
 class EMC_TRAJ_CIRCULAR_MOVE:public EMC_TRAJ_CMD_MSG {
@@ -738,7 +742,9 @@ class EMC_TRAJ_CIRCULAR_MOVE:public EMC_TRAJ_CMD_MSG {
         acc(0.0),
         ini_maxjerk(0.0),
         vlimit_scale(1.0),
-        feed_mode(0)
+        feed_mode(0),
+        orient_mask(0),
+        orient_shape{}
     {};
 
     // For internal NML/CMS use only.
@@ -754,6 +760,8 @@ class EMC_TRAJ_CIRCULAR_MOVE:public EMC_TRAJ_CMD_MSG {
     double vel, ini_maxvel, acc, ini_maxjerk;
     double vlimit_scale;        // see emcmot_command_t
     int feed_mode;
+    int orient_mask;            // see emcmot_command_t
+    double orient_shape[24];
 };
 
 class EMC_TRAJ_SET_TERM_COND:public EMC_TRAJ_CMD_MSG {
@@ -763,7 +771,8 @@ class EMC_TRAJ_SET_TERM_COND:public EMC_TRAJ_CMD_MSG {
         cond(false),
         tolerance(0.0),
         planner_type(-1),       /* G64_R_PLANNER: -1 = unchanged */
-        scurve_peak_scale(-1.0) /* G64_R_PLANNER: <0 = unchanged */
+        scurve_peak_scale(-1.0), /* G64_R_PLANNER: <0 = unchanged */
+        angular_tolerance(0.0)
     {};
 
     // For internal NML/CMS use only.
@@ -781,6 +790,7 @@ class EMC_TRAJ_SET_TERM_COND:public EMC_TRAJ_CMD_MSG {
      * smooth request (1) to the machine's [TRAJ]SMOOTH_PLANNER. */
     int planner_type;        // 0 = trapezoidal, 1 = smooth (jerk-limited), -1 = unchanged
     double scurve_peak_scale; // 0.1..1.0 cornering peak scale, <0 = unchanged
+    double angular_tolerance; // G64 E: path deviation of the angular axes, 0 = unconstrained
 };
 
 class EMC_TRAJ_SET_SPINDLESYNC:public EMC_TRAJ_CMD_MSG {

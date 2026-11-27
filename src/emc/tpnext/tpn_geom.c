@@ -1,0 +1,810 @@
+/********************************************************************
+* Description: tpn_geom.c
+*   Geometry, blends and limit projection for the tpnext planner.
+*
+* License: GPL Version 2
+* System: Linux
+********************************************************************/
+#include <rtapi_math.h>
+#include "tpn.h"
+
+#define TPN_BIG 1e30
+
+void tpnVecFromPose(tpn_vec *v, EmcPose const *p)
+{
+    v->v[0] = p->tran.x;
+    v->v[1] = p->tran.y;
+    v->v[2] = p->tran.z;
+    v->v[3] = p->a;
+    v->v[4] = p->b;
+    v->v[5] = p->c;
+    v->v[6] = p->u;
+    v->v[7] = p->v;
+    v->v[8] = p->w;
+}
+
+void tpnPoseFromVec(EmcPose *p, tpn_vec const *v)
+{
+    p->tran.x = v->v[0];
+    p->tran.y = v->v[1];
+    p->tran.z = v->v[2];
+    p->a = v->v[3];
+    p->b = v->v[4];
+    p->c = v->v[5];
+    p->u = v->v[6];
+    p->v = v->v[7];
+    p->w = v->v[8];
+}
+
+static void tpnGeomEvalBase(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2);
+
+static double norm3(double const *x)
+{
+    return sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+}
+
+/* feed length the way RS274NGC defines it: XYZ if XYZ moves, else UVW,
+ * else ABC */
+static double feedLength(tpn_vec const *d)
+{
+    double l = norm3(&d->v[0]);
+    if (l > 1e-9) {
+        return l;
+    }
+    l = norm3(&d->v[6]);
+    if (l > 1e-9) {
+        return l;
+    }
+    return norm3(&d->v[3]);
+}
+
+int tpnLineInit(tpn_geom *g, EmcPose const *start, EmcPose const *end)
+{
+    tpn_vec d;
+    int i;
+    g->type = TPN_LINE;
+    g->flat = 0;
+    g->oshape = 0;
+    tpnVecFromPose(&g->p0, start);
+    tpnVecFromPose(&g->p1, end);
+    for (i = 0; i < TPN_NAX; i++) {
+        d.v[i] = g->p1.v[i] - g->p0.v[i];
+    }
+    g->L = feedLength(&d);
+    if (g->L <= 1e-9) {
+        return -1;
+    }
+    for (i = 0; i < TPN_NAX; i++) {
+        g->g.v[i] = d.v[i] / g->L;
+    }
+    return 0;
+}
+
+void tpnChordInit(tpn_geom *g, EmcPose const *start, EmcPose const *end, double L)
+{
+    int i;
+    g->type = TPN_LINE;
+    g->flat = 0;
+    g->oshape = 0;
+    tpnVecFromPose(&g->p0, start);
+    tpnVecFromPose(&g->p1, end);
+    g->L = L;
+    for (i = 0; i < TPN_NAX; i++) {
+        g->g.v[i] = (g->p1.v[i] - g->p0.v[i]) / L;
+    }
+}
+
+int tpnArcInit(tpn_geom *g, EmcPose const *start, EmcPose const *end,
+        PmCartesian const *center, PmCartesian const *normal, int turn)
+{
+    PmCircle c;
+    double helix;
+    int i;
+    g->type = TPN_ARC;
+    g->oshape = 0;
+    tpnVecFromPose(&g->p0, start);
+    tpnVecFromPose(&g->p1, end);
+    if (pmCircleInit(&c, &start->tran, &end->tran, center, normal, turn)) {
+        return -1;
+    }
+    if (c.radius <= 1e-9 || c.angle <= 1e-9) {
+        return -1;
+    }
+    g->center = c.center;
+    g->rTan = c.rTan;
+    g->rPerp = c.rPerp;
+    g->rHelix = c.rHelix;
+    g->radius = c.radius;
+    g->spiral = c.spiral;
+    g->angle = c.angle;
+    pmCartMag(&c.rHelix, &helix);
+    double arc = c.angle * (c.radius + 0.5 * c.spiral);
+    g->L = sqrt(arc * arc + helix * helix);
+    if (g->L <= 1e-9) {
+        return -1;
+    }
+    for (i = 0; i < 3; i++) {
+        g->g.v[i] = 0.0;
+    }
+    g->flat = fabs(c.spiral) < 1e-12 && helix < 1e-12;
+    for (i = 3; i < TPN_NAX; i++) {
+        g->g.v[i] = (g->p1.v[i] - g->p0.v[i]) / g->L;
+        if (g->g.v[i] != 0.0) {
+            g->flat = 0;
+        }
+    }
+    return 0;
+}
+
+void tpnGeomShape(tpn_geom *g, unsigned mask, double const d0[TPN_NOSH],
+        double const dd0[TPN_NOSH], double const d1[TPN_NOSH], double const dd1[TPN_NOSH])
+{
+    double H = g->L;
+    int k;
+    g->oshape = 0;
+    for (k = 0; k < TPN_NOSH; k++) {
+        if (!(mask & (1u << k))) {
+            continue;
+        }
+        /* quintic Hermite in t = u / L, as tpnBlendInit() */
+        double D = g->p1.v[3 + k] - g->p0.v[3 + k];
+        double v0 = H * d0[k], v1 = H * d1[k];
+        double a0 = H * H * dd0[k], a1 = H * H * dd1[k];
+        g->oc[0][k] = g->p0.v[3 + k];
+        g->oc[1][k] = v0;
+        g->oc[2][k] = 0.5 * a0;
+        g->oc[3][k] = 10.0 * D - 6.0 * v0 - 4.0 * v1 - 1.5 * a0 + 0.5 * a1;
+        g->oc[4][k] = -15.0 * D + 8.0 * v0 + 7.0 * v1 + 1.5 * a0 - a1;
+        g->oc[5][k] = 6.0 * D - 3.0 * v0 - 3.0 * v1 - 0.5 * a0 + 0.5 * a1;
+        g->oshape |= 1u << k;
+        g->flat = 0;
+    }
+}
+
+/* the rotary axes bent by the orientation shape */
+static void shapeEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2)
+{
+    double t = u / g->L, iL = 1.0 / g->L;
+    int k;
+    for (k = 0; k < TPN_NOSH; k++) {
+        if (!(g->oshape & (1u << k))) {
+            continue;
+        }
+        double c0 = g->oc[0][k], c1 = g->oc[1][k], c2 = g->oc[2][k];
+        double c3 = g->oc[3][k], c4 = g->oc[4][k], c5 = g->oc[5][k];
+        if (p) {
+            p->v[3 + k] = c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * c5))));
+        }
+        if (d1) {
+            d1->v[3 + k] = (c1 + t * (2.0 * c2 + t * (3.0 * c3 + t * (4.0 * c4 + t * 5.0 * c5)))) * iL;
+        }
+        if (d2) {
+            d2->v[3 + k] = (2.0 * c2 + t * (6.0 * c3 + t * (12.0 * c4 + t * 20.0 * c5))) * iL * iL;
+        }
+    }
+}
+
+void tpnGeomEval(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2)
+{
+    if (g->oshape) {
+        double uc = tpnMin(u, g->L);
+        tpnGeomEvalBase(g, u, p, d1, d2);
+        shapeEval(g, uc, u >= g->L ? 0 : p, d1, d2);
+        return;
+    }
+    tpnGeomEvalBase(g, u, p, d1, d2);
+}
+
+static void tpnGeomEvalBase(tpn_geom const *g, double u, tpn_vec *p, tpn_vec *d1, tpn_vec *d2)
+{
+    int i;
+    if (u >= g->L && p) {
+        *p = g->p1;
+        p = 0;
+    }
+    if (g->type == TPN_LINE) {
+        for (i = 0; i < TPN_NAX; i++) {
+            if (p) {
+                p->v[i] = g->p0.v[i] + g->g.v[i] * u;
+            }
+            if (d1) {
+                d1->v[i] = g->g.v[i];
+            }
+            if (d2) {
+                d2->v[i] = 0.0;
+            }
+        }
+        return;
+    }
+    double k = g->angle / g->L;
+    double phi = k * u;
+    double cs = cos(phi), sn = sin(phi);
+    double R = g->radius;
+    double r = R + g->spiral * phi / g->angle;
+    double rp = g->spiral / g->angle;
+    double const *rt = &g->rTan.x;
+    double const *rq = &g->rPerp.x;
+    double const *rh = &g->rHelix.x;
+    double const *ce = &g->center.x;
+    for (i = 0; i < 3; i++) {
+        double dir = (rt[i] * cs + rq[i] * sn) / R;
+        double dirp = (-rt[i] * sn + rq[i] * cs) / R;
+        if (p) {
+            p->v[i] = ce[i] + r * dir + rh[i] * phi / g->angle;
+        }
+        if (d1) {
+            d1->v[i] = k * (rp * dir + r * dirp + rh[i] / g->angle);
+        }
+        if (d2) {
+            d2->v[i] = k * k * (2.0 * rp * dirp - r * dir);
+        }
+    }
+    for (i = 3; i < TPN_NAX; i++) {
+        if (p) {
+            p->v[i] = g->p0.v[i] + g->g.v[i] * u;
+        }
+        if (d1) {
+            d1->v[i] = g->g.v[i];
+        }
+        if (d2) {
+            d2->v[i] = 0.0;
+        }
+    }
+}
+
+/* bounds of the first three derivatives of a quintic in t = sigma / H,
+ * power basis c, from the Bernstein coefficients of the derivatives: a
+ * polynomial on [0, 1] stays inside the hull of its Bernstein coefficients */
+static void quinticBounds(double c0, double c1, double c2, double c3, double c4, double c5,
+        double H, double *G, double *G1, double *G2)
+{
+    double bz[6], m1 = 0.0, m2 = 0.0, m3 = 0.0;
+    int k;
+    bz[0] = c0;
+    bz[1] = c0 + c1 / 5.0;
+    bz[2] = c0 + 2.0 * c1 / 5.0 + c2 / 10.0;
+    bz[3] = c0 + 3.0 * c1 / 5.0 + 3.0 * c2 / 10.0 + c3 / 10.0;
+    bz[4] = c0 + 4.0 * c1 / 5.0 + 6.0 * c2 / 10.0 + 4.0 * c3 / 10.0 + c4 / 5.0;
+    bz[5] = c0 + c1 + c2 + c3 + c4 + c5;
+    for (k = 0; k < 5; k++) {
+        m1 = tpnMax(m1, fabs(5.0 * (bz[k + 1] - bz[k])));
+    }
+    for (k = 0; k < 4; k++) {
+        m2 = tpnMax(m2, fabs(20.0 * (bz[k + 2] - 2.0 * bz[k + 1] + bz[k])));
+    }
+    for (k = 0; k < 3; k++) {
+        m3 = tpnMax(m3, fabs(60.0 * (bz[k + 3] - 3.0 * bz[k + 2] + 3.0 * bz[k + 1] - bz[k])));
+    }
+    *G = m1 / H;
+    *G1 = m2 / (H * H);
+    *G2 = m3 / (H * H * H);
+}
+
+/* per axis bounds of |dP/ds|, |d2P/ds2|, |d3P/ds3| over the whole move */
+void tpnGeomBounds(tpn_geom const *g, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
+{
+    int i;
+    for (i = 0; i < TPN_NAX; i++) {
+        G->v[i] = fabs(g->g.v[i]);
+        G1->v[i] = 0.0;
+        G2->v[i] = 0.0;
+    }
+    for (i = 0; i < TPN_NOSH; i++) {
+        if (g->oshape & (1u << i)) {
+            quinticBounds(g->oc[0][i], g->oc[1][i], g->oc[2][i], g->oc[3][i], g->oc[4][i],
+                    g->oc[5][i], g->L, &G->v[3 + i], &G1->v[3 + i], &G2->v[3 + i]);
+        }
+    }
+    if (g->type != TPN_ARC) {
+        return;
+    }
+    double k = g->angle / g->L;
+    double R = g->radius;
+    double rmax = R + tpnMax(0.0, g->spiral);
+    double rp = fabs(g->spiral / g->angle);
+    double const *rt = &g->rTan.x;
+    double const *rq = &g->rPerp.x;
+    double const *rh = &g->rHelix.x;
+    for (i = 0; i < 3; i++) {
+        double m = sqrt(rt[i] * rt[i] + rq[i] * rq[i]) / R;
+        G->v[i] = k * (rp * m + rmax * m + fabs(rh[i]) / g->angle);
+        G1->v[i] = k * k * (2.0 * rp * m + rmax * m);
+        G2->v[i] = k * k * k * (3.0 * rp * m + rmax * m);
+    }
+}
+
+static double weightedDist2(tpn_vec const *p, tpn_vec const *q, tpn_vec const *w)
+{
+    double s = 0.0;
+    int i;
+    for (i = 0; i < TPN_NAX; i++) {
+        double e = (q->v[i] - p->v[i]) * w->v[i];
+        s += e * e;
+    }
+    return s;
+}
+
+/* Newton steps on the squared distance from u, kept inside [0, L] */
+static double refineDist2(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w, double u)
+{
+    tpn_vec p, d1, d2;
+    int k, i;
+    for (k = 0; k < 6; k++) {
+        double f1 = 0.0, f2 = 0.0;
+        tpnGeomEval(g, u, &p, &d1, &d2);
+        for (i = 0; i < TPN_NAX; i++) {
+            double w2 = w->v[i] * w->v[i];
+            double e = p.v[i] - q->v[i];
+            f1 += w2 * e * d1.v[i];
+            f2 += w2 * (d1.v[i] * d1.v[i] + e * d2.v[i]);
+        }
+        if (f2 <= TPN_TINY) {
+            break;
+        }
+        double un = tpnMin(g->L, tpnMax(0.0, u - f1 / f2));
+        if (fabs(un - u) < 1e-12 * g->L) {
+            u = un;
+            break;
+        }
+        u = un;
+    }
+    tpnGeomEval(g, u, &p, 0, 0);
+    return weightedDist2(&p, q, w);
+}
+
+double tpnGeomDist(tpn_geom const *g, tpn_vec const *q, tpn_vec const *w)
+{
+    double best = tpnMin(weightedDist2(&g->p0, q, w), weightedDist2(&g->p1, q, w));
+    int i;
+    if (g->type == TPN_LINE) {
+        /* the line is linear in every axis, so is its weighted projection */
+        double t = 0.0, L2 = 0.0;
+        for (i = 0; i < TPN_NAX; i++) {
+            double w2 = w->v[i] * w->v[i];
+            t += w2 * (q->v[i] - g->p0.v[i]) * g->g.v[i];
+            L2 += w2 * g->g.v[i] * g->g.v[i];
+        }
+        if (L2 > TPN_TINY) {
+            tpn_vec p;
+            double u = tpnMin(g->L, tpnMax(0.0, t / L2));
+            if (g->oshape) {
+                /* bent rotaries: refine from the projection on the chord */
+                best = tpnMin(best, refineDist2(g, q, w, u));
+            } else {
+                tpnGeomEval(g, u, &p, 0, 0);
+                best = tpnMin(best, weightedDist2(&p, q, w));
+            }
+        }
+        return sqrt(best);
+    }
+    /* start from the angle of q around the arc axis on every turn, then
+     * refine on the weighted distance */
+    double const *rt = &g->rTan.x;
+    double const *rq = &g->rPerp.x;
+    double x = 0.0, y = 0.0, d2 = 0.0;
+    for (i = 0; i < 3; i++) {
+        double d = q->v[i] - (&g->center.x)[i];
+        x += d * rt[i];
+        y += d * rq[i];
+        d2 += d * d;
+    }
+    double phi = atan2(y, x);
+    if (phi < 0.0) {
+        phi += 2.0 * M_PI;
+    }
+    if (g->flat && w->v[0] == w->v[1] && w->v[1] == w->v[2]) {
+        /* a circle in XYZ weighted alike, the other axes fixed: the
+         * nearest point is at the angle of q if the arc reaches it */
+        if (phi <= g->angle) {
+            double R = g->radius;
+            double rho2 = (x * x + y * y) / (R * R);
+            double rho = sqrt(rho2);
+            double e = (rho - R) * (rho - R) + tpnMax(d2 - rho2, 0.0);
+            double s = e * w->v[0] * w->v[0];
+            for (i = 3; i < TPN_NAX; i++) {
+                double f = (q->v[i] - g->p0.v[i]) * w->v[i];
+                s += f * f;
+            }
+            best = tpnMin(best, s);
+        }
+        return sqrt(best);
+    }
+    for (; phi <= g->angle + M_PI; phi += 2.0 * M_PI) {
+        best = tpnMin(best, refineDist2(g, q, w, tpnMin(g->L, phi * g->L / g->angle)));
+    }
+    return sqrt(best);
+}
+
+/* Quintic Hermite from (p0, d0, dd0) to (p1, d1, dd1), derivatives taken
+ * with respect to sigma, sigma in [0, H]. */
+void tpnBlendInit(tpn_blend *b, double H, tpn_vec const *p0, tpn_vec const *d0,
+        tpn_vec const *dd0, tpn_vec const *p1, tpn_vec const *d1, tpn_vec const *dd1)
+{
+    int i;
+    b->H = H;
+    for (i = 0; i < TPN_NAX; i++) {
+        double D = p1->v[i] - p0->v[i];
+        double v0 = H * d0->v[i], v1 = H * d1->v[i];
+        double a0 = H * H * dd0->v[i], a1 = H * H * dd1->v[i];
+        b->c[0][i] = p0->v[i];
+        b->c[1][i] = v0;
+        b->c[2][i] = 0.5 * a0;
+        b->c[3][i] = 10.0 * D - 6.0 * v0 - 4.0 * v1 - 1.5 * a0 + 0.5 * a1;
+        b->c[4][i] = -15.0 * D + 8.0 * v0 + 7.0 * v1 + 1.5 * a0 - a1;
+        b->c[5][i] = 6.0 * D - 3.0 * v0 - 3.0 * v1 - 0.5 * a0 + 0.5 * a1;
+    }
+}
+
+void tpnBlendEval(tpn_blend const *b, double sigma, tpn_vec *p, tpn_vec *d1)
+{
+    double t = sigma / b->H;
+    int i;
+    if (t < 0.0) {
+        t = 0.0;
+    } else if (t > 1.0) {
+        t = 1.0;
+    }
+    for (i = 0; i < TPN_NAX; i++) {
+        double const *c[6] = {&b->c[0][i], &b->c[1][i], &b->c[2][i],
+                              &b->c[3][i], &b->c[4][i], &b->c[5][i]};
+        if (p) {
+            p->v[i] = *c[0] + t * (*c[1] + t * (*c[2] + t * (*c[3] + t * (*c[4] + t * *c[5]))));
+        }
+        if (d1) {
+            d1->v[i] = (*c[1] + t * (2.0 * *c[2] + t * (3.0 * *c[3] + t * (4.0 * *c[4] + t * 5.0 * *c[5])))) / b->H;
+        }
+    }
+}
+
+void tpnBlendBounds(tpn_blend const *b, tpn_vec *G, tpn_vec *G1, tpn_vec *G2)
+{
+    int i;
+    for (i = 0; i < TPN_NAX; i++) {
+        double c1 = b->c[1][i], c2 = b->c[2][i];
+        double c3 = b->c[3][i], c4 = b->c[4][i], c5 = b->c[5][i];
+        if (c1 == 0.0 && c2 == 0.0 && c3 == 0.0 && c4 == 0.0 && c5 == 0.0) {
+            G->v[i] = G1->v[i] = G2->v[i] = 0.0;
+            continue;
+        }
+        quinticBounds(b->c[0][i], c1, c2, c3, c4, c5, b->H, &G->v[i], &G1->v[i], &G2->v[i]);
+    }
+}
+
+void tpnBlendPart(tpn_blend const *b, double t0, double t1, tpn_blend *part)
+{
+    static const double binom[6][6] = {
+        {1, 0, 0, 0, 0, 0}, {1, 1, 0, 0, 0, 0}, {1, 2, 1, 0, 0, 0},
+        {1, 3, 3, 1, 0, 0}, {1, 4, 6, 4, 1, 0}, {1, 5, 10, 10, 5, 1}};
+    double d = t1 - t0;
+    int i, k, m;
+    part->H = b->H * d;
+    for (i = 0; i < TPN_NAX; i++) {
+        double dk = 1.0;
+        if (b->c[1][i] == 0.0 && b->c[2][i] == 0.0 && b->c[3][i] == 0.0
+                && b->c[4][i] == 0.0 && b->c[5][i] == 0.0) {
+            /* an axis the blend does not move */
+            part->c[0][i] = b->c[0][i];
+            for (k = 1; k < 6; k++) {
+                part->c[k][i] = 0.0;
+            }
+            continue;
+        }
+        for (k = 0; k < 6; k++) {
+            double c = 0.0, tp = 1.0;
+            for (m = k; m < 6; m++) {
+                c += binom[m][k] * b->c[m][i] * tp;
+                tp *= t0;
+            }
+            part->c[k][i] = c * dk;
+            dk *= d;
+        }
+    }
+}
+
+static double cbrt_pos(double x)
+{
+    return x > 0.0 ? pow(x, 1.0 / 3.0) : 0.0;
+}
+
+/*
+ * Tangential limits of a piece from per axis limits. With s the path
+ * parameter and P(s) the pose, axis j moves with
+ *   x'   = s' P'
+ *   x''  = s'' P' + s'^2 P''
+ *   x''' = s''' P' + 3 s' s'' P'' + s'^3 P'''
+ * On curved pieces the speed cap takes half of the acceleration for
+ * s'^2 P'' and a quarter of the jerk for s'^3 P''', or up to
+ * TPN_CURVE_AMAX and TPN_CURVE_JMAX of them where the programmed feed
+ * needs more: a cap just under the feed would have the controller speed
+ * up and slow down at every piece of a chain of arcs. Only what the cap
+ * takes is reserved; of the rest of the jerk two thirds go to s''' P' and
+ * one third to the cross term.
+ */
+#define TPN_CURVE_AMAX 0.8
+#define TPN_CURVE_JMAX 0.6
+/* the joints bend harder than the axes along most moves and their jerk
+ * binds first: a cap under the feed may take more of it */
+#define TPN_JCURVE_JMAX 0.8
+
+void tpnLimitCaps(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, tpn_caps *caps)
+{
+    int i;
+    caps->curved = 0;
+    for (i = 0; i < TPN_NAX; i++) {
+        if (G1->v[i] > TPN_TINY || G2->v[i] > TPN_TINY) {
+            caps->curved = 1;
+        }
+    }
+    double fa = caps->curved ? 0.5 : 0.0;
+    double fj2 = caps->curved ? 0.25 : 0.0;
+    double V2 = TPN_BIG, V3 = TPN_BIG;
+    caps->scale = 1.0;
+    caps->Vg = TPN_BIG;
+    for (i = 0; i < TPN_NAX; i++) {
+        if (G->v[i] > TPN_TINY) {
+            caps->Vg = tpnMin(caps->Vg, ax->vel[i] / G->v[i]);
+        }
+        if (G1->v[i] > TPN_TINY) {
+            V2 = tpnMin(V2, fa * ax->acc[i] / G1->v[i]);
+        }
+        if (G2->v[i] > TPN_TINY) {
+            V3 = tpnMin(V3, fj2 * ax->jerk[i] / G2->v[i]);
+        }
+    }
+    caps->V2 = V2 < TPN_BIG ? sqrt(V2) : TPN_BIG;
+    caps->V3 = V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG;
+    caps->V2max = V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG;
+    caps->V3max = V3 < TPN_BIG ? cbrt_pos(V3 * TPN_CURVE_JMAX / fj2) : TPN_BIG;
+}
+
+double tpnCurveCap(tpn_caps const *caps, double r, double vwant)
+{
+    double s2 = r == 1.0 ? 1.0 : sqrt(r);
+    double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
+    double V2 = caps->V2 / s2, V3 = caps->V3 / s3;
+    if (vwant > V2) {
+        V2 = tpnMin(vwant, caps->V2max / s2);
+    }
+    if (vwant > V3) {
+        V3 = tpnMin(vwant, caps->V3max / s3);
+    }
+    return tpnMin(V2, V3) * caps->scale;
+}
+
+void tpnLimitsAt(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, double r, double V, int curved, tpn_lim *lim)
+{
+    int i;
+    double fj = curved ? 2.0 / 3.0 : 1.0;
+    double A = TPN_BIG, J = TPN_BIG;
+    for (i = 0; i < TPN_NAX; i++) {
+        double g1 = G1->v[i] * r, g2 = G2->v[i] * r * r;
+        double ra = ax->acc[i] - V * V * g1;
+        double rj = ax->jerk[i] - V * V * V * g2;
+        if (G->v[i] > TPN_TINY) {
+            A = tpnMin(A, ra / G->v[i]);
+            J = tpnMin(J, fj * rj / G->v[i]);
+        }
+        if (fj < 1.0 && g1 > TPN_TINY && V > TPN_TINY) {
+            A = tpnMin(A, (1.0 - fj) * rj / (3.0 * V * g1));
+        }
+    }
+    lim->V = V;
+    lim->A = A;
+    lim->J = J;
+}
+
+void tpnLimits(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1,
+        tpn_vec const *G2, double vcap, double vwant, tpn_lim *lim)
+{
+    tpn_caps caps;
+    tpnLimitCaps(ax, G, G1, G2, &caps);
+    double V = tpnMin(tpnMin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
+    tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
+}
+
+static void jointAt(tpn_jb const *jb, int j, double r, double *G, double *G1, double *G2)
+{
+    *G = jb->G[j];
+    *G1 = r * jb->G1s[j] + jb->G1u[j];
+    *G2 = r * r * jb->G2s[j] + r * jb->G2m[j] + jb->G2u[j];
+}
+
+void tpnLimitCapsJ(tpn_caps const *axcaps, double r, tpn_jlim const *jl, tpn_jb const *jb,
+        tpn_caps *caps)
+{
+    double s2 = r == 1.0 ? 1.0 : sqrt(r);
+    double s3 = r == 1.0 ? 1.0 : pow(r, 2.0 / 3.0);
+    double G, G1, G2;
+    int j, curved = axcaps->curved;
+    for (j = 0; j < jl->n; j++) {
+        jointAt(jb, j, r, &G, &G1, &G2);
+        if (G1 > TPN_TINY || G2 > TPN_TINY) {
+            curved = 1;
+        }
+    }
+    double fa = curved ? 0.5 : 0.0;
+    double fj2 = curved ? 0.25 : 0.0;
+    double V2 = TPN_BIG, V3 = TPN_BIG;
+    caps->curved = curved;
+    caps->scale = axcaps->scale;
+    caps->Vg = axcaps->Vg;
+    for (j = 0; j < jl->n; j++) {
+        jointAt(jb, j, r, &G, &G1, &G2);
+        if (G > TPN_TINY) {
+            caps->Vg = tpnMin(caps->Vg, jl->vel[j] / G);
+        }
+        if (G1 > TPN_TINY) {
+            V2 = tpnMin(V2, fa * jl->acc[j] / G1);
+        }
+        if (G2 > TPN_TINY) {
+            V3 = tpnMin(V3, fj2 * jl->jerk[j] / G2);
+        }
+    }
+    caps->V2 = tpnMin(axcaps->V2 / s2, V2 < TPN_BIG ? sqrt(V2) : TPN_BIG);
+    caps->V3 = tpnMin(axcaps->V3 / s3, V3 < TPN_BIG ? cbrt_pos(V3) : TPN_BIG);
+    caps->V2max = tpnMin(axcaps->V2max / s2, V2 < TPN_BIG ? sqrt(V2 * TPN_CURVE_AMAX / fa) : TPN_BIG);
+    caps->V3max = tpnMin(axcaps->V3max / s3, V3 < TPN_BIG ? cbrt_pos(V3 * TPN_JCURVE_JMAX / fj2) : TPN_BIG);
+}
+
+void tpnJointLimitsAt(tpn_jlim const *jl, tpn_jb const *jb, double r, double V, int curved,
+        tpn_lim *lim)
+{
+    double fj = curved ? 2.0 / 3.0 : 1.0;
+    double G, G1, G2;
+    int j;
+    for (j = 0; j < jl->n; j++) {
+        jointAt(jb, j, r, &G, &G1, &G2);
+        double ra = jl->acc[j] - V * V * G1;
+        double rj = jl->jerk[j] - V * V * V * G2;
+        if (G > TPN_TINY) {
+            lim->A = tpnMin(lim->A, ra / G);
+            lim->J = tpnMin(lim->J, fj * rj / G);
+        }
+        if (fj < 1.0 && G1 > TPN_TINY && V > TPN_TINY) {
+            lim->A = tpnMin(lim->A, (1.0 - fj) * rj / (3.0 * V * G1));
+        }
+    }
+}
+
+void tpnLimitsJ(tpn_axlim const *ax, tpn_vec const *G, tpn_vec const *G1, tpn_vec const *G2,
+        tpn_jlim const *jl, tpn_jb const *jb, double vcap, double vwant, tpn_lim *lim)
+{
+    tpn_caps axcaps, caps;
+    tpnLimitCaps(ax, G, G1, G2, &axcaps);
+    tpnLimitCapsJ(&axcaps, 1.0, jl, jb, &caps);
+    double V = tpnMin(tpnMin(vcap, caps.Vg), tpnCurveCap(&caps, 1.0, vwant));
+    tpnLimitsAt(ax, G, G1, G2, 1.0, V, caps.curved, lim);
+    tpnJointLimitsAt(jl, jb, 1.0, V, caps.curved, lim);
+}
+
+/* distance of the symmetric velocity change from (v1, 0) down to (vt, 0) */
+static double symDist(double v1, double vt, double A, double J)
+{
+    double dv = v1 - vt;
+    double T;
+    if (dv <= 0.0) {
+        return 0.0;
+    }
+    if (dv * J <= A * A) {
+        T = 2.0 * sqrt(dv / J);
+    } else {
+        T = dv / A + A / J;
+    }
+    return 0.5 * (v1 + vt) * T;
+}
+
+/* duration of the velocity change dv with zero acceleration at both ends */
+double tpnRampTime(double dv, double A, double J)
+{
+    if (dv <= 0.0) {
+        return 0.0;
+    }
+    if (dv * J <= A * A) {
+        return 2.0 * sqrt(dv / J);
+    }
+    return dv / A + A / J;
+}
+
+double tpnRampDist(double v0, double v1, double A, double J)
+{
+    return 0.5 * (v0 + v1) * tpnRampTime(fabs(v1 - v0), A, J);
+}
+
+double tpnHumpTime(double va, double vb, double vtop, double D, double Aa, double Ja,
+        double Ab, double Jb)
+{
+    double vhi = tpnMax(va, vb);
+    double Dh = D - tpnRampDist(va, vhi, Aa, Ja) - tpnRampDist(vb, vhi, Ab, Jb);
+    int k;
+    if (Dh <= 0.0 || vtop <= vhi) {
+        return 0.0;
+    }
+    double dtop = tpnRampDist(vhi, vtop, Aa, Ja) + tpnRampDist(vhi, vtop, Ab, Jb);
+    if (dtop <= Dh) {
+        return tpnRampTime(vtop - vhi, Aa, Ja) + tpnRampTime(vtop - vhi, Ab, Jb)
+            + (Dh - dtop) / vtop;
+    }
+    double lo = vhi, hi = vtop;
+    for (k = 0; k < 24; k++) {
+        double mid = 0.5 * (lo + hi);
+        if (tpnRampDist(vhi, mid, Aa, Ja) + tpnRampDist(vhi, mid, Ab, Jb) <= Dh) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return tpnRampTime(lo - vhi, Aa, Ja) + tpnRampTime(lo - vhi, Ab, Jb);
+}
+
+/* The speed change a jerk limited ramp from speed V and zero
+ * acceleration makes over D under A and J */
+double tpnRampReach(double V, double A, double J, double D)
+{
+    /* A jerk limited ramp by dv = x^2 covers
+     * (2 V x + x^3) / sqrt(J), so x solves x^3 + 2 V x = D sqrt(J), whose
+     * one real root is Cardano's; past dv = A^2 / J the ramp holds A and
+     * covers (V + dv / 2) (dv / A + A / J), a quadratic in dv. */
+    if (D <= 0.0 || J <= 0.0) {
+        return 0.0;
+    }
+    if (V <= 0.0) {
+        /* from rest x^3 = D sqrt(J), and the quadratic past D J^2 = A^3 */
+        if (D * J * J > A * A * A) {
+            double b0 = 0.5 * A / J;
+            return 2.0 * D / (b0 + sqrt(b0 * b0 + 2.0 * D / A));
+        }
+        return pow(D * D * J, 1.0 / 3.0);
+    }
+    double q = D * sqrt(J), p3 = 2.0 * V / 3.0;
+    double disc = sqrt(0.25 * q * q + p3 * p3 * p3);
+    /* x = ca - cb with ca^3 - cb^3 = q and ca cb = p3, without the
+     * cancellation */
+    double ca = pow(disc + 0.5 * q, 1.0 / 3.0), cb = p3 / ca;
+    double x = q / (ca * ca + p3 + cb * cb);
+    double dv = x * x;
+    if (dv * J > A * A) {
+        /* dv^2 / (2A) + dv (V / A + A / (2J)) - (D - V A / J) = 0 */
+        double a2 = 0.5 / A, b2 = V / A + 0.5 * A / J, c2 = D - V * A / J;
+        dv = 2.0 * c2 / (b2 + sqrt(b2 * b2 + 4.0 * a2 * c2));
+    }
+    return dv;
+}
+
+/*
+ * Shortest distance in which the state (v0, a0) can be brought to a
+ * velocity no higher than vt with zero acceleration, under tangential
+ * limits A and J. Zero if the state never exceeds vt anyway.
+ */
+double tpnBrakeDist(double v0, double a0, double vt, double A, double J)
+{
+    if (vt < 0.0) {
+        vt = 0.0;
+    }
+    if (a0 >= 0.0) {
+        double t1 = a0 / J;
+        double v1 = v0 + 0.5 * a0 * t1;
+        if (v1 <= vt) {
+            return 0.0;
+        }
+        double d1 = v0 * t1 + 0.5 * a0 * t1 * t1 - J * t1 * t1 * t1 / 6.0;
+        return d1 + symDist(v1, vt, A, J);
+    }
+    if (v0 <= vt) {
+        return 0.0;
+    }
+    double vz = v0 - 0.5 * a0 * a0 / J;
+    if (vz <= vt) {
+        /* ramping the deceleration out right away already reaches vt */
+        double disc = a0 * a0 - 2.0 * J * (v0 - vt);
+        double t = (-a0 - sqrt(tpnMax(disc, 0.0))) / J;
+        return v0 * t + 0.5 * a0 * t * t + J * t * t * t / 6.0;
+    }
+    /* continue a profile that started at (vv, 0) and ramped down to a0 */
+    double Aeff = tpnMax(A, -a0);
+    double t0 = -a0 / J;
+    double vv = v0 + 0.5 * a0 * a0 / J;
+    double dpre = vv * t0 - J * t0 * t0 * t0 / 6.0;
+    return tpnMax(0.0, symDist(vv, vt, Aeff, J) - dpre);
+}

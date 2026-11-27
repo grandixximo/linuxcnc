@@ -149,6 +149,7 @@ extern "C" {
         EMCMOT_SET_OFFSET, /* set tool offsets */
         EMCMOT_SET_MAX_FEED_OVERRIDE,
         EMCMOT_SETUP_ARC_BLENDS,
+        EMCMOT_SETUP_TP_OPTIONS, /* singular poses and speed humps */
 
 	EMCMOT_SET_PROBE_ERR_INHIBIT,
 	EMCMOT_JOG_CONT,	/* continuous jog */
@@ -177,6 +178,7 @@ extern "C" {
         EMCMOT_SET_AXIS_ACC_LIMIT,      /* set the max axis acc */
         EMCMOT_SET_AXIS_LOCKING_JOINT,  /* set the axis locking joint */
 	EMCMOT_SET_AXIS_JERK_LIMIT,     /* set the max axis jerk */
+	EMCMOT_SET_AXIS_TYPE,           /* set the axis type, flags != 0 = angular */
 
 	EMCMOT_SELECT_KINS_TYPE,        /* select the switchkins type (G12.1) */
         EMCMOT_SET_SPINDLE_PARAMS, /* One command to set all spindle params */
@@ -229,12 +231,15 @@ extern "C" {
 	double jerk;			/* jerk for traj */
     double ini_maxjerk;
     double vlimit_scale;        /* limitVel scale for this move, 0 no limit */
+    unsigned orient_mask;       /* orientation shape of a line or circle, see tpSetOrientShape() */
+    double orient_shape[TP_ORIENT_SHAPE_N];
     int planner_type;	/* planner type: 0 = trapezoidal, 1 = S-curve */
     double scurve_peak_scale;	/* S-curve rest-to-rest peak scale (0.5=faithful..1.0=full) */
 	double backlash;	/* amount of backlash */
 	int id;			/* id for motion */
 	int termCond;		/* termination condition */
 	double tolerance;	/* tolerance for path deviation in CONTINUOUS mode */
+	double angular_tolerance; /* same for the angular axes, 0 = none */
 	int joint;		/* which joint index to use for below */
 	int axis;		/* which axis index to use for below */
 	int spindle; 	/* which spindle to use */
@@ -275,6 +280,9 @@ extern "C" {
     int arcBlendGapCycles;
     double arcBlendRampFreq;
     double arcBlendTangentKinkRatio;
+    int singularStop;          /* refuse a move through a singular pose */
+    double singularFloor;      /* fraction of the feed that makes a pose singular */
+    double speedHumpTime;      /* s, shorter speed humps are flattened, 0 = off */
     double maxFeedScale;
     double ext_offset_vel;	/* velocity for an external axis offset */
     double ext_offset_acc;	/* acceleration for an external axis offset */
@@ -798,6 +806,9 @@ Suggestion: Split this in to an Error and a Status flag register..
         int arcBlendGapCycles;
         double arcBlendRampFreq;
         double arcBlendTangentKinkRatio;
+        int singularStop;       /* [TRAJ]SINGULAR_MODE = STOP */
+        double singularFloor;   /* [TRAJ]SINGULAR_FLOOR */
+        double speedHumpTime;   /* [TRAJ]SPEED_HUMP_TIME, s */
         double maxFeedScale;
         int inhibit_probe_jog_error;
         int inhibit_probe_home_error;

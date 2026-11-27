@@ -533,6 +533,22 @@ int emcAxisSetMaxJerk(int axis, double jerk)
     return 0;
 }
 
+int emcAxisSetAngular(int axis, int angular)
+{
+
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+	return 0;
+    }
+
+    emcmotCommand.command = EMCMOT_SET_AXIS_TYPE;
+    emcmotCommand.axis    = axis;
+    emcmotCommand.flags   = angular != 0;
+    int retval = usrmotWriteEmcmotCommand(&emcmotCommand);
+
+    log_debug(EMC_DEBUG_CONFIG, "{}({}, {}) returned {}\n", __FUNCTION__, axis, angular, retval);
+    return retval;
+}
+
 int emcAxisSetLockingJoint(int axis, int joint)
 {
 
@@ -603,6 +619,22 @@ double emcAxisGetMaxJerk(int axis)
         return 0;
     }
     return AxisConfig[axis].MaxJerk;
+}
+
+double emcAxisGetMinPositionLimit(int axis)
+{
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+        return 0;
+    }
+    return AxisConfig[axis].MinLimit;
+}
+
+double emcAxisGetMaxPositionLimit(int axis)
+{
+    if (axis < 0 || axis >= EMCMOT_MAX_AXIS) {
+        return 0;
+    }
+    return AxisConfig[axis].MaxLimit;
 }
 
 int emcAxisUpdate(EMC_AXIS_STAT stat[], int axis_mask)
@@ -1571,18 +1603,33 @@ int emcTrajSetSpindleSync(int spindle, double fpr, bool wait_for_index, double a
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
-int emcTrajSetTermCond(int cond, double tolerance)
+int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance)
 {
     emcmotCommand.command = EMCMOT_SET_TERM_COND;
     // Direct passthrough since TP can handle the distinction now
     emcmotCommand.termCond = cond;
     emcmotCommand.tolerance = tolerance;
+    emcmotCommand.angular_tolerance = angular_tolerance;
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
+/* the orientation shape of a line or circle into the motion command,
+ * none for a null shape */
+static_assert(sizeof(EMC_TRAJ_LINEAR_MOVE::orient_shape) == sizeof(emcmotCommand.orient_shape)
+        && sizeof(EMC_TRAJ_CIRCULAR_MOVE::orient_shape) == sizeof(emcmotCommand.orient_shape),
+        "the orientation shape of the NML moves and of the motion command differ");
+
+static void setOrientShape(int orient_mask, const double *orient_shape)
+{
+    emcmotCommand.orient_mask = orient_shape ? orient_mask : 0;
+    for (int k = 0; k < TP_ORIENT_SHAPE_N; k++) {
+        emcmotCommand.orient_shape[k] = orient_shape ? orient_shape[k] : 0.0;
+    }
+}
+
 int emcTrajLinearMove(const EmcPose& end, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
-                      double vlimit_scale, int indexer_jnum)
+                      double vlimit_scale, int indexer_jnum, int orient_mask, const double *orient_shape)
 {
 #ifdef ISNAN_TRAP
     if (std::isnan(end.tran.x) || std::isnan(end.tran.y) || std::isnan(end.tran.z) ||
@@ -1606,13 +1653,14 @@ int emcTrajLinearMove(const EmcPose& end, int type, double vel, double ini_maxve
     emcmotCommand.ini_maxjerk = ini_maxjerk;
     emcmotCommand.vlimit_scale = vlimit_scale;
     emcmotCommand.turn = indexer_jnum;
+    setOrientShape(orient_mask, orient_shape);
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 
 int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center,
 			const PM_CARTESIAN& normal, int turn, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
-                        double vlimit_scale)
+                        double vlimit_scale, int orient_mask, const double *orient_shape)
 {
 #ifdef ISNAN_TRAP
     if (std::isnan(end.tran.x) || std::isnan(end.tran.y) || std::isnan(end.tran.z) ||
@@ -1647,6 +1695,7 @@ int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center,
     emcmotCommand.acc = acc;
     emcmotCommand.ini_maxjerk = ini_maxjerk;
     emcmotCommand.vlimit_scale = vlimit_scale;
+    setOrientShape(orient_mask, orient_shape);
 
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
@@ -2300,6 +2349,14 @@ int emcSetupArcBlends(int arcBlendEnable,
     emcmotCommand.arcBlendGapCycles = arcBlendGapCycles;
     emcmotCommand.arcBlendRampFreq = arcBlendRampFreq;
     emcmotCommand.arcBlendTangentKinkRatio = arcBlendTangentKinkRatio;
+    return usrmotWriteEmcmotCommand(&emcmotCommand);
+}
+
+int emcSetupTpOptions(int singularStop, double singularFloor, double speedHumpTime) {
+    emcmotCommand.command = EMCMOT_SETUP_TP_OPTIONS;
+    emcmotCommand.singularStop = singularStop;
+    emcmotCommand.singularFloor = singularFloor;
+    emcmotCommand.speedHumpTime = speedHumpTime;
     return usrmotWriteEmcmotCommand(&emcmotCommand);
 }
 

@@ -69,6 +69,7 @@
 #include "tooldata/tooldata.hh"
 #include "taskclass.hh"
 #include <axis_kinds.hh>
+#include "orient_smooth.hh"
 #include <algorithm>
 #include <unistd.h>		// getpid()
 #include <hal.h>
@@ -583,6 +584,7 @@ static void send_rotation() {
 }
 
 void SET_XY_ROTATION(double t) {
+    flush_segments();
     canon.xy_rotation = t;
     send_rotation();
 }
@@ -1478,7 +1480,227 @@ static void drop_segments(void) {
     chained_points.clear();
 }
 
-static void flush_segments(void) {
+/* [TRAJ]ORIENT_SMOOTH: runs of short continuous feed moves, lines and arcs,
+ * are held back here and each rotary axis along a run is refit as one
+ * smooth curve of the path length within a share of G64 E, or of
+ * ORIENT_SMOOTH_TOLERANCE where no E is programmed, see orient_smooth.hh.
+ * Only for a planner that follows the curve. A run that fills up sends
+ * its first three quarters, and the rest goes on from the curve it leaves
+ * there. */
+/* ORIENT_SMOOTH_TOLERANCE when the INI gives none, degrees */
+#define ORIENT_TOLERANCE_DEFAULT_DEG 0.05
+
+static struct {
+    bool on;
+    double max_length;          // longest move taken, external length units
+    double share;               // of the tolerance the curve may stray
+    double tolerance;           // without G64 E, external angular units
+    double spacing;             // breakpoint spacing, external length units
+    int max_lines;              // longest run held back
+} orient = {false, 0.0, 0.0, 0.0, 0.0, 0};
+
+/* a move held back: the message, where its end and orientation shape are
+ * in it, and its path length */
+struct orient_move {
+    std::unique_ptr<EMC_TRAJ_CMD_MSG> msg;
+    EmcPose *end;
+    int *mask;
+    double *shape;
+    double length;
+    int line_no;
+    StateTag tag;
+};
+static std::vector<orient_move> orient_run;
+static EmcPose orient_start;            // where the run starts as programmed, external units
+static OrientCarry orient_carry;        // and the curve it starts on
+
+static double orientXyzLength(EmcPose const &a, EmcPose const &b)
+{
+    double dx = b.tran.x - a.tran.x, dy = b.tran.y - a.tran.y, dz = b.tran.z - a.tran.z;
+    return sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+/* the length of an arc from start as the planner takes it, see
+ * tpnArcInit(); 0 if it is no arc */
+static double orientArcLength(EmcPose const &start, EMC_TRAJ_CIRCULAR_MOVE const &m)
+{
+    PmCircle c;
+    PmCartesian st = {start.tran.x, start.tran.y, start.tran.z};
+    PmCartesian ce = {m.center.x, m.center.y, m.center.z};
+    PmCartesian no = {m.normal.x, m.normal.y, m.normal.z};
+    double helix;
+    if (pmCircleInit(&c, &st, &m.end.tran, &ce, &no, m.turn) || c.radius <= 1e-9 || c.angle <= 1e-9) {
+        return 0.0;
+    }
+    pmCartMag(&c.rHelix, &helix);
+    double arc = c.angle * (c.radius + 0.5 * c.spiral);
+    return sqrt(arc * arc + helix * helix);
+}
+
+static double *orientAxis(EmcPose &p, int k)
+{
+    double *rot[ORIENT_NAX] = {&p.a, &p.b, &p.c, &p.u, &p.v, &p.w};
+    return rot[k];
+}
+
+/* the deviation a run keeps to: G64 E, or ORIENT_SMOOTH_TOLERANCE without */
+static double orientTolerance(void)
+{
+    double e = TO_EXT_ANG(canon.motionAngularTolerance);
+    return e > 0.0 ? e : orient.tolerance;
+}
+
+/* Does the planner follow the orientation shape? tpnextmod says so on a
+ * pin; asked once, and smoothing is off for any other planner. */
+static bool orientPlanner(void)
+{
+    static int takes = -1;
+    if (takes < 0) {
+        char name[HAL_NAME_LEN + 1];
+        takes = 0;
+        snprintf(name, sizeof(name), "canon-orient.%d", (int)getpid());
+        int id = hal_init(name);
+        if (id >= 0) {
+            hal_query_t q;
+            memset(&q, 0, sizeof(q));
+            q.name = "tpnextmod.orient-shape";
+            q.qtype = HAL_QTYPE_PIN;
+            q.pp.type = HAL_BOOL;
+            takes = hal_get_p(&q, NULL, NULL) == 0 && q.pp.value.b;
+            hal_exit(id);
+        }
+        if (!takes) {
+            log_error("[TRAJ]ORIENT_SMOOTH: the trajectory planner does not follow the"
+                    " orientation shape (tpnextmod does), smoothing off\n");
+        }
+    }
+    return takes;
+}
+
+/* send the first count moves of the run, their rotary axes refit where
+ * that is faster; the rest stay held */
+static void orient_send_moves(size_t count)
+{
+    size_t n = orient_run.size();
+    std::vector<OrientMove> moves(n);
+    for (size_t i = 0; i < n; i++) {
+        moves[i].length = orient_run[i].length;
+        for (int k = 0; k < ORIENT_NAX; k++) {
+            moves[i].rot[k] = *orientAxis(*orient_run[i].end, k);
+        }
+    }
+    double srot[ORIENT_NAX];
+    OrientAxes axes;
+    axes.angular = 0;
+    for (int k = 0; k < ORIENT_NAX; k++) {
+        srot[k] = *orientAxis(orient_start, k);
+        axes.angular |= AXIS_ANG(3 + k) ? 1u << k : 0u;
+        axes.jerk[k] = emcAxisGetMaxJerk(3 + k);
+        axes.min[k] = emcAxisGetMinPositionLimit(3 + k);
+        axes.max[k] = emcAxisGetMaxPositionLimit(3 + k);
+    }
+    OrientCarry next;
+    orientSmoothSend(srot, axes, moves, count, orient.share * orientTolerance(), orient.spacing,
+            orient_carry, next);
+    orient_carry = next;
+    if (count < n) {
+        orient_start = *orient_run[count - 1].end;
+    }
+    for (size_t i = 0; i < count; i++) {
+        orient_move &m = orient_run[i];
+        OrientMove const &o = moves[i];
+        if (o.mask) {
+            *m.mask = o.mask;
+            for (int k = 0; k < ORIENT_NAX; k++) {
+                if (o.mask & (1u << k)) {
+                    *orientAxis(*m.end, k) = o.out[k];
+                }
+            }
+            for (int q = 0; q < 4 * ORIENT_NAX; q++) {
+                m.shape[q] = o.shape[q];
+            }
+        }
+        interp_list.set_line_number(m.line_no);
+        tag_and_send(std::move(m.msg), m.tag);
+    }
+    orient_run.erase(orient_run.begin(), orient_run.begin() + count);
+}
+
+/* send the whole run */
+static void orient_flush(void)
+{
+    if (!orient_run.empty()) {
+        orient_send_moves(orient_run.size());
+    }
+    orient_carry.mask = 0;
+}
+
+/* a move the run may take: a short continuous feed move */
+static bool orient_takes(int type, double length)
+{
+    if (!orient.on || canon.motionMode != CANON_CONTINUOUS || orientTolerance() <= 0.0
+            || (type != EMC_MOTION_TYPE_FEED && type != EMC_MOTION_TYPE_ARC)
+            || canon.spindle[canon.spindle_num].synched
+            || !(length > 1e-9 && length <= orient.max_length)) {
+        return false;
+    }
+    return orientPlanner();
+}
+
+/* where the next move starts, as programmed, external units */
+static EmcPose orientFrom(void)
+{
+    EmcPose from;
+    from.tran.x = TO_EXT_LEN(canon.endPoint.x);
+    from.tran.y = TO_EXT_LEN(canon.endPoint.y);
+    from.tran.z = TO_EXT_LEN(canon.endPoint.z);
+    from.a = TO_EXT_AX(AXIS_A, canon.endPoint.a);
+    from.b = TO_EXT_AX(AXIS_B, canon.endPoint.b);
+    from.c = TO_EXT_AX(AXIS_C, canon.endPoint.c);
+    from.u = TO_EXT_AX(AXIS_U, canon.endPoint.u);
+    from.v = TO_EXT_AX(AXIS_V, canon.endPoint.v);
+    from.w = TO_EXT_AX(AXIS_W, canon.endPoint.w);
+    return from;
+}
+
+/* send a move, or hold it back in the run */
+static void orient_send(orient_move &&m, int type, EmcPose const &from)
+{
+    if (!orient_takes(type, m.length)) {
+        orient_flush();
+        interp_list.set_line_number(m.line_no);
+        tag_and_send(std::move(m.msg), m.tag);
+        return;
+    }
+    if (orient_run.empty()) {
+        orient_start = from;
+    }
+    orient_run.push_back(std::move(m));
+    if ((int)orient_run.size() >= orient.max_lines) {
+        orient_send_moves(orient_run.size() - orient.max_lines / 4);
+    }
+}
+
+static void orient_send_line(std::unique_ptr<EMC_TRAJ_LINEAR_MOVE> &&msg, int line_no,
+        StateTag const &tag)
+{
+    EmcPose from = orientFrom();
+    EMC_TRAJ_LINEAR_MOVE *l = msg.get();
+    orient_send({std::move(msg), &l->end, &l->orient_mask, l->orient_shape,
+            orientXyzLength(from, l->end), line_no, tag}, l->type, from);
+}
+
+static void orient_send_arc(std::unique_ptr<EMC_TRAJ_CIRCULAR_MOVE> &&msg, int line_no,
+        StateTag const &tag)
+{
+    EmcPose from = orientFrom();
+    EMC_TRAJ_CIRCULAR_MOVE *c = msg.get();
+    orient_send({std::move(msg), &c->end, &c->orient_mask, c->orient_shape,
+            orientArcLength(from, *c), line_no, tag}, c->type, from);
+}
+
+/* the points chained so far as one line */
+static void flush_chain(void) {
     if(chained_points.empty()) return;
 
     struct pt &pos = chained_points.back();
@@ -1545,12 +1767,17 @@ static void flush_segments(void) {
     linearMoveMsg->type = EMC_MOTION_TYPE_FEED;
     linearMoveMsg->indexer_jnum = -1;
     if ((vel && acc) || canon.spindle[canon.spindle_num].synched) {
-        interp_list.set_line_number(line_no);
-        tag_and_send(std::move(linearMoveMsg), pos.tag);
+        orient_send_line(std::move(linearMoveMsg), line_no, pos.tag);
     }
     canonUpdateEndPoint(x, y, z, a, b, c, u, v, w);
 
     drop_segments();
+}
+
+/* everything held back: the chained points, then the run */
+static void flush_segments(void) {
+    flush_chain();
+    orient_flush();
 }
 
 static void get_last_pos(double &lx, double &ly, double &lz) {
@@ -1617,12 +1844,12 @@ see_segment(int line_number,
         || (w != canon.endPoint.w);
 
     if(!chained_points.empty() && !linkable(x, y, z, a, b, c, u, v, w)) {
-        flush_segments();
+        flush_chain();
     }
     pt pos = {x, y, z, a, b, c, u, v, w, line_number, tag};
     chained_points.push_back(pos);
     if(changed_abc || changed_uvw) {
-        flush_segments();
+        flush_chain();
     }
 }
 
@@ -1633,6 +1860,8 @@ void FINISH() {
 void ON_RESET() {
     drop_segments();
     refusal.pending = false;
+    orient_run.clear();
+    orient_carry.mask = 0;
 }
 
 void SELECT_KINS_TYPE(int switchkins_type)
@@ -1999,7 +2228,8 @@ void STRAIGHT_PROBE(int line_number,
 /* Machining Attributes */
 
 void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
-                             int planner_type, double scurve_peak_scale)
+                             int planner_type, double scurve_peak_scale,
+                             double angular_tolerance)
 {
     auto setTermCondMsg = std::make_unique<EMC_TRAJ_SET_TERM_COND>();
 
@@ -2007,6 +2237,9 @@ void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
 
     canon.motionMode = mode;
     canon.motionTolerance =  FROM_PROG_LEN(tolerance);
+    if (angular_tolerance >= 0.0) {
+        canon.motionAngularTolerance = FROM_PROG_ANG(angular_tolerance);
+    }
 
     /* G64_R_PLANNER: carry the optional planner mode (from a G64 R word) on the
      * same queued message so it is applied at this exact point in program order.
@@ -2018,6 +2251,7 @@ void SET_MOTION_CONTROL_MODE(CANON_MOTION_MODE mode, double tolerance,
     case CANON_CONTINUOUS:
         setTermCondMsg->cond = EMC_TRAJ_TERM_COND_BLEND;
         setTermCondMsg->tolerance = TO_EXT_LEN(canon.motionTolerance);
+        setTermCondMsg->angular_tolerance = TO_EXT_ANG(canon.motionAngularTolerance);
         break;
     case CANON_EXACT_PATH:
         setTermCondMsg->cond = EMC_TRAJ_TERM_COND_EXACT;
@@ -3181,7 +3415,7 @@ void ARC_FEED(int line_number,
 
     linearMoveMsg->feed_mode = canon.feed_mode;
     circularMoveMsg->feed_mode = canon.feed_mode;
-    flush_segments();
+    flush_chain();
 
     // Start by defining 3D points for the motion end and center.
     PM_CARTESIAN end_cart(first_end, second_end, axis_end_point);
@@ -3485,8 +3719,7 @@ void ARC_FEED(int line_number,
         linearMoveMsg->acc = toExtAcc(a_max);
         linearMoveMsg->indexer_jnum = -1;
         if(vel && a_max){
-            interp_list.set_line_number(line_number);
-            tag_and_send(std::move(linearMoveMsg), _tag);
+            orient_send_line(std::move(linearMoveMsg), line_number, _tag);
         }
     } else {
         circularMoveMsg->end = to_ext_pose(endpt);
@@ -3512,8 +3745,7 @@ void ARC_FEED(int line_number,
         // The end point is still updated, but nothing is added to the interp list
         // seems to be a crude way to indicate a zero length segment?
         if(vel && a_max) {
-            interp_list.set_line_number(line_number);
-            tag_and_send(std::move(circularMoveMsg), _tag);
+            orient_send_arc(std::move(circularMoveMsg), line_number, _tag);
         }
     }
     // update the end point
@@ -3804,6 +4036,7 @@ void SELECT_TOOL(int tool)
 {
     auto prep_for_tool_msg = std::make_unique<EMC_TOOL_PREPARE>();
 
+    flush_segments();
     prep_for_tool_msg->tool = tool;
 
     interp_list.append(std::move(prep_for_tool_msg));
@@ -3814,6 +4047,7 @@ void CHANGE_TOOL_NUMBER(int toolno)
 {
     auto emc_tool_set_number_msg = std::make_unique<EMC_TOOL_SET_NUMBER>();
 
+    flush_segments();
     emc_tool_set_number_msg->tool = toolno;
 
     interp_list.append(std::move(emc_tool_set_number_msg));
@@ -3822,6 +4056,7 @@ void CHANGE_TOOL_NUMBER(int toolno)
 void RELOAD_TOOLDATA(void)
 {
     auto load_tool_table_msg = std::make_unique<EMC_TOOL_LOAD_TOOL_TABLE>();
+    flush_segments();
     interp_list.append(std::move(load_tool_table_msg));
 }
 
@@ -4193,6 +4428,21 @@ void INIT_CANON()
         linuxcnc::IniFile ini(emc_inifile);
         if (axisKindsRead(ini, &kinds, &err)) {
             log_error("{}\n", err);
+        }
+        orient.on = ini.findBoolV("ORIENT_SMOOTH", "TRAJ", false);
+        /* lengths in the machine's units, 5 mm and 4 mm by default */
+        orient.max_length = ini.findRealV("ORIENT_SMOOTH_MAX_LENGTH", "TRAJ", TO_EXT_LEN(5.0));
+        orient.share = ini.findRealV("ORIENT_SMOOTH_SHARE", "TRAJ", 0.8);
+        orient.tolerance = ini.findRealV("ORIENT_SMOOTH_TOLERANCE", "TRAJ",
+                TO_EXT_ANG(ORIENT_TOLERANCE_DEFAULT_DEG));
+        orient.spacing = ini.findRealV("ORIENT_SMOOTH_SPACING", "TRAJ", TO_EXT_LEN(4.0));
+        orient.max_lines = ini.findIntV("ORIENT_SMOOTH_MAX_LINES", "TRAJ", 200);
+        if (orient.on && !(orient.max_length > 0.0 && orient.share > 0.0 && orient.share <= 1.0
+                    && orient.tolerance >= 0.0 && orient.spacing > 0.0 && orient.max_lines >= 3
+                    && orient.max_lines <= 10000)) {
+            log_error("[TRAJ]ORIENT_SMOOTH: expected MAX_LENGTH > 0, 0 < SHARE <= 1, TOLERANCE >= 0,"
+                    " SPACING > 0 and 3 <= MAX_LINES <= 10000, smoothing off\n");
+            orient.on = false;
         }
     }
 
@@ -4824,6 +5074,7 @@ int UNLOCK_ROTARY(int line_number, int joint_num)
 {
     auto m = std::make_unique<EMC_TRAJ_LINEAR_MOVE>();
 
+    flush_segments();
     // first, set up a zero length move to interrupt blending and get to final position
     m->type = EMC_MOTION_TYPE_TRAVERSE;
     m->feed_mode = 0;

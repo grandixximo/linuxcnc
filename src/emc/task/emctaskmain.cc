@@ -1999,7 +1999,9 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
                                    emcTrajLinearMoveMsg->type, emcTrajLinearMoveMsg->vel,
                                    emcTrajLinearMoveMsg->ini_maxvel, emcTrajLinearMoveMsg->acc, emcTrajLinearMoveMsg->ini_maxjerk,
                                    emcTrajLinearMoveMsg->vlimit_scale,
-                                   emcTrajLinearMoveMsg->indexer_jnum);
+                                   emcTrajLinearMoveMsg->indexer_jnum,
+                                   emcTrajLinearMoveMsg->orient_mask,
+                                   emcTrajLinearMoveMsg->orient_shape);
 	break;
 
     case EMC_TRAJ_JOINT_MOVE_TYPE: {
@@ -2020,7 +2022,9 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
                 emcTrajCircularMoveMsg->vel,
                 emcTrajCircularMoveMsg->ini_maxvel,
                 emcTrajCircularMoveMsg->acc, emcTrajCircularMoveMsg->ini_maxjerk,
-                emcTrajCircularMoveMsg->vlimit_scale);
+                emcTrajCircularMoveMsg->vlimit_scale,
+                emcTrajCircularMoveMsg->orient_mask,
+                emcTrajCircularMoveMsg->orient_shape);
 	break;
 
     case EMC_TRAJ_DELAY_TYPE:
@@ -2032,7 +2036,8 @@ static int emcTaskIssueCommand(NMLmsg * cmd)
 
     case EMC_TRAJ_SET_TERM_COND_TYPE:
 	emcTrajSetTermCondMsg = reinterpret_cast<EMC_TRAJ_SET_TERM_COND *>(cmd);
-	retval = emcTrajSetTermCond(emcTrajSetTermCondMsg->cond, emcTrajSetTermCondMsg->tolerance);
+	retval = emcTrajSetTermCond(emcTrajSetTermCondMsg->cond, emcTrajSetTermCondMsg->tolerance,
+	                            emcTrajSetTermCondMsg->angular_tolerance);
 	/* G64_R_PLANNER: a G64 R word piggybacks the planner request here so it
 	 * is applied in program order. Sentinels (<0) mean "leave unchanged".
 	 * The message carries INTENT only: 0 = trapezoidal, >=1 = "the smooth

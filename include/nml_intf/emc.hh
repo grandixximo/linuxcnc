@@ -286,11 +286,14 @@ extern int emcOperatorDisplay(const char *fmt, ...) __attribute__((format(printf
 
 extern int emcAxisSetMinPositionLimit(int axis, double limit);
 extern int emcAxisSetMaxPositionLimit(int axis, double limit);
+extern double emcAxisGetMinPositionLimit(int axis);
+extern double emcAxisGetMaxPositionLimit(int axis);
 extern int emcAxisSetMaxVelocity(int axis, double vel, double ext_offset_vel);
 extern int emcAxisSetMaxAcceleration(int axis, double acc, double ext_offset_acc);
 extern double emcAxisGetMaxVelocity(int axis);
 extern double emcAxisGetMaxAcceleration(int axis);
 extern int emcAxisSetLockingJoint(int axis,int joint);
+extern int emcAxisSetAngular(int axis, int angular);
 
 extern int emcAxisUpdate(EMC_AXIS_STAT stat[], int numAxes);
 
@@ -379,14 +382,15 @@ extern int emcTrajResume();
 extern int emcTrajDelay(double delay);
 extern int emcTrajLinearMove(const EmcPose& end, int type, double vel,
                              double ini_maxvel, double acc, double ini_maxjerk,
-                             double vlimit_scale, int indexer_jnum);
+                             double vlimit_scale, int indexer_jnum,
+                             int orient_mask = 0, const double *orient_shape = nullptr);
 extern int emcTrajJointMove(const EmcPose& end, const double *joints, int have_joints, double seconds,
                             int path_type, const EmcPose& path_start, const EmcPose& path_end,
                             double path_length, double vel, double acc);
 extern int emcTrajCircularMove(const EmcPose& end, const PM_CARTESIAN& center, const PM_CARTESIAN&
         normal, int turn, int type, double vel, double ini_maxvel, double acc, double ini_maxjerk,
-        double vlimit_scale);
-extern int emcTrajSetTermCond(int cond, double tolerance);
+        double vlimit_scale, int orient_mask = 0, const double *orient_shape = nullptr);
+extern int emcTrajSetTermCond(int cond, double tolerance, double angular_tolerance);
 extern int emcTrajSetSpindleSync(int spindle, double feed_per_revolution, bool wait_for_index, double angular_offset_degrees = 0.0);
 extern int emcTrajSetOffset(const EmcPose& tool_offset, const EmcPose *point);
 extern int emcTrajSetWorkPlane(const double rotation[9], int active);
@@ -472,6 +476,7 @@ int emcSetupArcBlends(int arcBlendEnable,
         int arcBlendGapCycles,
         double arcBlendRampFreq,
         double arcBlendTangentKinkRatio);
+int emcSetupTpOptions(int singularStop, double singularFloor, double speedHumpTime);
 int emcSetProbeErrorInhibit(int j_inhibit, int h_inhibit);
 int emcGetExternalOffsetApplied(void);
 EmcPose emcGetExternalOffsets(void);
